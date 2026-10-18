@@ -20,7 +20,12 @@ Profiles (Elo, wins, losses), the general chat and the count of players online a
 releases mostly do not: menus, text, video). Then both games move to the new `v` together, and the old one can stay
 in `ALLOWED_VERSIONS` until its players have updated.
 
-## Updating the DBT-NX Worker to this one (Cloudflare dashboard)
+## The official server
+
+`https://mitigo-rooms.minetivacraft.workers.dev` (the Tenkaichi3DecompAndroidOnline fork's Worker): Dragon Rage and DBT-NX both point there. It needs this
+code (below) for Ranked, the chat and the players online, and `ALLOWED_VERSIONS` with `5001`.
+
+## Updating a Worker to this one (Cloudflare dashboard)
 
 1. D1 console of the Worker's database: run `ranked-migrate-version.sql` once (adds `ranked_matches.version`; keeps
    every profile, rating and result; earlier searches count as 40001).
@@ -38,7 +43,8 @@ A new database: `schema.sql`, `ranked-schema.sql`, `chat-schema.sql`, `presence-
 
 ---
 
-**Resumen (ES):** servicio de DBT-NX con un cambio: acepta varias versiones de netcode (`ALLOWED_VERSIONS`, p. ej.
+**Resumen (ES):** servidor oficial: `https://mitigo-rooms.minetivacraft.workers.dev` (el Worker del fork Tenkaichi3DecompAndroidOnline); Dragon
+Rage y DBT-NX apuntan ahí. Es el servicio de DBT-NX con un cambio: acepta varias versiones de netcode (`ALLOWED_VERSIONS`, p. ej.
 `40001,5001`) y nunca empareja versiones distintas (salas, partida rápida y Clasificatoria). Perfiles, Elo, chat y
 contador se comparten. Para actualizar: ejecutar `ranked-migrate-version.sql` en D1, subir los cinco `.js` y poner
 `ALLOWED_VERSIONS`. La versión `5001` = netcode 5 del PC 0.1.37 + simulación 1; solo cambia cuando cambia algo que

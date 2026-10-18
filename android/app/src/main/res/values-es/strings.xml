@@ -375,14 +375,10 @@
     <string name="lastrun_textures_title">El pack de texturas no se usó</string>
     <string name="lastrun_textures">El juego jugó una pelea sin usar ninguna textura de tu pack. Normalmente el pack es de otra versión del juego (japonesa o europea) o no es un pack de PCSX2. Comprueba que sea de la versión estadounidense (SLUS-21678); si lo es, envíanos el log.</string>
     <string name="online_server_title">Online</string>
-    <string name="online_server_official">Oficial (PC + Android)</string>
-    <string name="online_server_community">Comunidad</string>
-    <string name="online_server_text">Oficial: el servicio del port de PC, donde se encuentran jugadores de PC y Android; solo acepta la versión más reciente. Comunidad: un servicio mantenido por jugadores (del fork Tenkaichi3DecompAndroidOnline), no por nosotros; allí solo encuentras a quienes también lo eligieron, sin los jugadores de PC del oficial. La partida rápida y los códigos de sala usan el servidor; la conexión directa (dirección y puerto) no usa servidor.</string>
     <string name="online_mode_title">Jugar contra</string>
     <string name="online_mode_dragon">Android + Switch (Dragon Net)</string>
     <string name="online_mode_pc">PC</string>
     <string name="online_mode_text">Dragon Net: Dragon Rage y el port de Nintendo Switch (DBT-NX) en un servicio propio, con Clasificatoria (Elo), chat general y jugadores en línea; no depende de las versiones del port de PC. PC: salas y partida rápida en el servicio del port de PC, que solo acepta su versión más nueva. También se cambia en la pantalla Dragon Net Battle del juego (Y en el mando).</string>
-    <string name="online_server_pc">Servidor de partidas del PC</string>
     <string name="online_dragon_ok_title">Dragon Net está funcionando</string>
     <string name="online_dragon_ok">Android y Switch juegan juntos: salas con código, partida rápida, Clasificatoria y chat general, desde Dragon Net Battle en el menú principal del juego.</string>
     <string name="online_dragon_version_title">Dragon Net se está actualizando</string>

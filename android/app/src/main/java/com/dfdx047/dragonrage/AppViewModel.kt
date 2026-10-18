@@ -226,6 +226,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** The matchmaking service the game uses (official unless the player chose another, Settings). */
     val matchServer: StateFlow<String> = _matchServer.asStateFlow()
 
+    init {
+        // (the Community server of the 0.7.3 test builds is Dragon Net's own now: against PC, the PC port's service)
+        runCatching {
+            val f = File(paths.root, "match_url.txt")
+            if (f.exists() && f.readText().contains("mitigo-rooms")) {
+                f.delete()
+                ActivityLog.info("online", "match_url.txt (mitigo-rooms) removed: that server is Dragon Net's now")
+            }
+        }
+    }
+
     fun setMatchServer(url: String) {
         ActivityLog.info("online", "PC server: $url")
         OnlineStatus.choose(paths, url)

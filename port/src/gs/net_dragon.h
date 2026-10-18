@@ -11,9 +11,10 @@ extern "C" {
    port). Games meet only with the same netcode version AND the same simulation: the service is told
    NET_VERSION * 1000 + DRNET_SIM (5001 with the PC port's netcode 5). DBT-NX uses the same number. */
 #define DRNET_SIM 1
-/* The service: DBT-NX's Worker, updated to port/dragonnet (it takes several versions and keeps them apart). Another
-   one: dragonnet_url.txt in the game folder, one line "https://...". */
-#define DRNET_URL_DEFAULT "https://dbt-nx-matchmaking.alexyt2021es.workers.dev"
+/* The service, the official one for Android and Switch (the Tenkaichi3DecompAndroidOnline fork's Worker, running
+   port/dragonnet: it takes several versions and keeps them apart). Another one: dragonnet_url.txt in the game folder,
+   one line "https://...". */
+#define DRNET_URL_DEFAULT "https://mitigo-rooms.minetivacraft.workers.dev"
 
 int DrNet_Mode(void);          /* 0 Dragon Net (Android + Switch), 1 against PC (the PC port's service); setting "net_mode" */
 void DrNet_SetMode(int mode);

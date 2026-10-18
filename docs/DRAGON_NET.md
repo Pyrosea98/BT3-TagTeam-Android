@@ -2,8 +2,9 @@
 
 *(Español abajo.)*
 
-Dragon Net is the online play between **Dragon Rage** (Android) and **DBT-NX** (Nintendo Switch) on a service of
-their own: DBT-NX's Cloudflare Worker, updated to `port/dragonnet`. It does not depend on the PC port's releases.
+Dragon Net is the online play between **Dragon Rage** (Android) and **DBT-NX** (Nintendo Switch) on their official
+service, **https://mitigo-rooms.minetivacraft.workers.dev** (the Tenkaichi3DecompAndroidOnline fork's Cloudflare Worker), running `port/dragonnet`.
+Both games point there by default (another one: `dragonnet_url.txt`, one line `https://...`). It does not depend on the PC port's releases.
 Online against PC stays as a second option (the PC port's service, which only lets in its newest release).
 
 ## What both games must agree on
@@ -62,8 +63,9 @@ against PC keeps working.
 
 # Dragon Net: online Android + Switch (ES)
 
-Dragon Net es el online entre **Dragon Rage** (Android) y **DBT-NX** (Nintendo Switch) en un servicio propio: el
-Worker de Cloudflare de DBT-NX, actualizado a `port/dragonnet`. No depende de las versiones del port de PC. El online
+Dragon Net es el online entre **Dragon Rage** (Android) y **DBT-NX** (Nintendo Switch) en su servidor
+oficial, **https://mitigo-rooms.minetivacraft.workers.dev** (el Worker de Cloudflare del fork Tenkaichi3DecompAndroidOnline), ejecutando
+`port/dragonnet`. Los dos juegos apuntan ahí por defecto (otro: `dragonnet_url.txt`, una línea `https://...`). No depende de las versiones del port de PC. El online
 contra PC queda como segunda opción (el servicio del port de PC, que solo acepta su versión más nueva).
 
 ## Lo que los dos juegos deben tener igual

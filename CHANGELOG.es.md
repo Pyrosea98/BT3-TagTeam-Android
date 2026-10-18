@@ -7,8 +7,9 @@ algunos Snapdragon, logs guardados solos) y un log para todo lo que hace la app.
 
 ## Dragon Net: Android + Switch
 - **Dos tipos de online**, elegidos en **Jugar contra**:
-  - **Android + Switch (Dragon Net)**, por defecto: Dragon Rage y DBT-NX en un servicio propio. No depende de las
-    versiones del port de PC, así que una versión nueva del PC ya no apaga el online.
+  - **Android + Switch (Dragon Net)**, por defecto: Dragon Rage y DBT-NX en su servidor oficial (el del fork
+    Tenkaichi3DecompAndroidOnline), para Android × Android y Android × Switch. No depende de las versiones del port de
+    PC, así que una versión nueva del PC ya no apaga el online.
   - **PC**: salas y partida rápida contra el port de PC, en su servicio (que pide la versión más nueva del port de PC).
 - Elígelo en el juego (Dragon Net Battle → Jugar contra, o **Y** en el mando) o en la app (Ajustes → **Online**). Los
   dos jugadores deben elegir el mismo.
@@ -41,8 +42,7 @@ algunos Snapdragon, logs guardados solos) y un log para todo lo que hace la app.
 - Un chat para todos en Dragon Net, Android y Switch, en la pantalla online.
 
 ## La app (launcher)
-- Ajustes → **Online**: Jugar contra (Android + Switch / PC) y, para PC, el servidor de partidas (Oficial o
-  Comunidad).
+- Ajustes → **Online**: Jugar contra (Android + Switch / PC).
 - La **tarjeta de online** de Inicio sigue el modo elegido: Dragon Net funcionando, Dragon Net actualizándose (el
   servicio aún no acepta esta versión), PC que necesita actualización, sin respuesta.
 - **Cómo funciona el online** ahora es una guía completa, en los tres idiomas: los dos tipos de online, cómo jugar, la
@@ -77,14 +77,14 @@ algunos Snapdragon, logs guardados solos) y un log para todo lo que hace la app.
 - Changelogs: un archivo por idioma, mostrado por la ventana de actualización de la app.
 
 ## Para desarrolladores
-- `port/dragonnet`: el servicio de Dragon Net (el Worker de DBT-NX, aceptando varias versiones a la vez) con sus
-  pruebas.
+- `port/dragonnet`: el código del servicio de Dragon Net (salas, partida rápida, Clasificatoria, chat, jugadores en
+  línea; acepta varias versiones a la vez y las separa) con sus pruebas, para el servidor oficial.
 - `docs/DRAGON_NET.md` (inglés y español): lo que Android y Switch deben tener igual (versión 5001), el flujo de la
   Clasificatoria, el digest del resultado, el chat y la presencia, y cómo actualizar el servicio.
 
 ## Notas de actualización
 - Se instala encima de la 0.7.x y la 0.6.0 y conserva todo.
-- Dragon Net necesita el servicio actualizado por su responsable (hecho junto con este lanzamiento). Si la tarjeta de
+- Dragon Net necesita el servidor ejecutando el `port/dragonnet` de esta versión (hecho junto con este lanzamiento). Si la tarjeta de
   online dice *"Dragon Net se está actualizando"*, elige **Jugar contra: PC** mientras tanto.
 - Si la actualización dice *"App no instalada: el paquete entra en conflicto con un paquete existente"*, la app del
   teléfono es otra build del código (otra firma): guarda la carpeta `saves/` de

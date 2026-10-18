@@ -375,14 +375,10 @@
     <string name="lastrun_textures_title">O pacote de textura não foi usado</string>
     <string name="lastrun_textures">O jogo rodou uma luta sem usar nenhuma textura do seu pacote. Normalmente o pacote é de outra versão do jogo (japonesa ou europeia) ou não é um pacote do PCSX2. Confira se ele é da versão americana (SLUS-21678); se for, mande o log para a gente.</string>
     <string name="online_server_title">Online</string>
-    <string name="online_server_official">Oficial (PC + Android)</string>
-    <string name="online_server_community">Comunidade</string>
-    <string name="online_server_text">Oficial: o serviço do port de PC, onde jogadores de PC e Android se encontram; aceita só a versão mais recente. Comunidade: um serviço mantido por jogadores (do fork Tenkaichi3DecompAndroidOnline), não por nós; lá você só encontra quem também escolheu ele, sem os jogadores de PC do oficial. A partida rápida e o código de sala usam o servidor; a conexão direta (endereço e porta) não usa servidor.</string>
     <string name="online_mode_title">Jogar contra</string>
     <string name="online_mode_dragon">Android + Switch (Dragon Net)</string>
     <string name="online_mode_pc">PC</string>
     <string name="online_mode_text">Dragon Net: o Dragon Rage e o port de Nintendo Switch (DBT-NX) num serviço só deles, com Classificatória (Elo), chat geral e jogadores online; não depende das versões do port de PC. PC: salas e partida rápida no serviço do port de PC, que só aceita a versão mais nova dele. Também dá para trocar na tela Dragon Net Battle do jogo (Y no controle).</string>
-    <string name="online_server_pc">Servidor de partidas do PC</string>
     <string name="online_dragon_ok_title">Dragon Net está funcionando</string>
     <string name="online_dragon_ok">Android e Switch jogam juntos: salas com código, partida rápida, Classificatória e chat geral, pelo Dragon Net Battle no menu principal do jogo.</string>
     <string name="online_dragon_version_title">Dragon Net está sendo atualizado</string>

@@ -160,24 +160,6 @@ fun SettingsScreen(vm: AppViewModel) {
                 onSelect = { vm.setNetMode(it) },
             )
             Text(stringResource(R.string.online_mode_text), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (netMode == 1) {
-            Text(stringResource(R.string.online_server_pc), style = MaterialTheme.typography.titleSmall)
-            val server by vm.matchServer.collectAsStateWithLifecycle()
-            val kind = when (server) {
-                com.dfdx047.dragonrage.data.OnlineStatus.DEFAULT_URL -> 0
-                com.dfdx047.dragonrage.data.OnlineStatus.COMMUNITY_URL -> 1
-                else -> 2
-            }
-            ChipRow(
-                options = listOf(stringResource(R.string.online_server_official) to 0, stringResource(R.string.online_server_community) to 1),
-                selected = kind,
-                onSelect = {
-                    vm.setMatchServer(if (it == 1) com.dfdx047.dragonrage.data.OnlineStatus.COMMUNITY_URL else com.dfdx047.dragonrage.data.OnlineStatus.DEFAULT_URL)
-                },
-            )
-            if (kind == 2) Text(server, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(stringResource(R.string.online_server_text), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
         }
 
         SectionCard(stringResource(R.string.performance), Icons.Rounded.Speed, accent = MaterialTheme.colorScheme.secondary) {

@@ -26,16 +26,14 @@ sealed interface OnlineState {
 object OnlineStatus {
     private const val NET_VERSION = 5 // the online protocol's version (port/src/gs/net.c NET_VERSION)
     private const val DRNET_SIM = 1   // Dragon Net's simulation version (port/src/gs/net_dragon.h): v = NET_VERSION * 1000 + DRNET_SIM
-    /** Dragon Net (Android + Switch): DBT-NX's service, updated to port/dragonnet; another one in dragonnet_url.txt. */
-    const val DRAGON_URL = "https://dbt-nx-matchmaking.alexyt2021es.workers.dev"
+    /** Dragon Net (Android + Switch): the official service of both (the Tenkaichi3DecompAndroidOnline fork's Worker,
+     *  running port/dragonnet); another one in dragonnet_url.txt. */
+    const val DRAGON_URL = "https://mitigo-rooms.minetivacraft.workers.dev"
     const val MODE = "net_mode" // the engine's setting: 0 Dragon Net (Android + Switch), 1 against PC
 
     fun dragonUrl(paths: GamePaths): String = runCatching { File(paths.root, "dragonnet_url.txt").readText().trim() }.getOrNull()
         ?.takeIf { it.startsWith("https://") }?.trimEnd('/') ?: DRAGON_URL
     const val DEFAULT_URL = "https://odd-surf-0af7.bt3decomp.workers.dev"
-    /** A matchmaking service run by players (fork Androidxxt01/Tenkaichi3DecompAndroidOnline): chosen in Settings,
-     *  never by default; only the players who chose it meet there (no PC players of the official one). */
-    const val COMMUNITY_URL = "https://mitigo-rooms.minetivacraft.workers.dev"
 
     /** The service in use: match_url.txt in the game folder (the engine reads it too, net_match.c), else the official. */
     fun current(paths: GamePaths): String = runCatching { File(paths.root, "match_url.txt").readText().trim() }.getOrNull()

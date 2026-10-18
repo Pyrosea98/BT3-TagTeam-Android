@@ -376,14 +376,10 @@
     <string name="lastrun_textures_title">The texture pack was not used</string>
     <string name="lastrun_textures">The game played a fight without using any texture from your pack. Usually the pack is for another release of the game (Japanese or European) or is not a PCSX2 pack. Check that it is for the USA release (SLUS-21678); if it is, send us the log.</string>
     <string name="online_server_title">Online</string>
-    <string name="online_server_official">Official (PC + Android)</string>
-    <string name="online_server_community">Community</string>
-    <string name="online_server_text">Official: the PC port\'s service, where PC and Android players meet; it accepts only the latest release. Community: a service run by players (from the Tenkaichi3DecompAndroidOnline fork), not by us; there you meet only the players who chose it, no PC players of the official one. Quick match and room codes use it; a direct connection (address and port) uses no server.</string>
     <string name="online_mode_title">Play against</string>
     <string name="online_mode_dragon">Android + Switch (Dragon Net)</string>
     <string name="online_mode_pc">PC</string>
     <string name="online_mode_text">Dragon Net: Dragon Rage and the Nintendo Switch port (DBT-NX) on a service of their own, with Ranked (Elo), the general chat and the players online; it does not depend on the PC port\'s releases. PC: rooms and quick match on the PC port\'s service, which only lets in its newest release. You can also switch it in the game\'s Dragon Net Battle screen (Y on a controller).</string>
-    <string name="online_server_pc">PC matchmaking server</string>
     <string name="online_dragon_ok_title">Dragon Net is working</string>
     <string name="online_dragon_ok">Android and Switch play together: rooms with a code, quick match, Ranked and the general chat, from Dragon Net Battle in the game\'s main menu.</string>
     <string name="online_dragon_version_title">Dragon Net is being updated</string>
