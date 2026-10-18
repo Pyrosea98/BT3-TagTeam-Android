@@ -23,7 +23,7 @@
 ---
 
 > [!IMPORTANT]
-> **Estado (0.7.3): el juego completo corre de forma nativa en Android arm64**: menús, modo historia y peleas completas a
+> **Estado (0.8.0): el juego completo corre de forma nativa en Android arm64**: menús, modo historia y peleas completas a
 > los 30 fps del juego, en Snapdragon y en GPUs Mali, Xclipse y PowerVR. El launcher ahora **detecta tu GPU** y te ofrece
 > ajustes pensados para mantener las peleas a 30 fps estables; ya están incluidos el juego online (PC y Android en las
 > mismas salas), los packs de texturas HD, un nuevo menú dentro del juego hecho para pantallas táctiles, el nuevo control
@@ -139,9 +139,11 @@ opcional `match_url.txt` (una línea, `https://...`) indica otro servicio de mat
       motor de la 0.6.0
 - [x] **0.7.3**: la 0.1.37 del port de PC (online aceptado de nuevo, mensajes al empezar la partida, blending de la
       Solar Flare, catálogos de texto)
+- [x] **0.8.0**: **Dragon Net**: online con el port de Nintendo Switch (DBT-NX) en un servicio propio (salas, partida
+      rápida, Clasificatoria con Elo, chat general, jugadores en línea), sin depender de las versiones del port de PC;
+      nueva pantalla Dragon Net Battle; online contra PC como opción (`port/dragonnet`, `docs/DRAGON_NET.md`)
 
 ### Lo que viene
-- [ ] Nuestro propio servicio de matchmaking (el del port para PC tiene límites diarios y códigos para versiones firmadas)
 - [ ] Más GPUs medidas para los niveles (¡envía tu log!)
 - [ ] Imagen: filtrado anisotrópico, SMAA, más posprocesado
 - [ ] Pausar el juego mientras la app está en segundo plano

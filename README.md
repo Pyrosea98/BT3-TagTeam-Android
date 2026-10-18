@@ -23,7 +23,7 @@
 ---
 
 > [!IMPORTANT]
-> **Status (0.7.3): the whole game runs natively on Android arm64**: menus, story mode and full battles at the game's
+> **Status (0.8.0): the whole game runs natively on Android arm64**: menus, story mode and full battles at the game's
 > 30 fps on Snapdragon and on Mali, Xclipse and PowerVR GPUs. The launcher now **detects your GPU** and offers settings
 > made to keep fights at a steady 30 fps; online play (PC and Android in the same rooms), HD texture packs, a new
 > in-game menu made for touch, the new **Dragon** on-screen controller and **driver downloads** for Adreno are in.
@@ -133,9 +133,11 @@ were offered), `perf_log`, `frag_depth`. The on-screen controller is in `touch_c
       when OpenGL ES is chosen on a Mali
 - [x] **0.7.2**: ASTC texture packs off by default (experimental): fights run 0.6.0's engine code again
 - [x] **0.7.3**: the PC port's 0.1.37 (online accepted again, match start messages, Solar Flare blending, text catalogs)
+- [x] **0.8.0**: **Dragon Net**: online with the Nintendo Switch port (DBT-NX) on a service of our own (rooms, quick match,
+      Ranked with Elo, general chat, players online), apart from the PC port's releases; a new Dragon Net Battle
+      screen; online against PC kept as an option (`port/dragonnet`, `docs/DRAGON_NET.md`)
 
 ### Next
-- [ ] Our own matchmaking service (the PC port's has daily limits and codes for signed releases)
 - [ ] More GPUs measured for the tiers (send your log!)
 - [ ] Picture: anisotropic filtering, SMAA, more post-processing
 - [ ] Pause the game while the app is in the background

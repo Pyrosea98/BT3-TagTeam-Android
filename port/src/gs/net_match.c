@@ -38,6 +38,7 @@
 #include "../port_release.h"
 #include "net_relay.h"
 #include "net_sign.h"
+#include "net_dragon.h"
 
 static struct {
     SDL_Mutex *lock;
@@ -68,38 +69,63 @@ static const char *match_who(void) {
 static SDL_TLSID sMine; /* the thread's own search number */
 #define STOPPED() (SDL_GetAtomicInt(&sM.cancel) || (int)(intptr_t)SDL_GetTLS(&sMine) != SDL_GetAtomicInt(&sM.gen))
 
-static const char *match_url(void) {
-    const char *e = SDL_getenv("BT3_MATCH_URL");
+/* A one-line file in the game folder naming another service ("https://...", without the trailing slash): "" if none. */
+static void url_file(const char *file, char *out, size_t size) {
+    out[0] = '\0';
 #ifdef __ANDROID__
-    /* Android: <game folder>/match_url.txt, one line "https://...", names another Worker (one's own, see
-       port/matchmaking/README.md) without a new build */
-    static char fromFile[256];
-    static int read;
-    if ((e == NULL || e[0] == '\0') && !read) {
+    {
         extern const char *Port_FileRoot(void); /* plat_file.c */
         char path[600];
         FILE *f;
-        read = 1;
-        SDL_snprintf(path, sizeof(path), "%s/match_url.txt", Port_FileRoot());
+        SDL_snprintf(path, sizeof(path), "%s/%s", Port_FileRoot(), file);
         if ((f = fopen(path, "r")) != NULL) {
-            if (fgets(fromFile, sizeof(fromFile), f) != NULL) {
-                fromFile[strcspn(fromFile, " \r\n")] = '\0';
-                while (fromFile[0] != '\0' && fromFile[strlen(fromFile) - 1] == '/') {
-                    fromFile[strlen(fromFile) - 1] = '\0';
+            if (fgets(out, (int)size, f) != NULL) {
+                out[strcspn(out, " \r\n")] = '\0';
+                while (out[0] != '\0' && out[strlen(out) - 1] == '/') {
+                    out[strlen(out) - 1] = '\0';
                 }
-                if (SDL_strncmp(fromFile, "https://", 8) != 0) {
-                    fromFile[0] = '\0';
+                if (SDL_strncmp(out, "https://", 8) != 0) {
+                    out[0] = '\0';
                 }
             }
             fclose(f);
         }
-        fprintf(stderr, "net: matchmaking service %s\n", fromFile[0] != '\0' ? fromFile : MATCH_URL_DEFAULT);
     }
-    if ((e == NULL || e[0] == '\0') && fromFile[0] != '\0') {
-        return fromFile;
-    }
+#else
+    (void)file;
+    (void)size;
 #endif
-    return e != NULL && e[0] != '\0' ? e : MATCH_URL_DEFAULT;
+}
+
+/* Dragon Net's service (net_dragon.h): dragonnet_url.txt, else DBT-NX's. */
+const char *DrNet_Url(void) {
+    static char fromFile[256];
+    static int read;
+    if (!read) {
+        read = 1;
+        url_file("dragonnet_url.txt", fromFile, sizeof(fromFile));
+    }
+    return fromFile[0] != '\0' ? fromFile : DRNET_URL_DEFAULT;
+}
+
+/* The service rooms and quick matches go through: Dragon Net's (mode 0), or the PC port's (mode 1; Android:
+   <game folder>/match_url.txt, one line "https://...", names another Worker of that kind). BT3_MATCH_URL wins. */
+static const char *match_url(void) {
+    const char *e = SDL_getenv("BT3_MATCH_URL");
+    static char fromFile[256];
+    static int read;
+    if (e != NULL && e[0] != '\0') {
+        return e;
+    }
+    if (DrNet_Mode() == 0) {
+        return DrNet_Url();
+    }
+    if (!read) {
+        read = 1;
+        url_file("match_url.txt", fromFile, sizeof(fromFile));
+        fprintf(stderr, "net: matchmaking service against PC %s\n", fromFile[0] != '\0' ? fromFile : MATCH_URL_DEFAULT);
+    }
+    return fromFile[0] != '\0' ? fromFile : MATCH_URL_DEFAULT;
 }
 
 static void set_state(int state, const char *error) {
@@ -816,6 +842,7 @@ joined:
 /* Starts looking: role 1 makes a room, role 2 joins room `code`. `sock` is the match's own UDP socket (not blocking),
    bound to `localPort`. */
 void Match_Begin(int role, int sock, int localPort, const char *code, const char *name, int version) {
+    version = DrNet_WireVersion(version); /* (Dragon Net: the netcode and the simulation, net_dragon.h) */
     int i, n = 0;
 
     if (sM.lock == NULL) {
@@ -988,7 +1015,7 @@ void Match_QueuesAsk(int version) {
         return;
     }
     SDL_SetAtomicInt(&sQueueBusy, 1);
-    sQueueVersion = version;
+    sQueueVersion = DrNet_WireVersion(version);
     t = SDL_CreateThread(queues_thread, "bt3-queues", NULL);
     if (t == NULL) {
         SDL_SetAtomicInt(&sQueueBusy, 0);
@@ -1051,4 +1078,13 @@ int Match_SignTest(void) {
     }
     fflush(stdout);
     return 0;
+}
+
+/* Dragon Net (net_dragon.c): a POST to its service whatever the mode, <service>/v1/<what>; the answer's text in out
+   (also an error's: {"error":...}). 0 = no answer. Never signed (the build key is the PC port's). */
+int Match_PostDragon(const char *what, const char *json, char *out, size_t size) {
+    char url[320];
+    SDL_snprintf(url, sizeof(url), "%s/v1/%s", DrNet_Url(), what);
+    out[0] = '\0';
+    return http_post_native(url, json, NULL, out, size);
 }

@@ -1095,6 +1095,12 @@ void BattleResult_Finish(void) {
     if (res->reason & 0x40) {
         res->winner |= 1;
     }
+#ifdef PORT
+    { /* Dragon Net: a ranked match's result for its service (port/src/gs/net_dragon.c) */
+        extern void DrNet_BattleFinished(int flags, int reason, int clock);
+        DrNet_BattleFinished(res->winner, res->reason, (int)res->clock.ticks);
+    }
+#endif
 }
 
 /* Returns result.flags (winner / draw / abort bits). */

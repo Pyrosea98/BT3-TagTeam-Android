@@ -32,5 +32,7 @@ int Match_QueueWaiting(int queue);
 void Match_Poll(MatchStatus *out);
 void Match_Cancel(void);
 int Match_SignTest(void);    /* BT3_SIGN_TEST: see net_match.c */
+#include <stddef.h>
+int Match_PostDragon(const char *what, const char *json, char *out, size_t size); /* Dragon Net's service (net_dragon.c) */
 
 #endif

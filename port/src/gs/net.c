@@ -1073,8 +1073,11 @@ static void sample_local(unsigned tick) {
 
 #define QUIET_NS 6000000000ull /* this long without the input the game is waiting for: the other player is gone */
 
+static int sEndedThere; /* the session ends because of the other side (or a disagreement), not this player's choice */
+
 static void ended(const char *why, unsigned tick) {
     fprintf(stderr, "bt3: net: %s (blank %u)\n", why, tick);
+    sEndedThere = 1;
     Port_UiNotice(why);
     if (sSession) {
         Port_NetLeave(); /* back to the game as it normally is */
@@ -1636,6 +1639,10 @@ void Port_NetArrived(void) {
    normally is. */
 void Port_NetLeave(void) {
     fprintf(stderr, "bt3: net: the session has ended\n");
+    { /* Dragon Net: a ranked match left before its fight was over is a loss for who left (net_dragon.c) */
+        extern void DrNet_SessionEnding(int mine);
+        DrNet_SessionEnding(!sEndedThere && !sGone);
+    }
     PortChat_Reset();
     if (sSock >= 0 && sConnected) { /* tell the other side, so that it does not wait for input that will not come */
         uint32_t bye[3] = {MAGIC, T_BYE, sByeWhy};
@@ -1667,6 +1674,7 @@ static struct sockaddr_in sCodeSeen; /* the address the service saw the other pl
 static int sCodeSeenSet, sCodeGen, sCodeRelayGen; /* ... and which of the search's later news the lobby has taken in */
 
 int Port_LobbyRelayed(void) { return sCodeVia; }
+int Port_NetVersion(void) { return NET_VERSION; } /* (Dragon Net: net_dragon.c) */
 static struct sockaddr_in sCodeAddr[MATCH_ADDRS];
 static char sCodeText[8], sCodeError[96];
 static uint64_t sCodeSince;

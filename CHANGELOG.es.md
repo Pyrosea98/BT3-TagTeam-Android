@@ -1,38 +1,23 @@
-# Dragon Rage 0.7.3
+# Dragon Rage 0.8.0
 
-**El online vuelve a funcionar**: el port de PC publicó la 0.1.37 y el servicio de partidas ahora la exige. Esta
-versión es la 0.1.37.
+**Dragon Net**: online con el port de Nintendo Switch (DBT-NX) en un servicio propio, que ya no se detiene con cada
+nueva versión del port de PC. El online contra PC sigue como opción.
 
-## De la 0.1.37 del port de PC
-- Online: una línea en pantalla mientras empieza la partida (*Connecting to your rival…*, luego *Your rival "NOMBRE"
-  is here!*); se acabó la pausa antes de la partida que crecía con el ping; el nombre del perfil ya no se borra con la
-  Partida rápida.
-- Blending: un alfa de origen por encima de 0x80 cuenta como en la PS2 (el destello de la Solar Flare).
-- Choques, la opción del Cuadrado: una pulsación puede valer 2,25, el valor por defecto salvo que se elija otro.
-- Traducciones de los textos del juego (menús, HUD de combate, diálogos, textos del propio port) desde catálogos en
-  `translations/`, que la app copia a la carpeta del juego. Por ahora solo existe el catálogo en inglés; la opción del
-  disco europeo del instalador de PC no forma parte de Dragon Rage.
+## Dragon Net Battle, una nueva pantalla de online
+- El **Dragon Net Battle** del juego (menú principal) abre una pantalla nueva con el estilo de DBT-NX, para táctil y
+  mando, en inglés, portugués y español: **Crear sala**, **Entrar a sala**, **Partida rápida**, **Clasificatoria** y
+  **Chat general**, con el número de jugadores en línea.
+- **Jugar contra**: **Android + Switch** (Dragon Net, por defecto) o **PC** (el servicio del port de PC, que pide su
+  versión más nueva). También en Ajustes → Online. Clasificatoria y chat son de Dragon Net.
+- **Clasificatoria**: perfil con rango, Elo, victorias, derrotas y puesto; búsqueda individual o por equipos según tu
+  nivel; los mejores de la clasificación. Los puntos cambian cuando los dos juegos envían el mismo resultado; salir de
+  una pelea Ranked antes del final cuenta como derrota.
+- Las salas muestran un código grande para copiar; Entrar a sala acepta un código pegado. Peleas Ranked y rápidas: sin
+  límite de tiempo, velocidad estándar, rollback.
+- Mando: cruceta para elegir, A acepta, B vuelve, Y cambia Android + Switch / PC, Start edita tu nombre.
 
-## Correcciones y ayuda
-- **Móviles en los que el juego se cerraba al instante** (un Redmi con Snapdragon 8s Gen 3, HyperOS 2: *"cannot map
-  the game heap"*): cuando la dirección del heap del juego (la de la PS2) ya está ocupada en el proceso, el heap ahora
-  va a otro lugar por debajo de 2 GB, como en Windows.
-- **Logs guardados solos**: cuando el juego se cierra con un problema, o un pack de texturas no se instala, la app
-  guarda el log en Descargas al momento, dice su nombre, y un botón **Enviar log** abre el menú de compartir. *"Envía
-  este archivo al desarrollador."*
-- **Página de Texturas**: una tarjeta que explica cómo funcionan los packs (versión estadounidense, el .zip tal como
-  vino, qué esperar) con botón de log; tras una pelea con un pack activado en la que no se usó ninguna de sus
-  texturas, la app lo avisa (normalmente un pack de otra versión del juego) y guarda el log.
-- El aviso *"el juego se cerró"* muestra la causa real (memoria, datos, motor, texturas) antes de un cierre que viene
-  después.
-
-## Servidor online
-- Ajustes → **Servidor de partidas**: **Oficial** (el del port de PC, PC y Android juntos; el predeterminado) o
-  **Comunidad** (un servicio mantenido por jugadores, del fork Tenkaichi3DecompAndroidOnline; allí solo se encuentran
-  quienes lo eligieron). La conexión directa (dirección y puerto) no usa servidor.
-
-## Notas de actualización
-- Se instala sobre la 0.7.x / 0.6.0 y conserva todo.
-- Si la actualización dice *"App no instalada: el paquete entra en conflicto con un paquete existente"*, la app del
-  móvil no es una de estas versiones (otra build del código, con otra firma): guarda la carpeta `saves/` de
-  `Android/data/com.dfdx047.dragonrage/files/`, desinstala, instala esta y devuelve las partidas.
+## Por dentro
+- Dragon Net usa el netcode de la 0.1.37 del port de PC con la versión **5001**; el servicio separa cada versión, así
+  que juegos que no pueden jugar juntos nunca se cruzan (`docs/DRAGON_NET.md`).
+- `port/dragonnet`: el servicio (el Worker de DBT-NX, aceptando varias versiones a la vez) y sus pruebas.
+- La tarjeta de online de la app sigue el modo elegido y avisa cuando el servicio Dragon Net aún no acepta esta versión.

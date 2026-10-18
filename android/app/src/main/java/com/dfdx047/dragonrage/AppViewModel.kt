@@ -218,7 +218,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun checkOnline() {
         _online.value = OnlineState.Checking
-        viewModelScope.launch { _online.value = runCatching { OnlineStatus.check(paths, BuildConfig.PORT_RELEASE) }.getOrDefault(OnlineState.Unreachable) }
+        val mode = _settings.value[OnlineStatus.MODE] ?: 0
+        viewModelScope.launch { _online.value = runCatching { OnlineStatus.check(paths, BuildConfig.PORT_RELEASE, mode) }.getOrDefault(OnlineState.Unreachable) }
+    }
+
+    /** Whom online plays against: 0 Dragon Net (Android + Switch), 1 the PC (also chosen in the game's online screen). */
+    fun setNetMode(mode: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            settings.set(OnlineStatus.MODE, mode)
+            _settings.value = settings.snapshot()
+            withContext(Dispatchers.Main) { checkOnline() }
+        }
     }
 
     /** A report the app saved in Downloads by itself (a problem it saw), to name and to share. */

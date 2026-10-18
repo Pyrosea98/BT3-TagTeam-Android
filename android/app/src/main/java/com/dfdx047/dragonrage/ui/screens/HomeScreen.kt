@@ -311,8 +311,9 @@ private fun OnlineBanner(vm: AppViewModel) {
         is OnlineState.Outdated -> Triple(MaterialTheme.colorScheme.error, stringResource(R.string.online_outdated_title),
             stringResource(R.string.online_outdated, OnlineStatus.release(st.min), OnlineStatus.release(st.mine)))
         is OnlineState.OfficialOnly -> Triple(Dbz.GiOrange, stringResource(R.string.online_official_title), stringResource(R.string.online_official))
-        is OnlineState.Working -> Triple(Dbz.ShenronGreen, stringResource(R.string.online_ok_title),
-            stringResource(R.string.online_ok, OnlineStatus.release(st.mine)) +
+        is OnlineState.DragonVersion -> Triple(Dbz.GiOrange, stringResource(R.string.online_dragon_version_title), stringResource(R.string.online_dragon_version))
+        is OnlineState.Working -> Triple(Dbz.ShenronGreen, stringResource(if (st.dragon) R.string.online_dragon_ok_title else R.string.online_ok_title),
+            (if (st.dragon) stringResource(R.string.online_dragon_ok) else stringResource(R.string.online_ok, OnlineStatus.release(st.mine))) +
                 (if (st.searching > 0) " " + stringResource(R.string.online_searching, st.searching) else ""))
     }
     Card(

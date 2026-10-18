@@ -91,6 +91,7 @@ int Port_LobbyRelayed(void);                                 // the other player
 int Port_LobbyPoll(void);
 void Port_LobbyCancel(void);
 void Port_LobbyLaunch(void);
+#include "net_dragon.h"
 }
 static bool sReady, sOpen;
 static MenuTranslationOption sLanguages[256];
@@ -587,6 +588,10 @@ static void input_owner(void) {
 }
 
 static void set_open(bool open) {
+    if (!open && sNet) {
+        DrNet_PresenceActive(0); // (no longer counted among the players online)
+        DrChat_Close();
+    }
     if (open && sChat) {
         chat_close();
     }
@@ -758,7 +763,7 @@ static void quick_status(int state, int &lastState, const char *name) {
 }
 
 #ifdef __ANDROID__
-static void build_net_android(void); /* ui_android.inc: the same window for touch, in the launcher's look */
+static void build_net_android(void); /* ui_dragonnet.inc: Dragon Net Battle, in DBT-NX's look, for touch and pad */
 #endif
 static void build_net(void) {
 #ifdef __ANDROID__
@@ -2007,6 +2012,7 @@ static void quit_to_app(void) {
     if (env->ExceptionCheck()) { env->ExceptionClear(); }
 }
 #include "ui_android.inc"
+#include "ui_dragonnet.inc"
 #endif
 
 static void build(void) {

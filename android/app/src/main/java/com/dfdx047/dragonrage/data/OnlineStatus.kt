@@ -18,11 +18,20 @@ sealed interface OnlineState {
     data object Unreachable : OnlineState
     data class Outdated(val mine: Int, val min: Int) : OnlineState
     data class OfficialOnly(val mine: Int) : OnlineState
-    data class Working(val mine: Int, val searching: Int, val latest: Int) : OnlineState
+    data class Working(val mine: Int, val searching: Int, val latest: Int, val dragon: Boolean = false) : OnlineState
+    /** Dragon Net's service (Android + Switch) does not take this build's netcode yet (it is updated by its keeper). */
+    data class DragonVersion(val mine: Int) : OnlineState
 }
 
 object OnlineStatus {
-    private const val NET_VERSION = 4 // the online protocol's version (port/src/gs/net.c NET_VERSION)
+    private const val NET_VERSION = 5 // the online protocol's version (port/src/gs/net.c NET_VERSION)
+    private const val DRNET_SIM = 1   // Dragon Net's simulation version (port/src/gs/net_dragon.h): v = NET_VERSION * 1000 + DRNET_SIM
+    /** Dragon Net (Android + Switch): DBT-NX's service, updated to port/dragonnet; another one in dragonnet_url.txt. */
+    const val DRAGON_URL = "https://dbt-nx-matchmaking.alexyt2021es.workers.dev"
+    const val MODE = "net_mode" // the engine's setting: 0 Dragon Net (Android + Switch), 1 against PC
+
+    fun dragonUrl(paths: GamePaths): String = runCatching { File(paths.root, "dragonnet_url.txt").readText().trim() }.getOrNull()
+        ?.takeIf { it.startsWith("https://") }?.trimEnd('/') ?: DRAGON_URL
     const val DEFAULT_URL = "https://odd-surf-0af7.bt3decomp.workers.dev"
     /** A matchmaking service run by players (fork Androidxxt01/Tenkaichi3DecompAndroidOnline): chosen in Settings,
      *  never by default; only the players who chose it meet there (no PC players of the official one). */
@@ -56,9 +65,9 @@ object OnlineStatus {
         }
     }
 
-    suspend fun check(paths: GamePaths, mine: Int): OnlineState = withContext(Dispatchers.IO) {
-        val base = runCatching { File(paths.root, "match_url.txt").readText().trim() }.getOrNull()
-            ?.takeIf { it.startsWith("https://") }?.trimEnd('/') ?: DEFAULT_URL
+    suspend fun check(paths: GamePaths, mine: Int, mode: Int = 0): OnlineState = withContext(Dispatchers.IO) {
+        if (mode == 0) return@withContext checkDragon(paths, mine)
+        val base = current(paths)
         val hello = runCatching { post("$base/v1/hello", """{"rel":$mine}""") }.getOrNull()
             ?: return@withContext OnlineState.Unreachable
         if (hello.first !in 200..299) return@withContext OnlineState.Unreachable
@@ -76,6 +85,20 @@ object OnlineStatus {
             }
         }
         OnlineState.Working(mine, searching, latest)
+    }
+
+    /** Dragon Net: no release gate (only the netcode: v), so it does not wait for the PC port's releases. */
+    private fun checkDragon(paths: GamePaths, mine: Int): OnlineState {
+        val q = runCatching { post("${dragonUrl(paths)}/v1/queues", """{"v":${NET_VERSION * 1000 + DRNET_SIM},"rel":$mine}""") }.getOrNull()
+            ?: return OnlineState.Unreachable
+        if (q.first == 409 && q.second.contains("version")) return OnlineState.DragonVersion(mine)
+        if (q.first !in 200..299) return OnlineState.Unreachable
+        var searching = 0
+        runCatching {
+            val o = JSONObject(q.second).getJSONObject("waiting")
+            o.keys().forEach { k -> searching += o.optInt(k, 0).coerceAtLeast(0) }
+        }
+        return OnlineState.Working(mine, searching, 0, dragon = true)
     }
 
     fun release(n: Int): String = "0.${n / 100}.${n % 100}"

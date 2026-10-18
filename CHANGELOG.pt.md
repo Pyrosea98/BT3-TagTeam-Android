@@ -1,38 +1,23 @@
-# Dragon Rage 0.7.3
+# Dragon Rage 0.8.0
 
-**O online volta a funcionar**: o port de PC lançou a 0.1.37 e o serviço de partidas passou a exigi-la. Esta versão é
-a 0.1.37.
+**Dragon Net**: online com o port de Nintendo Switch (DBT-NX) num serviço próprio, que não para mais a cada nova
+versão do port de PC. O online contra PC continua como opção.
 
-## Da 0.1.37 do port de PC
-- Online: uma linha na tela enquanto a partida começa (*Connecting to your rival…*, depois *Your rival "NOME" is
-  here!*); acabou a pausa antes da partida que crescia com o ping; o nome do perfil não é mais apagado pela Partida
-  rápida.
-- Blending: um alfa de origem acima de 0x80 conta como no PS2 (o clarão da Solar Flare).
-- Choques, a opção do Quadrado: um toque pode valer 2,25, o padrão a não ser que outro seja escolhido.
-- Traduções dos textos do jogo (menus, HUD da batalha, diálogos, textos do próprio port) a partir de catálogos em
-  `translations/`, que o app copia para a pasta do jogo. Por enquanto só existe o catálogo em inglês; a opção do disco
-  europeu do instalador de PC não faz parte do Dragon Rage.
+## Dragon Net Battle, uma nova tela de online
+- O **Dragon Net Battle** do jogo (menu principal) abre uma tela nova no visual do DBT-NX, para toque e controle, em
+  inglês, português e espanhol: **Criar sala**, **Entrar em sala**, **Partida rápida**, **Classificatória** e
+  **Chat geral**, com o número de jogadores online.
+- **Jogar contra**: **Android + Switch** (Dragon Net, o padrão) ou **PC** (o serviço do port de PC, que pede a versão
+  mais nova dele). Também em Ajustes → Online. Classificatória e chat são do Dragon Net.
+- **Classificatória**: perfil com rank, Elo, vitórias, derrotas e posição; busca individual ou em equipe pelo nível;
+  os melhores da classificação. Os pontos mudam quando os dois jogos mandam o mesmo resultado; sair de uma luta
+  ranqueada antes do fim conta como derrota.
+- As salas mostram um código grande para copiar; Entrar em sala aceita código colado. Lutas ranqueadas e rápidas: sem
+  limite de tempo, velocidade padrão, rollback.
+- Controle: direcional para escolher, A aceita, B volta, Y troca Android + Switch / PC, Start edita seu nome.
 
-## Correções e ajuda
-- **Celulares em que o jogo fechava na hora** (um Redmi com Snapdragon 8s Gen 3, HyperOS 2: *"cannot map the game
-  heap"*): quando o endereço do heap do jogo (o do PS2) já está ocupado no processo, o heap agora vai para outro lugar
-  abaixo de 2 GB, como no Windows.
-- **Logs salvos sozinhos**: quando o jogo fecha com problema, ou um pacote de textura não instala, o app salva o log
-  na pasta Downloads na hora, mostra o nome dele, e um botão **Enviar log** abre o compartilhamento. *"Mande esse
-  arquivo para o desenvolvedor."*
-- **Página de Texturas**: um cartão explicando como os pacotes funcionam (versão americana, o .zip do jeito que veio,
-  o que esperar) com botão de log; depois de uma luta com um pacote ligado em que nenhuma textura dele foi usada, o
-  app avisa (normalmente um pacote de outra versão do jogo) e salva o log.
-- O aviso *"o jogo fechou"* mostra a causa real (memória, dados, motor, texturas) antes de um travamento que vem
-  depois dela.
-
-## Servidor online
-- Configurações → **Servidor de partidas**: **Oficial** (o do port de PC, PC e Android juntos; o padrão) ou
-  **Comunidade** (um serviço mantido por jogadores, do fork Tenkaichi3DecompAndroidOnline; lá só se encontram os que
-  escolheram ele). A conexão direta (endereço e porta) não usa servidor.
-
-## Notas de atualização
-- Instala por cima da 0.7.x / 0.6.0 e mantém tudo.
-- Se a atualização disser *"App não instalado: o pacote está em conflito com um pacote existente"*, o app do celular
-  não é uma destas versões (outra build do código, com outra assinatura): salve a pasta `saves/` de
-  `Android/data/com.dfdx047.dragonrage/files/`, desinstale, instale esta e devolva os saves.
+## Por dentro
+- O Dragon Net usa o netcode da 0.1.37 do port de PC com a versão **5001**; o serviço separa cada versão, então jogos
+  que não podem jogar juntos nunca se encontram (`docs/DRAGON_NET.md`).
+- `port/dragonnet`: o serviço (o Worker do DBT-NX, aceitando várias versões ao mesmo tempo) e os testes dele.
+- O cartão de online do app segue o modo escolhido e avisa quando o serviço Dragon Net ainda não aceita esta versão.

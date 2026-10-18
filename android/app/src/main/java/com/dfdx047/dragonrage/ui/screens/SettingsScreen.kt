@@ -152,6 +152,16 @@ fun SettingsScreen(vm: AppViewModel) {
         }
 
         SectionCard(stringResource(R.string.online_server_title), Icons.Rounded.Public, accent = MaterialTheme.colorScheme.secondary) {
+            val netMode = get(com.dfdx047.dragonrage.data.OnlineStatus.MODE, 0).coerceIn(0, 1)
+            Text(stringResource(R.string.online_mode_title), style = MaterialTheme.typography.titleSmall)
+            ChipRow(
+                options = listOf(stringResource(R.string.online_mode_dragon) to 0, stringResource(R.string.online_mode_pc) to 1),
+                selected = netMode,
+                onSelect = { vm.setNetMode(it) },
+            )
+            Text(stringResource(R.string.online_mode_text), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (netMode == 1) {
+            Text(stringResource(R.string.online_server_pc), style = MaterialTheme.typography.titleSmall)
             val server by vm.matchServer.collectAsStateWithLifecycle()
             val kind = when (server) {
                 com.dfdx047.dragonrage.data.OnlineStatus.DEFAULT_URL -> 0
@@ -167,6 +177,7 @@ fun SettingsScreen(vm: AppViewModel) {
             )
             if (kind == 2) Text(server, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(stringResource(R.string.online_server_text), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
 
         SectionCard(stringResource(R.string.performance), Icons.Rounded.Speed, accent = MaterialTheme.colorScheme.secondary) {

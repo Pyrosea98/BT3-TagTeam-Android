@@ -334,10 +334,10 @@
     <string name="touch_style_dragon">Dragon (new)</string>
     <string name="touch_style_glass">Glass (0.5)</string>
     <string name="online_title">Online</string>
-    <string name="online_short">Play against PC and Android players in the same rooms. See how it works and what to do when it does not connect.</string>
+    <string name="online_short">Play against Android and Nintendo Switch players on Dragon Net (with Ranked and chat), or against PC players. See how it works and what to do when it does not connect.</string>
     <string name="online_help_button">How online works</string>
     <string name="online_how_title">How it works</string>
-    <string name="online_how">1. In the game\'s main menu choose Tenkaichi Budokai Online (or Dragon Net Battle).\n2. Quick match finds an opponent by itself. Create room gives a code; your friend types it in Join.\n3. Only button presses travel: both games compute the fight, with rollback for late presses.\n4. Both players need the same release and the same game (the USA disc, SLUS-21678). PC and Android play together.</string>
+    <string name="online_how">1. In the game\'s main menu choose Dragon Net Battle.\n2. Play against: Android + Switch (Dragon Net) or PC.\n3. Create room gives a code; your friend types it in Join room. Quick match finds an opponent by itself. Ranked (Dragon Net) pairs you by Elo; points change when both results agree.\n4. Only button presses travel: both games compute the fight, with rollback for late presses.\n5. Both need the same game (the USA disc, SLUS-21678); against PC, the PC port\'s newest release.</string>
     <string name="online_fail_title">If it does not connect</string>
     <string name="online_fail">• \"Too many rooms\" or \"busy\": the free matchmaking service has hourly limits. Wait a few minutes.\n• \"Update available\" or \"different version\": update Dragon Rage (the app tells you when there is one).\n• \"Room codes need an official release\": the service only takes codes from signed releases; use Quick match or play by address (IP).\n• Stuck connecting: switch Wi-Fi and mobile data, turn off VPN and data saver.\n• Lag: both on Wi-Fi near the router; the frame rate meter shows the connection.\n• Still failing: export the log (Debug page) and send it on our Discord.</string>
     <string name="online_banner_title">Online status</string>
@@ -351,7 +351,7 @@
     <string name="online_ok_title">Online is working</string>
     <string name="online_ok">This Dragon Rage (release %1$s) is accepted by the matchmaking service: quick match, rooms with a code and direct connections all work, also against PC players on the same release.</string>
     <string name="online_searching">Players searching right now: %1$d.</string>
-    <string name="online_explain">Online is played from the game\'s menu: open Online (Dragon Net Battle) in the in-game menu, pick Quick match, Host or Join. Both players need the same release; a Wi-Fi connection gives the steadiest fights.</string>
+    <string name="online_explain">Online is played from the game\'s menu: open Dragon Net Battle and pick Create room, Join room, Quick match or Ranked. A Wi-Fi connection gives the steadiest fights.</string>
     <string name="lastrun_data_title">The game closed: a problem with the game data</string>
     <string name="lastrun_data">The game stopped because a file of the imported disc image is missing, damaged or modified. Dragon Rage needs an unmodified USA disc image (SLUS-21678). Import the ISO again (Game data → Import); if it was modified or a mod changed its files, use a clean dump.</string>
     <string name="lastrun_memory_title">The game closed: not enough memory</string>
@@ -375,8 +375,17 @@
     <string name="log_send">Send log</string>
     <string name="lastrun_textures_title">The texture pack was not used</string>
     <string name="lastrun_textures">The game played a fight without using any texture from your pack. Usually the pack is for another release of the game (Japanese or European) or is not a PCSX2 pack. Check that it is for the USA release (SLUS-21678); if it is, send us the log.</string>
-    <string name="online_server_title">Matchmaking server</string>
+    <string name="online_server_title">Online</string>
     <string name="online_server_official">Official (PC + Android)</string>
     <string name="online_server_community">Community</string>
     <string name="online_server_text">Official: the PC port\'s service, where PC and Android players meet; it accepts only the latest release. Community: a service run by players (from the Tenkaichi3DecompAndroidOnline fork), not by us; there you meet only the players who chose it, no PC players of the official one. Quick match and room codes use it; a direct connection (address and port) uses no server.</string>
+    <string name="online_mode_title">Play against</string>
+    <string name="online_mode_dragon">Android + Switch (Dragon Net)</string>
+    <string name="online_mode_pc">PC</string>
+    <string name="online_mode_text">Dragon Net: Dragon Rage and the Nintendo Switch port (DBT-NX) on a service of their own, with Ranked (Elo), the general chat and the players online; it does not depend on the PC port\'s releases. PC: rooms and quick match on the PC port\'s service, which only lets in its newest release. You can also switch it in the game\'s Dragon Net Battle screen (Y on a controller).</string>
+    <string name="online_server_pc">PC matchmaking server</string>
+    <string name="online_dragon_ok_title">Dragon Net is working</string>
+    <string name="online_dragon_ok">Android and Switch play together: rooms with a code, quick match, Ranked and the general chat, from Dragon Net Battle in the game\'s main menu.</string>
+    <string name="online_dragon_version_title">Dragon Net is being updated</string>
+    <string name="online_dragon_version">The Dragon Net service does not take this version\'s netcode yet: it is updated by its keeper shortly after a release. Meanwhile you can play against PC (Settings → Online) or by direct connection.</string>
 </resources>

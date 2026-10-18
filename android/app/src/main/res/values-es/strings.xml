@@ -333,10 +333,10 @@
     <string name="touch_style_dragon">Dragón (nuevo)</string>
     <string name="touch_style_glass">Cristal (0.5)</string>
     <string name="online_title">Online</string>
-    <string name="online_short">Juega contra jugadores de PC y Android en las mismas salas. Mira cómo funciona y qué hacer cuando no conecta.</string>
+    <string name="online_short">Juega contra jugadores de Android y Nintendo Switch en Dragon Net (con Clasificatoria y chat), o contra jugadores de PC. Mira cómo funciona y qué hacer cuando no conecta.</string>
     <string name="online_help_button">Cómo funciona el online</string>
     <string name="online_how_title">Cómo funciona</string>
-    <string name="online_how">1. En el menú principal del juego elige Tenkaichi Budokai Online (o Dragon Net Battle).\n2. Partida rápida busca un rival sola. Crear sala da un código; tu amigo lo escribe en Unirse.\n3. Solo viajan los botones pulsados: los dos juegos calculan la pelea, con rollback para toques atrasados.\n4. Los dos necesitan la misma versión y el mismo juego (el disco americano, SLUS-21678). PC y Android juegan juntos.</string>
+    <string name="online_how">1. En el menú principal del juego elige Dragon Net Battle.\n2. Jugar contra: Android + Switch (Dragon Net) o PC.\n3. Crear sala da un código; tu amigo lo escribe en Entrar a sala. Partida rápida busca un rival sola. Clasificatoria (Dragon Net) empareja por Elo; los puntos cambian al confirmar ambos resultados.\n4. Solo viajan los botones pulsados: los dos juegos calculan la pelea, con rollback para toques atrasados.\n5. Los dos necesitan el mismo juego (el disco americano, SLUS-21678); contra PC, la versión más nueva del port de PC.</string>
     <string name="online_fail_title">Si no conecta</string>
     <string name="online_fail">• \"Too many rooms\" o \"busy\": el servicio gratuito de partidas tiene límite por hora. Espera unos minutos.\n• \"Update available\" o \"different version\": actualiza Dragon Rage (la app avisa cuando hay versión nueva).\n• \"Room codes need an official release\": el servicio solo acepta códigos de versiones firmadas; usa Partida rápida o juega por dirección (IP).\n• Se queda conectando: cambia entre Wi-Fi y datos móviles, apaga VPN y ahorro de datos.\n• Lag: los dos en Wi-Fi cerca del router; el medidor de FPS muestra la conexión.\n• Sigue fallando: exporta el log (página Depuración) y mándalo en nuestro Discord.</string>
     <string name="online_banner_title">Estado del online</string>
@@ -350,7 +350,7 @@
     <string name="online_ok_title">El online funciona</string>
     <string name="online_ok">Este Dragon Rage (versión %1$s) es aceptado por el servicio de partidas: partida rápida, salas con código y conexión directa funcionan, también contra jugadores de PC en la misma versión.</string>
     <string name="online_searching">Jugadores buscando partida ahora: %1$d.</string>
-    <string name="online_explain">El online se juega desde el menú del juego: abre Online (Dragon Net Battle) en el menú del juego y elige Partida rápida, Crear o Unirse. Ambos jugadores necesitan la misma versión; el Wi-Fi da las peleas más estables.</string>
+    <string name="online_explain">El online se juega desde el menú del juego: abre Dragon Net Battle y elige Crear sala, Entrar a sala, Partida rápida o Clasificatoria. El Wi-Fi da las peleas más estables.</string>
     <string name="lastrun_data_title">El juego se cerró: problema con los datos del juego</string>
     <string name="lastrun_data">El juego se detuvo porque falta, está dañado o modificado un archivo de la imagen de disco importada. Dragon Rage necesita una imagen de disco estadounidense sin modificar (SLUS-21678). Importa la ISO de nuevo (Datos del juego → Importar); si fue modificada o un mod cambió sus archivos, usa un dump limpio.</string>
     <string name="lastrun_memory_title">El juego se cerró: memoria insuficiente</string>
@@ -374,8 +374,17 @@
     <string name="log_send">Enviar log</string>
     <string name="lastrun_textures_title">El pack de texturas no se usó</string>
     <string name="lastrun_textures">El juego jugó una pelea sin usar ninguna textura de tu pack. Normalmente el pack es de otra versión del juego (japonesa o europea) o no es un pack de PCSX2. Comprueba que sea de la versión estadounidense (SLUS-21678); si lo es, envíanos el log.</string>
-    <string name="online_server_title">Servidor de partidas</string>
+    <string name="online_server_title">Online</string>
     <string name="online_server_official">Oficial (PC + Android)</string>
     <string name="online_server_community">Comunidad</string>
     <string name="online_server_text">Oficial: el servicio del port de PC, donde se encuentran jugadores de PC y Android; solo acepta la versión más reciente. Comunidad: un servicio mantenido por jugadores (del fork Tenkaichi3DecompAndroidOnline), no por nosotros; allí solo encuentras a quienes también lo eligieron, sin los jugadores de PC del oficial. La partida rápida y los códigos de sala usan el servidor; la conexión directa (dirección y puerto) no usa servidor.</string>
+    <string name="online_mode_title">Jugar contra</string>
+    <string name="online_mode_dragon">Android + Switch (Dragon Net)</string>
+    <string name="online_mode_pc">PC</string>
+    <string name="online_mode_text">Dragon Net: Dragon Rage y el port de Nintendo Switch (DBT-NX) en un servicio propio, con Clasificatoria (Elo), chat general y jugadores en línea; no depende de las versiones del port de PC. PC: salas y partida rápida en el servicio del port de PC, que solo acepta su versión más nueva. También se cambia en la pantalla Dragon Net Battle del juego (Y en el mando).</string>
+    <string name="online_server_pc">Servidor de partidas del PC</string>
+    <string name="online_dragon_ok_title">Dragon Net está funcionando</string>
+    <string name="online_dragon_ok">Android y Switch juegan juntos: salas con código, partida rápida, Clasificatoria y chat general, desde Dragon Net Battle en el menú principal del juego.</string>
+    <string name="online_dragon_version_title">Dragon Net se está actualizando</string>
+    <string name="online_dragon_version">El servicio Dragon Net aún no acepta el netcode de esta versión: su responsable lo actualiza poco después de cada lanzamiento. Mientras tanto puedes jugar contra PC (Ajustes → Online) o por conexión directa.</string>
 </resources>

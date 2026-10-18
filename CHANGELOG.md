@@ -1,35 +1,23 @@
-# Dragon Rage 0.7.3
+# Dragon Rage 0.8.0
 
-**Online works again**: the PC port released 0.1.37 and the matchmaking service now asks for it. This version is
-0.1.37.
+**Dragon Net**: online with the Nintendo Switch port (DBT-NX) on a service of our own, no longer stopped by each new
+release of the PC port. Online against PC stays as an option.
 
-## From the PC port's 0.1.37
-- Online: a line on the screen while a match starts (*Connecting to your rival…*, then *Your rival "NAME" is here!*);
-  no more pause before the match that grew with the ping; the profile name no longer erased by Quick Match.
-- Blending: a source alpha above 0x80 counts as on the PS2 (the Solar Flare's whiteout).
-- Clashes, the Square option: a press can count 2.25, the default unless another is chosen.
-- Game text translations (menus, battle HUD, dialogue, the port's own text) from catalogs in
-  `translations/`, copied into the game folder by the app. English is the only catalog so far; the European disc
-  option of the PC setup is not part of Dragon Rage.
+## Dragon Net Battle, a new online screen
+- The game's **Dragon Net Battle** (main menu) opens a new screen in DBT-NX's look, for touch and controller, in
+  English, Portuguese and Spanish: **Create room**, **Join room**, **Quick match**, **Ranked** and **General chat**,
+  with the count of players online.
+- **Play against**: **Android + Switch** (Dragon Net, the default) or **PC** (the PC port's service, which asks for
+  its newest release). Also in Settings → Online. Ranked and the chat are Dragon Net's.
+- **Ranked**: a profile with rank, Elo, wins, losses and position; single or team search by level; the ranking's top
+  players. The points change when both games send the same result; leaving a ranked fight before its end is a loss.
+- Rooms show a big code to copy; Join room takes a pasted code. Ranked and quick fights: no time limit, the standard
+  speed, rollback.
+- Controller: D-pad to choose, A accept, B back, Y switches Android + Switch / PC, Start edits your name.
 
-## Fixes and help
-- **Phones where the game closed at once** (a Redmi with a Snapdragon 8s Gen 3, HyperOS 2: *"cannot map the game heap"*):
-  when the game heap's PS2 address is taken in the process, the heap now goes elsewhere below 2 GB, as on Windows.
-- **Logs saved by themselves**: when the game closed badly, or a texture pack cannot be installed, the app saves the
-  log in Downloads at once, says its name, and a **Send log** button opens the share sheet. *"Send this file to the
-  developer."*
-- **Textures page**: a card explaining how packs work (USA release, the .zip as it came, what to expect) with a log
-  button; after a fight in which a pack was on but none of its textures was used, the app says so (usually a pack for
-  another release of the game) and saves the log.
-- The *"game closed"* dialog names the real cause (memory, data, engine, textures) before a crash that follows it.
-
-## Online server
-- Settings → **Matchmaking server**: **Official** (the PC port's, PC and Android together; the default) or
-  **Community** (a service run by players, from the Tenkaichi3DecompAndroidOnline fork; only the players who chose it
-  meet there). Direct connections (address and port) use no server.
-
-## Update notes
-- Installs over 0.7.x / 0.6.0 and keeps everything.
-- If an update says *"App not installed: the package conflicts with an existing package"*, the app on the phone is
-  not one of these releases (another build of the code, with another signature): save `saves/` from
-  `Android/data/com.dfdx047.dragonrage/files/`, uninstall it, install this one and put the saves back.
+## Under the hood
+- Dragon Net speaks the PC port's 0.1.37 netcode with version **5001**; the service keeps every version apart, so
+  games that cannot play together never meet (`docs/DRAGON_NET.md`).
+- `port/dragonnet`: the service (DBT-NX's Worker, taking several versions at once) and its tests.
+- The launcher's online card follows the chosen mode, and says when the Dragon Net service does not take this
+  version yet.
