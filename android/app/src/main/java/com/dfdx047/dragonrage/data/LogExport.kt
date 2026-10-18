@@ -31,6 +31,32 @@ class LogExport(private val context: Context, private val paths: GamePaths) {
         appendLine("memory ${mem.totalMem / (1024 * 1024)} MB")
         appendLine("game data: " + (runCatching { paths.installedMarker.readText().replace('\n', ' ') }.getOrNull() ?: "not installed"))
         appendLine()
+        appendLine("===== app_activity.txt (what the app did: installs, packs, mods, drivers, updates, errors) =====")
+        val activity = ActivityLog.tail(1500)
+        if (activity.isEmpty()) appendLine("(empty)") else activity.forEach { appendLine(it) }
+        appendLine()
+        appendLine("===== the game folder =====")
+        runCatching {
+            paths.root.listFiles()?.sortedBy { it.name }?.forEach { f ->
+                if (f.isDirectory) {
+                    val all = f.walkTopDown().filter { it.isFile }.toList()
+                    appendLine("${f.name}/  ${all.size} files, ${all.sumOf { it.length() } / (1024 * 1024)} MB")
+                    if (f.name == "textures" || f.name == "textures_off" || f.name == "modlib") {
+                        f.listFiles()?.filter { it.isDirectory }?.sortedBy { it.name }?.forEach { appendLine("    ${it.name}/") }
+                    }
+                } else {
+                    appendLine("${f.name}  ${f.length()} bytes")
+                }
+            }
+        }.onFailure { appendLine("(could not be listed: ${it.message})") }
+        for (name in listOf("bt3_settings.txt", "bt3_env.txt", "match_url.txt", "dragonnet_url.txt")) {
+            val f = File(paths.root, name)
+            if (f.exists()) {
+                appendLine("--- $name")
+                runCatching { f.readLines().take(200).forEach { appendLine(it) } }
+            }
+        }
+        appendLine()
         appendLine("===== bt3_log.txt (the game's last run) =====")
         val log = File(paths.root, "bt3_log.txt")
         if (log.exists()) {
@@ -39,6 +65,15 @@ class LogExport(private val context: Context, private val paths: GamePaths) {
             lines.takeLast(3000).forEach { appendLine(it) }
         } else {
             appendLine("(none: the game has not been started yet)")
+        }
+        for ((name, label) in listOf("bt3_log.1.txt" to "the run before", "bt3_log.2.txt" to "two runs before")) {
+            val f = File(paths.root, name)
+            if (!f.exists()) continue
+            appendLine()
+            appendLine("===== $name ($label, ${java.text.DateFormat.getDateTimeInstance().format(Date(f.lastModified()))}) =====")
+            val lines = runCatching { f.readLines() }.getOrDefault(emptyList())
+            if (lines.size > 600) appendLine("(${lines.size - 600} earlier lines left out)")
+            lines.takeLast(600).forEach { appendLine(it) }
         }
         appendLine()
         appendLine("===== logcat (this app) =====")

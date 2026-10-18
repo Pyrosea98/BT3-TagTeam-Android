@@ -12,6 +12,7 @@ import java.io.File
 import java.io.IOException
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.dfdx047.dragonrage.data.ActivityLog
 import com.dfdx047.dragonrage.data.AppUpdates
 import com.dfdx047.dragonrage.data.CatalogState
 import com.dfdx047.dragonrage.data.EngineSettings
@@ -63,7 +64,11 @@ import kotlin.coroutines.cancellation.CancellationException
 data class Busy(val title: String, val detail: String = "")
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
-    val paths = GamePaths(app).also { it.ensure() }
+    val paths = GamePaths(app).also {
+        it.ensure()
+        ActivityLog.init(it)
+        ActivityLog.info("app", "opened: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}), PC release ${BuildConfig.PORT_RELEASE}, Android ${Build.VERSION.RELEASE}, ${Build.MANUFACTURER} ${Build.MODEL}")
+    }
     private val resolver = app.contentResolver
     private val installer = GameDataInstaller(app, paths, resolver)
     private val packs = TexturePacks(app, paths, resolver)
@@ -112,9 +117,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val gpuDriver: StateFlow<String?> = _driver.asStateFlow()
 
     fun importDriver(uri: Uri) = viewModelScope.launch(Dispatchers.IO) {
-        val d = runCatching { drivers.import(uri) }.getOrNull()
+        ActivityLog.info("driver", "import: ${ActivityLog.describe(resolver, uri)}")
+        val r = runCatching { drivers.import(uri) }
+        val d = r.getOrNull()
         _drivers.value = drivers.list()
-        if (d == null) say(str(R.string.driver_bad_zip)) else {
+        if (d == null) {
+            ActivityLog.fail("driver", "import failed (not a driver .zip?)", r.exceptionOrNull())
+            failed(R.string.fail_driver_title, str(R.string.driver_bad_zip))
+        } else {
+            ActivityLog.info("driver", "imported: ${d.name} (${d.id})")
             drivers.select(d.id)
             _driver.value = d.id
             say(str(R.string.driver_imported, d.name))
@@ -122,11 +133,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun selectDriver(id: String?) = viewModelScope.launch(Dispatchers.IO) {
+        ActivityLog.info("driver", "chosen: ${id ?: "the system's"}")
         drivers.select(id)
         _driver.value = drivers.selected()?.id
     }
 
     fun deleteDriver(d: GpuDriver) = viewModelScope.launch(Dispatchers.IO) {
+        ActivityLog.info("driver", "removed: ${d.name}")
         drivers.delete(d)
         _drivers.value = drivers.list()
         _driver.value = drivers.selected()?.id
@@ -142,7 +155,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 say(str(R.string.log_saved, name))
                 _logShare.tryEmit(uri)
             }
-            .onFailure { say(str(R.string.log_failed, it.message ?: "")) }
+            .onFailure {
+                ActivityLog.fail("log", "export failed", it)
+                say(str(R.string.log_failed, it.message ?: ""))
+            }
     }
 
     /** Saves a report and opens the share sheet at once (pages without the Debug page's log card, Textures). */
@@ -211,6 +227,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val matchServer: StateFlow<String> = _matchServer.asStateFlow()
 
     fun setMatchServer(url: String) {
+        ActivityLog.info("online", "PC server: $url")
         OnlineStatus.choose(paths, url)
         _matchServer.value = OnlineStatus.current(paths)
         checkOnline()
@@ -219,12 +236,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun checkOnline() {
         _online.value = OnlineState.Checking
         val mode = _settings.value[OnlineStatus.MODE] ?: 0
-        viewModelScope.launch { _online.value = runCatching { OnlineStatus.check(paths, BuildConfig.PORT_RELEASE, mode) }.getOrDefault(OnlineState.Unreachable) }
+        viewModelScope.launch {
+            val r = runCatching { OnlineStatus.check(paths, BuildConfig.PORT_RELEASE, mode) }
+            _online.value = r.getOrDefault(OnlineState.Unreachable)
+            ActivityLog.info("online", "${if (mode == 0) "Dragon Net" else "PC"}: ${_online.value}" + (r.exceptionOrNull()?.let { " (${it.javaClass.simpleName}: ${it.message})" } ?: ""))
+        }
     }
 
     /** Whom online plays against: 0 Dragon Net (Android + Switch), 1 the PC (also chosen in the game's online screen). */
     fun setNetMode(mode: Int) {
         viewModelScope.launch(Dispatchers.IO) {
+            ActivityLog.info("online", "play against: ${if (mode == 0) "Android + Switch (Dragon Net)" else "PC"}")
             settings.set(OnlineStatus.MODE, mode)
             _settings.value = settings.snapshot()
             withContext(Dispatchers.Main) { checkOnline() }
@@ -246,6 +268,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun checkLastRun() = viewModelScope.launch(Dispatchers.IO) {
         runCatching { LastRun.check(paths) }.getOrNull()?.let {
+            ActivityLog.fail("game", "the last run ended badly: ${it.problem}: ${it.detail}")
             _lastRunLog.value = autoLog()
             _lastRun.value = it
         }
@@ -256,7 +279,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** A texture pack that could not be installed: why, and the report saved for it in Downloads. */
-    data class TexFail(val reason: String, val log: SavedLog?)
+    data class TexFail(val reason: String, val log: SavedLog?, val title: Int = R.string.texfail_title)
 
     private val _texFail = MutableStateFlow<TexFail?>(null)
     val texFail: StateFlow<TexFail?> = _texFail.asStateFlow()
@@ -266,8 +289,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun texFailed(e: Exception) {
-        android.util.Log.w("bt3", "texture install failed: ${e.message}", e)
+        ActivityLog.fail("textures", "install failed", e)
         _texFail.value = TexFail(e.message ?: e.javaClass.simpleName, autoLog())
+    }
+
+    /** Anything else that failed (the ISO, a driver, a mod, an update): logged, the report saved in Downloads at once,
+     *  and the dialog with "Send log". */
+    private fun failed(title: Int, reason: String) {
+        _texFail.value = TexFail(reason, autoLog(), title)
     }
 
     fun refreshPerf() = viewModelScope.launch(Dispatchers.IO) { _perf.value = runCatching { PerfReport.read(paths) }.getOrNull() }
@@ -293,7 +322,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun downloadDriver(asset: DriverAsset) = work(str(R.string.busy_driver_download)) {
+    fun downloadDriver(asset: DriverAsset) = work(str(R.string.busy_driver_download), R.string.fail_driver_title) {
+        ActivityLog.info("driver", "download: ${asset.url}")
         paths.temp.mkdirs()
         val file = java.io.File(paths.temp, "driver-${System.currentTimeMillis()}.zip")
         try {
@@ -305,6 +335,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             drivers.select(d.id)
             _drivers.value = drivers.list()
             _driver.value = d.id
+            ActivityLog.info("driver", "downloaded and imported: ${d.name}")
             say(str(R.string.driver_imported, d.name))
         } finally {
             file.delete()
@@ -325,6 +356,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setRenderer(choice: Int) = viewModelScope.launch(Dispatchers.IO) {
+        ActivityLog.info("settings", "renderer: $choice (0 automatic, 1 Vulkan, 2 OpenGL ES), GPU ${_gpuName.value}")
         settings.set(EngineSettings.RENDERER, choice)
         runCatching { Renderer.apply(settings, paths) }
         _settings.value = settings.snapshot()
@@ -347,17 +379,39 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun installFromIso(uri: Uri) {
         if (installJob?.isActive == true) return
         installJob = viewModelScope.launch {
+            val started = System.currentTimeMillis()
+            withContext(Dispatchers.IO) {
+                ActivityLog.info("iso", "install from ${ActivityLog.describe(resolver, uri)}")
+                ActivityLog.info("iso", "free space: ${paths.root.usableSpace / (1024 * 1024)} MB in ${paths.root}")
+            }
+            var step = ""
             try {
-                _install.value = installer.install(uri) { _install.value = it }
+                val done = installer.install(uri) {
+                    _install.value = it
+                    if (it.step != step) {
+                        step = it.step
+                        ActivityLog.info("iso", "step: ${it.step} (${it.detail})")
+                    }
+                }
+                _install.value = done
+                ActivityLog.info("iso", "installed: ${done.files} files, ${done.bytes} bytes, modified image: ${done.modified}, " +
+                    "${(System.currentTimeMillis() - started) / 1000} s")
                 say(str(R.string.msg_data_ready))
             } catch (e: CancellationException) {
+                ActivityLog.warn("iso", "cancelled at: $step")
                 withContext(Dispatchers.IO) { installer.uninstall() }
                 _install.value = InstallState.NotInstalled
                 throw e
             } catch (e: GameDataInstaller.Stop) {
-                _install.value = InstallState.Failed(e.message ?: str(R.string.msg_error))
+                val why = e.message ?: str(R.string.msg_error)
+                ActivityLog.fail("iso", "refused at \"$step\": $why")
+                _install.value = InstallState.Failed(why)
+                withContext(Dispatchers.IO) { failed(R.string.fail_iso_title, why) }
             } catch (e: Exception) {
-                _install.value = InstallState.Failed(str(R.string.msg_iso_read_error, e.message ?: e.javaClass.simpleName))
+                val why = str(R.string.msg_iso_read_error, e.message ?: e.javaClass.simpleName)
+                ActivityLog.fail("iso", "failed at \"$step\"", e)
+                _install.value = InstallState.Failed(why)
+                withContext(Dispatchers.IO) { failed(R.string.fail_iso_title, why) }
             }
         }
     }
@@ -367,6 +421,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun removeGameData() = viewModelScope.launch(Dispatchers.IO) {
+        ActivityLog.info("iso", "game data removed by the player")
         installer.uninstall()
         _install.value = InstallState.NotInstalled
     }
@@ -379,8 +434,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun importTexturePack(uri: Uri) = work(str(R.string.busy_import_pack)) {
         try {
+            ActivityLog.info("textures", "import: ${ActivityLog.describe(resolver, uri)}")
             val p = packs.import(uri) { setDetail(it) }
             _packs.value = packs.list()
+            ActivityLog.info("textures", "installed: ${p.name}, ${p.textures} textures")
             say(str(R.string.msg_pack_installed, p.name, p.textures))
         } catch (e: CancellationException) {
             throw e
@@ -390,11 +447,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setPackEnabled(pack: TexturePack, on: Boolean) = work(str(if (on) R.string.busy_pack_on else R.string.busy_pack_off)) {
+        ActivityLog.info("textures", "${pack.name}: ${if (on) "on" else "off"}")
         packs.setEnabled(pack, on)
         _packs.value = packs.list()
     }
 
     fun deletePack(pack: TexturePack) = work(str(R.string.busy_pack_remove)) {
+        ActivityLog.info("textures", "removed: ${pack.name}")
         packs.delete(pack)
         _packs.value = packs.list()
         say(str(R.string.msg_pack_removed, pack.name))
@@ -425,10 +484,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 Net.download(u, file) { done, total ->
                     setDetail(str(R.string.progress_downloading, formatBytes(done)) + if (total > 0) " / ${formatBytes(total)}" else "")
                 }
+                ActivityLog.info("textures", "downloaded ${file.length()} bytes from $u")
                 if (!Net.looksLikeZip(file)) throw IOException(str(R.string.err_download_not_zip))
                 val label = name ?: u.substringBefore('?').substringAfterLast('/').removeSuffix(".zip").ifBlank { "Texture pack" }
                 val p = packs.importFrom(label, { file.inputStream() }) { d -> setDetail(d) }
                 _packs.value = packs.list()
+                ActivityLog.info("textures", "installed: ${p.name}, ${p.textures} textures")
                 say(str(R.string.msg_pack_installed, p.name, p.textures))
               } catch (e: CancellationException) {
                 throw e
@@ -460,6 +521,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val r = runCatching { AppUpdates.check(BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE) }
             val info = r.getOrNull()
+            r.exceptionOrNull()?.let { ActivityLog.warn("update", "check failed: ${it.javaClass.simpleName}: ${it.message}") }
+            if (info != null) ActivityLog.info("update", "available: ${info}")
             _update.value = if (info != null) UpdateState.Available(info) else UpdateState.Idle
             if (manual && info == null) say(str(if (r.isSuccess) R.string.update_none else R.string.update_check_failed))
         }
@@ -479,6 +542,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val app = getApplication<Application>()
         updateJob = viewModelScope.launch {
             _update.value = UpdateState.Downloading(info, 0, info.size)
+            ActivityLog.info("update", "download: ${info.apkUrl}")
             try {
                 val dir = File(app.cacheDir, "updates").apply { deleteRecursively(); mkdirs() }
                 val f = File(dir, "DragonRage-update.apk")
@@ -486,12 +550,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 val pkg = app.packageManager.getPackageArchiveInfo(f.path, 0)?.packageName
                 if (pkg != app.packageName) throw IOException(str(R.string.update_bad_apk))
                 updateFile = f
+                ActivityLog.info("update", "downloaded ${f.length()} bytes")
                 installUpdate(info)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 _update.value = UpdateState.Idle
-                say(str(R.string.update_failed, e.message ?: e.javaClass.simpleName))
+                ActivityLog.fail("update", "failed", e)
+                withContext(Dispatchers.IO) { failed(R.string.fail_update_title, str(R.string.update_failed, e.message ?: e.javaClass.simpleName)) }
             }
         }
     }
@@ -527,17 +593,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---- mods, stages, songs
 
-    fun importMod(uris: List<Uri>) = work(str(R.string.busy_import_mods)) {
+    fun importMod(uris: List<Uri>) = work(str(R.string.busy_import_mods), R.string.fail_mod_title) {
         var mods0 = 0
         var stages0 = 0
         var songs0 = 0
         for (uri in uris) {
+            ActivityLog.info("mods", "import: ${ActivityLog.describe(resolver, uri)}")
             when (val r = mods.import(uri) { setDetail(it) }) {
                 is ImportResult.Mod -> mods0++
                 is ImportResult.Extras -> if (r.kind == ExtraKind.STAGE) stages0 += r.count else songs0 += r.count
             }
         }
         refreshMods()
+        ActivityLog.info("mods", "added: $mods0 mods, $stages0 stages, $songs0 songs")
         say(str(R.string.msg_added, listOfNotNull(
             mods0.takeIf { it > 0 }?.let { str(R.string.count_mods, it) },
             stages0.takeIf { it > 0 }?.let { str(R.string.count_stages, it) },
@@ -545,7 +613,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         ).joinToString(", ")))
     }
 
-    fun setModEnabled(mod: FileMod, on: Boolean) = work(str(R.string.busy_apply_mods)) {
+    fun setModEnabled(mod: FileMod, on: Boolean) = work(str(R.string.busy_apply_mods), R.string.fail_mod_title) {
+        ActivityLog.info("mods", "${mod.name}: ${if (on) "on" else "off"}")
         mods.setEnabled(mod, on) { setDetail(it) }
         refreshMods()
     }
@@ -556,6 +625,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun deleteMod(mod: FileMod) = work(str(R.string.busy_remove_mod)) {
+        ActivityLog.info("mods", "removed: ${mod.name}")
         mods.delete(mod) { setDetail(it) }
         refreshMods()
         say(str(R.string.msg_mod_removed, mod.name))
@@ -608,10 +678,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         when {
             _install.value !is InstallState.Installed -> say(str(R.string.msg_install_first))
             !engineAvailable -> say(str(R.string.msg_no_engine))
-            else -> getApplication<android.app.Application>().startActivity(
+            else -> ActivityLog.info("game", "started (renderer ${_settings.value[EngineSettings.RENDERER] ?: 0}, online ${if ((_settings.value[OnlineStatus.MODE] ?: 0) == 0) "Dragon Net" else "PC"})").let { getApplication<android.app.Application>().startActivity(
                 android.content.Intent(getApplication(), com.dfdx047.dragonrage.engine.GameActivity::class.java)
                     .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
-            )
+            ) }
         }
     }
 
@@ -646,7 +716,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _busy.value = _busy.value?.copy(detail = text)
     }
 
-    private fun work(title: String, block: suspend () -> Unit) {
+    private fun work(title: String, failTitle: Int = 0, block: suspend () -> Unit) {
         if (_busy.value != null) {
             say(str(R.string.msg_wait))
             return
@@ -658,7 +728,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                say(e.message ?: "${str(R.string.msg_error)}: ${e.javaClass.simpleName}")
+                ActivityLog.fail("work", "\"$title\" failed", e)
+                val why = e.message ?: "${str(R.string.msg_error)}: ${e.javaClass.simpleName}"
+                if (failTitle != 0) failed(failTitle, why) else say(why)
             } finally {
                 _busy.value = null
             }

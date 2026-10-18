@@ -94,7 +94,13 @@ static void say(const char *fmt, ...) {
 static void redirect_output(const char *dir) {
     char path[1024];
     pthread_t th;
+    char older[1024], old[1024];
+    /* the two runs before this one are kept (bt3_log.1.txt, bt3_log.2.txt): a problem is often seen one run late */
     snprintf(path, sizeof(path), "%s/bt3_log.txt", dir);
+    snprintf(old, sizeof(old), "%s/bt3_log.1.txt", dir);
+    snprintf(older, sizeof(older), "%s/bt3_log.2.txt", dir);
+    rename(old, older);
+    rename(path, old);
     sLog = fopen(path, "w");
     setvbuf(stdout, NULL, _IOLBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);

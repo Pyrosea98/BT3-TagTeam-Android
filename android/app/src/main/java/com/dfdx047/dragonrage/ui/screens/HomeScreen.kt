@@ -341,10 +341,19 @@ private fun OnlineBanner(vm: AppViewModel) {
             title = { Text(stringResource(R.string.online_title)) },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(stringResource(R.string.online_how_title), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-                    Text(stringResource(R.string.online_how), style = MaterialTheme.typography.bodyMedium)
-                    Text(stringResource(R.string.online_fail_title), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-                    Text(stringResource(R.string.online_fail), style = MaterialTheme.typography.bodyMedium)
+                    // the guide: the two kinds of online, how to play, Ranked, the chat, what each message means, the log
+                    for ((t, b) in listOf(
+                        R.string.online_modes_title to R.string.online_modes,
+                        R.string.online_how_title to R.string.online_how,
+                        R.string.online_ranked_title to R.string.online_ranked,
+                        R.string.online_chat_title to R.string.online_chat,
+                        R.string.online_fail_title to R.string.online_fail,
+                        R.string.online_log_title to R.string.online_log,
+                    )) {
+                        Text(stringResource(t), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                        Text(stringResource(b), style = MaterialTheme.typography.bodyMedium)
+                    }
+                    FilledTonalButton(onClick = { open = false; vm.exportLogAndShare() }) { Text(stringResource(R.string.log_send)) }
                 }
             },
             confirmButton = { TextButton(onClick = { open = false }) { Text(stringResource(R.string.close)) } },

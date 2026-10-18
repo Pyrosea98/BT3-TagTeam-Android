@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BrokenImage
+import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -33,7 +34,7 @@ internal fun shareLog(context: Context, uri: Uri) {
     runCatching { context.startActivity(Intent.createChooser(send, context.getString(R.string.log_share)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
 }
 
-/** "This texture pack could not be installed": why, and that the report is already in Downloads, to send (with no
+/** "This texture pack could not be installed" (or the ISO, a driver, a mod, an update: `title`): why, and that the report is already in Downloads, to send (with no
  *  reason: a report saved from the Textures page's button). */
 @Composable
 fun TexFailDialog(vm: AppViewModel) {
@@ -42,8 +43,8 @@ fun TexFailDialog(vm: AppViewModel) {
     val context = LocalContext.current
     AlertDialog(
         onDismissRequest = { vm.dismissTexFail() },
-        icon = { Icon(Icons.Rounded.BrokenImage, null, tint = MaterialTheme.colorScheme.error) },
-        title = { Text(stringResource(if (fail.reason.isEmpty()) R.string.log_saved_title else R.string.texfail_title)) },
+        icon = { Icon(if (fail.title == R.string.texfail_title) Icons.Rounded.BrokenImage else Icons.Rounded.ErrorOutline, null, tint = MaterialTheme.colorScheme.error) },
+        title = { Text(stringResource(if (fail.reason.isEmpty()) R.string.log_saved_title else fail.title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (fail.reason.isNotEmpty()) Text(fail.reason, style = MaterialTheme.typography.bodyMedium)
