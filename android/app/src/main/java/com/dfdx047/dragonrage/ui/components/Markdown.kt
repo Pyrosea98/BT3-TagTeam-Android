@@ -28,7 +28,7 @@ import androidx.compose.ui.unit.dp
 import com.dfdx047.dragonrage.ui.theme.Dbz
 
 /**
- * A small renderer for the release notes (CHANGELOG-vX.Y.Z.md): headings, bullets (nested), quotes, **bold**,
+ * A small renderer for the release notes (CHANGELOG.md): headings, bullets (nested), quotes, **bold**,
  * `code`, [links](...) as their text. Images are left out (the notes are read in a dialog). Not a full Markdown.
  */
 @Composable

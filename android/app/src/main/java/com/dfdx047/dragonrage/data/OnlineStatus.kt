@@ -24,6 +24,18 @@ sealed interface OnlineState {
 object OnlineStatus {
     private const val NET_VERSION = 4 // the online protocol's version (port/src/gs/net.c NET_VERSION)
     const val DEFAULT_URL = "https://odd-surf-0af7.bt3decomp.workers.dev"
+    /** A matchmaking service run by players (fork Androidxxt01/Tenkaichi3DecompAndroidOnline): chosen in Settings,
+     *  never by default; only the players who chose it meet there (no PC players of the official one). */
+    const val COMMUNITY_URL = "https://mitigo-rooms.minetivacraft.workers.dev"
+
+    /** The service in use: match_url.txt in the game folder (the engine reads it too, net_match.c), else the official. */
+    fun current(paths: GamePaths): String = runCatching { File(paths.root, "match_url.txt").readText().trim() }.getOrNull()
+        ?.takeIf { it.startsWith("https://") }?.trimEnd('/') ?: DEFAULT_URL
+
+    fun choose(paths: GamePaths, url: String) {
+        val f = File(paths.root, "match_url.txt")
+        if (url == DEFAULT_URL) runCatching { f.delete() } else runCatching { f.writeText(url + "\n") }
+    }
 
     private fun post(url: String, body: String): Pair<Int, String> {
         val c = (URL(url).openConnection() as HttpURLConnection).apply {

@@ -48,12 +48,13 @@ object AppUpdates {
         }
         val mine = parse(currentName) ?: listOf(0)
         val found = best?.takeIf { compare(bestV!!, mine) > 0 } ?: return null
-        // The notes: the version's changelog file in the repository (CHANGELOG-vX.Y.Z.md, as it is at that tag), else
-        // the release's own text.
+        // The notes: the changelog in the repository as it is at that version's tag (CHANGELOG.md / .pt.md / .es.md
+        // since 0.7.3, which hold the latest version's notes; CHANGELOG-vX.Y.Z.md before), else the release's own text.
         val lang = java.util.Locale.getDefault().language
-        val base = "https://raw.githubusercontent.com/$REPO/android-v${found.version}/CHANGELOG-v${found.version}"
+        val tag = "https://raw.githubusercontent.com/$REPO/android-v${found.version}"
         suspend fun fetch(url: String) = runCatching { Net.getText(url).trim().take(8000) }.getOrDefault("")
-        val file = (if (lang == "pt" || lang == "es") fetch("$base.$lang.md") else "").ifBlank { fetch("$base.md") }
+        suspend fun notes(base: String) = (if (lang == "pt" || lang == "es") fetch("$base.$lang.md") else "").ifBlank { fetch("$base.md") }
+        val file = notes("$tag/CHANGELOG").ifBlank { notes("$tag/CHANGELOG-v${found.version}") }
         if (file.isNotBlank()) return found.copy(notes = file)
         return found
     }

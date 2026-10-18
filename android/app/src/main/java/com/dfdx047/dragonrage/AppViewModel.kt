@@ -145,6 +145,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             .onFailure { say(str(R.string.log_failed, it.message ?: "")) }
     }
 
+    /** Saves a report and opens the share sheet at once (pages without the Debug page's log card, Textures). */
+    fun exportLogAndShare() = viewModelScope.launch(Dispatchers.IO) {
+        val log = autoLog()
+        if (log == null) say(str(R.string.log_auto_failed)) else _texFail.value = TexFail("", log)
+    }
+
     private val _busy = MutableStateFlow<Busy?>(null)
     val busy: StateFlow<Busy?> = _busy.asStateFlow()
 
@@ -200,21 +206,58 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** How online play stands for this build (the matchmaking service's answer), for the banner on Home. */
     val online: StateFlow<OnlineState> = _online.asStateFlow()
 
+    private val _matchServer = MutableStateFlow(OnlineStatus.current(paths))
+    /** The matchmaking service the game uses (official unless the player chose another, Settings). */
+    val matchServer: StateFlow<String> = _matchServer.asStateFlow()
+
+    fun setMatchServer(url: String) {
+        OnlineStatus.choose(paths, url)
+        _matchServer.value = OnlineStatus.current(paths)
+        checkOnline()
+    }
+
     fun checkOnline() {
         _online.value = OnlineState.Checking
         viewModelScope.launch { _online.value = runCatching { OnlineStatus.check(paths, BuildConfig.PORT_RELEASE) }.getOrDefault(OnlineState.Unreachable) }
     }
 
+    /** A report the app saved in Downloads by itself (a problem it saw), to name and to share. */
+    data class SavedLog(val uri: Uri, val name: String)
+
+    private fun autoLog(): SavedLog? = runCatching { LogExport(getApplication(), paths).saveToDownloads() }
+        .getOrNull()?.let { (uri, name) -> SavedLog(uri, name) }
+
     private val _lastRun = MutableStateFlow<LastRun.Report?>(null)
     /** Why the game's last run stopped, when its log says it did not end well (shown once, as a dialog). */
     val lastRun: StateFlow<LastRun.Report?> = _lastRun.asStateFlow()
+    private val _lastRunLog = MutableStateFlow<SavedLog?>(null)
+    /** The report saved for it in Downloads (made at once: players rarely export one themselves). */
+    val lastRunLog: StateFlow<SavedLog?> = _lastRunLog.asStateFlow()
 
     fun checkLastRun() = viewModelScope.launch(Dispatchers.IO) {
-        runCatching { LastRun.check(paths) }.getOrNull()?.let { _lastRun.value = it }
+        runCatching { LastRun.check(paths) }.getOrNull()?.let {
+            _lastRunLog.value = autoLog()
+            _lastRun.value = it
+        }
     }
 
     fun dismissLastRun() {
         _lastRun.value = null
+    }
+
+    /** A texture pack that could not be installed: why, and the report saved for it in Downloads. */
+    data class TexFail(val reason: String, val log: SavedLog?)
+
+    private val _texFail = MutableStateFlow<TexFail?>(null)
+    val texFail: StateFlow<TexFail?> = _texFail.asStateFlow()
+
+    fun dismissTexFail() {
+        _texFail.value = null
+    }
+
+    private fun texFailed(e: Exception) {
+        android.util.Log.w("bt3", "texture install failed: ${e.message}", e)
+        _texFail.value = TexFail(e.message ?: e.javaClass.simpleName, autoLog())
     }
 
     fun refreshPerf() = viewModelScope.launch(Dispatchers.IO) { _perf.value = runCatching { PerfReport.read(paths) }.getOrNull() }
@@ -325,9 +368,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     // ---- texture packs
 
     fun importTexturePack(uri: Uri) = work(str(R.string.busy_import_pack)) {
-        val p = packs.import(uri) { setDetail(it) }
-        _packs.value = packs.list()
-        say(str(R.string.msg_pack_installed, p.name, p.textures))
+        try {
+            val p = packs.import(uri) { setDetail(it) }
+            _packs.value = packs.list()
+            say(str(R.string.msg_pack_installed, p.name, p.textures))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            texFailed(e)
+        }
     }
 
     fun setPackEnabled(pack: TexturePack, on: Boolean) = work(str(if (on) R.string.busy_pack_on else R.string.busy_pack_off)) {
@@ -362,6 +411,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             paths.temp.mkdirs()
             val file = File(paths.temp, "download-${System.currentTimeMillis()}.zip")
             try {
+              try {
                 Net.download(u, file) { done, total ->
                     setDetail(str(R.string.progress_downloading, formatBytes(done)) + if (total > 0) " / ${formatBytes(total)}" else "")
                 }
@@ -370,6 +420,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 val p = packs.importFrom(label, { file.inputStream() }) { d -> setDetail(d) }
                 _packs.value = packs.list()
                 say(str(R.string.msg_pack_installed, p.name, p.textures))
+              } catch (e: CancellationException) {
+                throw e
+              } catch (e: Exception) {
+                texFailed(e)
+              }
             } finally {
                 file.delete()
             }

@@ -365,4 +365,18 @@
     <string name="astc">ASTC texture packs</string>
     <string name="astc_text">Experimental, off by default. Keeps a compressed copy of texture-pack images in the format phone GPUs read (Mali, Adreno…), made on the CPU in the background the first time each is used: less memory, but the conversion takes CPU time while you play.</string>
     <string name="renderer_mali_gl">On Mali GPUs OpenGL ES is several times slower in fights than Vulkan (a Mali-G52: about 4 pictures a second against 12 to 26, with the game at full speed). Use Automatic unless Vulkan does not start on this phone.</string>
+    <string name="textures_help_title">How texture packs work</string>
+    <string name="textures_help">1. Download an HD pack made for this game in PCSX2 or AetherSX2/NetherSX2 (the USA release, SLUS-21678). Packs for the Japanese or European release do not match.\n2. Tap Add pack and pick the pack\'s .zip file as it came (do not unzip it, do not rename the files inside).\n3. The pack appears below with how many textures it has. Leave \"Use texture packs\" on and start a fight: the textures change as the game loads them.\nIf the pack does not install, or installs but nothing changes in a fight, the app saves a log in Downloads by itself and tells you its name: send that file to us.</string>
+    <string name="textures_help_log">Something else wrong with textures? Save a log here and send it to us on Discord or GitHub.</string>
+    <string name="texfail_title">This texture pack could not be installed</string>
+    <string name="log_saved_title">Log saved</string>
+    <string name="log_auto_saved">The log was saved in Downloads as %1$s. Send this file to the developer (Discord or GitHub) so we can fix it.</string>
+    <string name="log_auto_failed">The log could not be saved by itself: use Debug → Export log.</string>
+    <string name="log_send">Send log</string>
+    <string name="lastrun_textures_title">The texture pack was not used</string>
+    <string name="lastrun_textures">The game played a fight without using any texture from your pack. Usually the pack is for another release of the game (Japanese or European) or is not a PCSX2 pack. Check that it is for the USA release (SLUS-21678); if it is, send us the log.</string>
+    <string name="online_server_title">Matchmaking server</string>
+    <string name="online_server_official">Official (PC + Android)</string>
+    <string name="online_server_community">Community</string>
+    <string name="online_server_text">Official: the PC port\'s service, where PC and Android players meet; it accepts only the latest release. Community: a service run by players (from the Tenkaichi3DecompAndroidOnline fork), not by us; there you meet only the players who chose it, no PC players of the official one. Quick match and room codes use it; a direct connection (address and port) uses no server.</string>
 </resources>

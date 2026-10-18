@@ -67,6 +67,7 @@ import com.dfdx047.dragonrage.ui.screens.DebugScreen
 import com.dfdx047.dragonrage.ui.screens.DriversScreen
 import com.dfdx047.dragonrage.ui.screens.GpuOfferDialog
 import com.dfdx047.dragonrage.ui.screens.LastRunDialog
+import com.dfdx047.dragonrage.ui.screens.TexFailDialog
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -122,6 +123,7 @@ private fun DragonRageApp(vm: AppViewModel) {
     UpdateDialog(vm)
     GpuOfferDialog(vm)
     LastRunDialog(vm)
+    TexFailDialog(vm)
 
     fun go(d: Dest) = nav.navigate(d.route) {
         popUpTo(nav.graph.findStartDestination().id) { saveState = true }

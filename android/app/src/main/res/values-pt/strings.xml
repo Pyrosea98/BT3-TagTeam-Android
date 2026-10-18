@@ -364,4 +364,18 @@
     <string name="astc">Pacotes de textura em ASTC</string>
     <string name="astc_text">Experimental, desligado por padrão. Guarda uma cópia comprimida das imagens dos pacotes de textura no formato que as GPUs de celular leem (Mali, Adreno…), feita pela CPU em segundo plano na primeira vez que cada uma é usada: menos memória, mas a conversão usa CPU enquanto você joga.</string>
     <string name="renderer_mali_gl">Nas GPUs Mali o OpenGL ES é várias vezes mais lento nas lutas que o Vulkan (numa Mali-G52: cerca de 4 quadros por segundo contra 12 a 26, com o jogo na velocidade certa). Use Automático, a não ser que o Vulkan não abra neste celular.</string>
+    <string name="textures_help_title">Como funcionam os pacotes de textura</string>
+    <string name="textures_help">1. Baixe um pacote HD feito para este jogo no PCSX2 ou AetherSX2/NetherSX2 (versão americana, SLUS-21678). Pacotes da versão japonesa ou europeia não batem.\n2. Toque em Adicionar pack e escolha o arquivo .zip do pacote do jeito que veio (não descompacte e não renomeie os arquivos de dentro).\n3. O pacote aparece aqui embaixo com quantas texturas tem. Deixe \"Usar packs de texturas\" ligado e comece uma luta: as texturas mudam conforme o jogo carrega.\nSe o pacote não instalar, ou instalar e nada mudar numa luta, o app salva sozinho um log na pasta Downloads e mostra o nome dele: mande esse arquivo para a gente.</string>
+    <string name="textures_help_log">Outro problema com as texturas? Salve um log aqui e mande para a gente no Discord ou GitHub.</string>
+    <string name="texfail_title">Este pacote de textura não pôde ser instalado</string>
+    <string name="log_saved_title">Log salvo</string>
+    <string name="log_auto_saved">O log foi salvo na pasta Downloads como %1$s. Mande esse arquivo para o desenvolvedor (Discord ou GitHub) para a gente corrigir.</string>
+    <string name="log_auto_failed">Não foi possível salvar o log sozinho: use Depuração → Exportar log.</string>
+    <string name="log_send">Enviar log</string>
+    <string name="lastrun_textures_title">O pacote de textura não foi usado</string>
+    <string name="lastrun_textures">O jogo rodou uma luta sem usar nenhuma textura do seu pacote. Normalmente o pacote é de outra versão do jogo (japonesa ou europeia) ou não é um pacote do PCSX2. Confira se ele é da versão americana (SLUS-21678); se for, mande o log para a gente.</string>
+    <string name="online_server_title">Servidor de partidas</string>
+    <string name="online_server_official">Oficial (PC + Android)</string>
+    <string name="online_server_community">Comunidade</string>
+    <string name="online_server_text">Oficial: o serviço do port de PC, onde jogadores de PC e Android se encontram; aceita só a versão mais recente. Comunidade: um serviço mantido por jogadores (do fork Tenkaichi3DecompAndroidOnline), não por nós; lá você só encontra quem também escolheu ele, sem os jogadores de PC do oficial. A partida rápida e o código de sala usam o servidor; a conexão direta (endereço e porta) não usa servidor.</string>
 </resources>

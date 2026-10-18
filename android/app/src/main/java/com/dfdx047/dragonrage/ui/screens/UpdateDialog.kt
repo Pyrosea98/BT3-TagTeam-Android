@@ -77,7 +77,7 @@ fun UpdateDialog(vm: AppViewModel) {
                             Text(formatBytes(s.info.size), style = MaterialTheme.typography.labelLarge, color = Dbz.SaiyanGold)
                         }
                     }
-                    // the changelog (CHANGELOG-vX.Y.Z.md), scrollable
+                    // the changelog (CHANGELOG.md), scrollable
                     Column(
                         Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),

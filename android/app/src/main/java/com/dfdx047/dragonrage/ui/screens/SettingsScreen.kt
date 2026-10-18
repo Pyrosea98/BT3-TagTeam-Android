@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Speed
@@ -148,6 +149,24 @@ fun SettingsScreen(vm: AppViewModel) {
             StepSlider(stringResource(R.string.music), { "${it * 10}%" }, music / 10, 0..20) { vm.setting(EngineSettings.MUSIC, it * 10) }
             val fx = get(EngineSettings.EFFECTS, 100)
             StepSlider(stringResource(R.string.sfx), { "${it * 10}%" }, fx / 10, 0..20) { vm.setting(EngineSettings.EFFECTS, it * 10) }
+        }
+
+        SectionCard(stringResource(R.string.online_server_title), Icons.Rounded.Public, accent = MaterialTheme.colorScheme.secondary) {
+            val server by vm.matchServer.collectAsStateWithLifecycle()
+            val kind = when (server) {
+                com.dfdx047.dragonrage.data.OnlineStatus.DEFAULT_URL -> 0
+                com.dfdx047.dragonrage.data.OnlineStatus.COMMUNITY_URL -> 1
+                else -> 2
+            }
+            ChipRow(
+                options = listOf(stringResource(R.string.online_server_official) to 0, stringResource(R.string.online_server_community) to 1),
+                selected = kind,
+                onSelect = {
+                    vm.setMatchServer(if (it == 1) com.dfdx047.dragonrage.data.OnlineStatus.COMMUNITY_URL else com.dfdx047.dragonrage.data.OnlineStatus.DEFAULT_URL)
+                },
+            )
+            if (kind == 2) Text(server, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.online_server_text), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
         SectionCard(stringResource(R.string.performance), Icons.Rounded.Speed, accent = MaterialTheme.colorScheme.secondary) {

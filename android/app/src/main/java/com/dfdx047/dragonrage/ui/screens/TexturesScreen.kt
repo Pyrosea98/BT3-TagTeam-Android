@@ -19,6 +19,10 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Texture
+import androidx.compose.material.icons.rounded.BugReport
+import androidx.compose.material.icons.automirrored.rounded.HelpOutline
+import androidx.compose.material3.FilledTonalButton
+import com.dfdx047.dragonrage.ui.theme.Dbz
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -79,6 +83,17 @@ fun TexturesScreen(vm: AppViewModel) {
                             checked = (settings[EngineSettings.TEXTURE_PACK] ?: 1) != 0,
                             onCheckedChange = { vm.setting(EngineSettings.TEXTURE_PACK, if (it) 1 else 0) },
                         )
+                    }
+                }
+            }
+            item {
+                SectionCard(stringResource(R.string.textures_help_title), Icons.AutoMirrored.Rounded.HelpOutline, accent = Dbz.KiBlue) {
+                    Text(stringResource(R.string.textures_help), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.textures_help_log), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    FilledTonalButton(onClick = { vm.exportLogAndShare() }) {
+                        Icon(Icons.Rounded.BugReport, null, Modifier.size(18.dp))
+                        Spacer(Modifier.size(6.dp))
+                        Text(stringResource(R.string.log_export))
                     }
                 }
             }

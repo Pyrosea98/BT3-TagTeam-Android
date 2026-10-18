@@ -323,6 +323,33 @@ static void map(uint32_t addr, uint32_t size, const char *what) {
 }
 
 static void map_heap(void) {
+#ifdef __ANDROID__
+    /* At its PS2 address if that is free; else, as on Windows, anywhere between 0x30000000 and the scratchpad (0x70000000) (nothing in the
+       game depends on the address: Port_Malloc starts wherever the region is). Some phones have something of their
+       own there (a Redmi with HyperOS 2: "cannot map the game heap at 0x003BE000", the game closed at once). */
+    uint32_t page = (uint32_t)sysconf(_SC_PAGESIZE), len = (HEAP_END - HEAP_BASE + page - 1) & ~(page - 1);
+    uintptr_t at;
+    void *p = mmap((void *)(uintptr_t)HEAP_BASE, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | fixed_flag(HEAP_BASE, len), -1, 0);
+    if (p == (void *)(uintptr_t)HEAP_BASE) {
+        return;
+    }
+    if (p != MAP_FAILED) {
+        munmap(p, len);
+    }
+    for (at = 0x30000000u; at + len <= 0x70000000u; at += 0x01000000u) { /* (below the scratchpad at 0x70000000) */
+        p = mmap((void *)at, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
+        if (p == (void *)at) {
+            sHeapNext = (uint32_t)at + (HEAP_FIRST - HEAP_BASE);
+            sHeapEnd = (uint32_t)at + (HEAP_END - HEAP_BASE);
+            fprintf(stderr, "bt3: the game heap's PS2 address is taken in this process: the heap is at 0x%08X instead\n", (unsigned)at);
+            __android_log_print(5 /* ANDROID_LOG_WARN */, "bt3", "the game heap is at 0x%08X (its PS2 address is taken)", (unsigned)at);
+            return;
+        }
+        if (p != MAP_FAILED) {
+            munmap(p, len);
+        }
+    }
+#endif
     map(HEAP_BASE, HEAP_END - HEAP_BASE, "the game heap");
 }
 

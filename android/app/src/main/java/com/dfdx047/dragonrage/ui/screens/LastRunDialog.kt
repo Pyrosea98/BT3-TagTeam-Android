@@ -11,6 +11,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -23,11 +24,14 @@ import com.dfdx047.dragonrage.data.LastRun
 fun LastRunDialog(vm: AppViewModel) {
     val r by vm.lastRun.collectAsStateWithLifecycle()
     val report = r ?: return
+    val log by vm.lastRunLog.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     val (title, text) = when (report.problem) {
         LastRun.Problem.DATA -> R.string.lastrun_data_title to R.string.lastrun_data
         LastRun.Problem.MEMORY -> R.string.lastrun_memory_title to R.string.lastrun_memory
         LastRun.Problem.ENGINE -> R.string.lastrun_engine_title to R.string.lastrun_engine
         LastRun.Problem.CRASH -> R.string.lastrun_crash_title to R.string.lastrun_crash
+        LastRun.Problem.TEXTURES -> R.string.lastrun_textures_title to R.string.lastrun_textures
     }
     AlertDialog(
         onDismissRequest = { vm.dismissLastRun() },
@@ -37,9 +41,12 @@ fun LastRunDialog(vm: AppViewModel) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(text), style = MaterialTheme.typography.bodyMedium)
                 Text(report.detail, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                SavedLogNote(log)
             }
         },
-        confirmButton = { TextButton(onClick = { vm.dismissLastRun(); vm.exportLog() }) { Text(stringResource(R.string.log_export)) } },
+        confirmButton = {
+            TextButton(onClick = { log?.let { shareLog(context, it.uri) } ?: vm.exportLog(); vm.dismissLastRun() }) { Text(stringResource(R.string.log_send)) }
+        },
         dismissButton = { TextButton(onClick = { vm.dismissLastRun() }) { Text(stringResource(R.string.close)) } },
     )
 }
