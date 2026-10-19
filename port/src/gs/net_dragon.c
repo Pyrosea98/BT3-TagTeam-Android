@@ -516,8 +516,8 @@ static int SDLCALL worker(void *unused) {
         SDL_strlcpy(match, sView.match, sizeof(match));
         SDL_strlcpy(code, sRoomPending, sizeof(code));
         sRoomPending[0] = '\0';
-        chat = sChatOpen && (now - chatAt > 3000 || sChatOutN > 0);
-        presence = (sPresenceOn && (sPresenceAt == 0 || now - sPresenceAt > 90000)) || sPresenceLeave;
+        chat = DRNET_CHAT && sChatOpen && (now - chatAt > 3000 || sChatOutN > 0);
+        presence = (sPresenceOn && (sPresenceAt == 0 || now - sPresenceAt > 300000)) || sPresenceLeave;
         leave = sPresenceLeave;
         SDL_UnlockMutex(sLock);
 
@@ -608,7 +608,7 @@ static int SDLCALL worker(void *unused) {
             SDL_UnlockMutex(sLock);
         }
         /* the next round: at once when asked for something, else in two seconds (a search) or a little more */
-        for (i = 0; i < 100; i++) {
+        for (i = 0; i < (search ? 200 : 100); i++) {
             SDL_LockMutex(sLock);
             urgent = sRefresh || sWantCancel || sWantBoard || sRoomPending[0] != '\0' || sChatOutN > 0 || sPresenceLeave;
             SDL_UnlockMutex(sLock);
@@ -718,7 +718,7 @@ void DrRanked_Poll(DrRanked *out) {
     lock_make();
     SDL_LockMutex(sLock);
     *out = sView;
-    if (sView.profile && !sView.searching && SDL_GetTicks() - lastRefresh > 15000) { /* (the profile kept fresh while shown) */
+    if (sView.profile && !sView.searching && SDL_GetTicks() - lastRefresh > 60000) { /* (the profile kept fresh while shown) */
         lastRefresh = SDL_GetTicks();
         sRefresh = 1;
     }
@@ -804,14 +804,10 @@ void DrNet_SessionEnding(int mine) {
 }
 
 void DrChat_Open(const char *name) {
-    start(name);
+    (void)name;
+    lock_make();
     SDL_LockMutex(sLock);
-    if (!sChatOpen) {
-        sChatOpen = 1;
-        if (sChat.state <= 0) {
-            sChat.state = 1;
-        }
-    }
+    sChat.state = -1; /* chat desligado */
     SDL_UnlockMutex(sLock);
 }
 
@@ -846,4 +842,13 @@ void DrChat_Poll(DrChat *out) {
     SDL_LockMutex(sLock);
     *out = sChat;
     SDL_UnlockMutex(sLock);
+}
+
+int DrRanked_Active(void) {
+    int a;
+    lock_make();
+    SDL_LockMutex(sLock);
+    a = sView.searching;
+    SDL_UnlockMutex(sLock);
+    return a;
 }
