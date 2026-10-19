@@ -110,7 +110,7 @@ const char *DrNet_Url(void) {
 }
 
 #ifndef DRNET_URL_B
-#define DRNET_URL_B ""
+#define DRNET_URL_B "https://dbt-nx-matchmaking.alexyt2021es.workers.dev"
 #endif
 #ifndef DRNET_URL_RANKED
 #define DRNET_URL_RANKED "https://bt-ranked.arielnndrd.workers.dev"
