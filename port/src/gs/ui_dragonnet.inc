@@ -371,7 +371,7 @@ static void screen_home(bool &close) {
     const char *names[5] = {T("Create room", "Criar sala", "Crear sala"), T("Join room", "Entrar em sala", "Entrar a sala"),
                             T("Quick match", "Partida rápida", "Partida rápida"), T("Ranked", "Classificatória", "Clasificatoria"),
                             T("General chat", "Chat geral", "Chat general")};
-    const bool enabled[5] = {true, true, true, dragon, dragon};
+    const bool enabled[5] = {true, true, true, dragon, dragon && DRNET_CHAT != 0}; // (the chat: off for now, net_dragon.h)
     if (header("Dragon Net Battle", true)) { close = true; }
     int m = padMove();
     if (m != 0) { do { sHomeRow = (sHomeRow + m + 5) % 5; } while (!enabled[sHomeRow]); }

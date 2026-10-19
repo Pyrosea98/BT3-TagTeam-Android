@@ -46,3 +46,4 @@ port/build_release/
 /android/app/src/main/java/org/libsdl/
 android/.kotlin/
 apply_dragonrage_patch*.py
+/lab-apk/
