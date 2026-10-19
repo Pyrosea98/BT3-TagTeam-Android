@@ -49,6 +49,7 @@ static struct {
     int role, sock, localPort, version;
     char code[8], name[20]; /* (role 3, a quick match: `code` is the queue's name until the service gives a room) */
     char queue[8];
+    char url[256]; /* o servidor desta busca */
 } sM;
 
 /* Quick match: what this game calls itself to the service (so that a room it left behind is not given back to
@@ -108,6 +109,64 @@ const char *DrNet_Url(void) {
     return fromFile[0] != '\0' ? fromFile : DRNET_URL_DEFAULT;
 }
 
+const char *DrNet_UrlB(void) {
+    static char f[256];
+    static int read;
+    if (!read) {
+        read = 1;
+        url_file("dragonnet_url_b.txt", f, sizeof(f));
+    }
+    return f;
+}
+
+const char *DrNet_RankedUrl(void) {
+    static char f[256];
+    static int read;
+    if (!read) {
+        read = 1;
+        url_file("dragonnet_ranked_url.txt", f, sizeof(f));
+    }
+    return f;
+}
+
+#define DRNET_FAILS 3
+static SDL_AtomicInt sUseB, sUseBDay, sFails;
+
+static int utc_day(void) {
+    return (int)(time(NULL) / 86400);
+}
+
+const char *DrNet_ActiveUrl(void) {
+    if (SDL_GetAtomicInt(&sUseB)) {
+        if (SDL_GetAtomicInt(&sUseBDay) != utc_day() || DrNet_UrlB()[0] == '\0') {
+            SDL_SetAtomicInt(&sUseB, 0); /* novo dia UTC: volta ao A */
+            SDL_SetAtomicInt(&sFails, 0);
+        } else {
+            return DrNet_UrlB();
+        }
+    }
+    return DrNet_Url();
+}
+
+void DrNet_NoteResult(const char *base, int ok) {
+    if (base == NULL || SDL_strcmp(base, DrNet_Url()) != 0) {
+        return; /* so o A conta */
+    }
+    if (ok) {
+        SDL_SetAtomicInt(&sFails, 0);
+        return;
+    }
+    if (DrNet_UrlB()[0] == '\0' || SDL_GetAtomicInt(&sUseB)) {
+        return;
+    }
+    if (SDL_AddAtomicInt(&sFails, 1) + 1 >= DRNET_FAILS) {
+        SDL_SetAtomicInt(&sUseBDay, utc_day());
+        SDL_SetAtomicInt(&sUseB, 1);
+        SDL_SetAtomicInt(&sFails, 0);
+        fprintf(stderr, "dragonnet: server A failed, using B until 00:00 UTC\n");
+    }
+}
+
 /* The service rooms and quick matches go through: Dragon Net's (mode 0), or the PC port's (mode 1; Android:
    <game folder>/match_url.txt, one line "https://...", names another Worker of that kind). BT3_MATCH_URL wins. */
 static const char *match_url(void) {
@@ -118,7 +177,7 @@ static const char *match_url(void) {
         return e;
     }
     if (DrNet_Mode() == 0) {
-        return DrNet_Url();
+        return DrNet_ActiveUrl();
     }
     if (!read) {
         read = 1;
@@ -355,7 +414,7 @@ static void clock_learn(const char *answer) {
 
 /* POSTs `json` to <url>/v1/<what>; the answer's text in out. 0 = no answer. The system's own HTTPS first (above); if
    that is not to be had, the `curl` program. */
-static int http_post_once(const char *what, const char *json, char *out, size_t size) {
+static int http_post_once(const char *base, const char *what, const char *json, char *out, size_t size) {
     char url[256], path[64], sig[65], head[3][96];
     const char *args[20], *headers[4] = {NULL, NULL, NULL, NULL};
     SDL_Process *p;
@@ -364,7 +423,7 @@ static int http_post_once(const char *what, const char *json, char *out, size_t 
     void *data;
     long long when = (long long)time(NULL) + SDL_GetAtomicInt(&sClockAhead);
 
-    SDL_snprintf(url, sizeof(url), "%s/v1/%s", match_url(), what);
+    SDL_snprintf(url, sizeof(url), "%s/v1/%s", base, what);
     SDL_snprintf(path, sizeof(path), "/v1/%s", what);
     if (Sign_Request("POST", path, PORT_RELEASE, when, json, sig)) { /* (a program without a key: no headers) */
         SDL_snprintf(head[0], sizeof(head[0]), "X-BT3-Release: %d", PORT_RELEASE);
@@ -413,15 +472,25 @@ static int http_post_once(const char *what, const char *json, char *out, size_t 
     return got > 0;
 }
 
-static int http_post(const char *what, const char *json, char *out, size_t size) {
-    int ok = http_post_once(what, json, out, size);
+static int http_post_to(const char *base, const char *what, const char *json, char *out, size_t size) {
+    int ok;
+    if (base == NULL) {
+        base = match_url();
+    }
+    ok = http_post_once(base, what, json, out, size);
     /* refused for the time it was signed for: the answer says the service's time; once more by that */
     if (ok && Sign_HasKey() && SDL_strstr(out, "\"build key\"") != NULL && SDL_strstr(out, "\"why\":\"time\"") != NULL && SDL_strstr(out, "\"now\":") != NULL) {
         clock_learn(out);
-        ok = http_post_once(what, json, out, size);
+        ok = http_post_once(base, what, json, out, size);
     }
+    DrNet_NoteResult(base, ok && out[0] == '{');
     return ok;
 }
+
+static int http_post(const char *what, const char *json, char *out, size_t size) {
+    return http_post_to(NULL, what, json, out, size);
+}
+#define POSTB(w, j, o, s) http_post_to(base, (w), (j), (o), (s))
 
 /* What the window says when the service lets only official releases in (its REQUIRE_KEY) and refused this program:
    `plain` for a program without a key, or with one the service does not know. */
@@ -573,6 +642,10 @@ static int SDLCALL match_thread(void *arg) {
     int i, n = 0, hosting, searches = 0;
 
     SDL_SetTLS(&sMine, arg, NULL);
+    char base[256];
+    SDL_LockMutex(sM.lock);
+    SDL_strlcpy(base, sM.url[0] != '\0' ? sM.url : match_url(), sizeof(base));
+    SDL_UnlockMutex(sM.lock);
     for (i = 0; sM.name[i] != '\0' && n < (int)sizeof(name) - 1; i++) { /* (a name that needs no escaping) */
         char c = sM.name[i];
         if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == ' ' || c == '_' || c == '-' || c == '.') {
@@ -604,7 +677,7 @@ again:
         MatchStatus st;
         SDL_snprintf(body, sizeof(body), "{\"v\":%d,\"rel\":%d,\"name\":\"%s\",\"addrs\":[%s],\"queue\":\"%s\",\"who\":\"%s\"%s}", sM.version, PORT_RELEASE, name, addrs, sM.queue,
                      match_who(), relayAddr[0] != '\0' ? ",\"relay\":false" : "");
-        if (!http_post("quick", body, answer, sizeof(answer))) {
+        if (!POSTB("quick", body, answer, sizeof(answer))) {
             set_state(-1, "The matchmaking service could not be reached (is the network up?).");
             return 0;
         }
@@ -638,7 +711,7 @@ again:
     if (hosting) {
         if (sM.role == 1) {
             SDL_snprintf(body, sizeof(body), "{\"v\":%d,\"rel\":%d,\"name\":\"%s\",\"addrs\":[%s]}", sM.version, PORT_RELEASE, name, addrs);
-            if (!http_post("host", body, answer, sizeof(answer))) {
+            if (!POSTB("host", body, answer, sizeof(answer))) {
                 set_state(-1, "The matchmaking service could not be reached (is the network up?).");
                 return 0;
             }
@@ -655,7 +728,7 @@ again:
         }
         if (relayAddr[0] != '\0') { /* (a search begun again: the relay address it holds already goes with the new room) */
             SDL_snprintf(body, sizeof(body), "{\"code\":\"%s\",\"key\":\"%s\",\"addrs\":[%s,\"relay=%s\"]}", sM.code, key, addrs, relayAddr);
-            http_post("addrs", body, answer, sizeof(answer));
+            POSTB("addrs", body, answer, sizeof(answer));
         } else {
             /* A relay address, if the service gives access to one: published with the others, for a player who
                cannot reach this one directly. The code is shown only after this, so nobody joins before. */
@@ -672,13 +745,13 @@ again:
             if (SDL_getenv("BT3_NO_RELAY") == NULL && json_str(answer, "server", server, sizeof(server)) && json_str(answer, "username", user, sizeof(user)) &&
                 json_str(answer, "credential", pass, sizeof(pass)) && Relay_Allocate(sM.sock, server, user, pass, relay, sizeof(relay)) && !STOPPED()) {
                 SDL_snprintf(body, sizeof(body), "{\"code\":\"%s\",\"key\":\"%s\",\"addrs\":[%s,\"relay=%s\"]}", sM.code, key, addrs, relay);
-                http_post("addrs", body, answer, sizeof(answer));
+                POSTB("addrs", body, answer, sizeof(answer));
                 SDL_strlcpy(relayAddr, relay, sizeof(relayAddr));
             }
         }
         if (STOPPED()) {
             SDL_snprintf(body, sizeof(body), "{\"code\":\"%s\",\"key\":\"%s\"}", sM.code, key);
-            http_post("leave", body, answer, sizeof(answer));
+            POSTB("leave", body, answer, sizeof(answer));
             return 0;
         }
         SDL_LockMutex(sM.lock);
@@ -688,16 +761,16 @@ again:
         sM.st.state = 2;
         SDL_UnlockMutex(sM.lock);
         SDL_snprintf(body, sizeof(body), "{\"code\":\"%s\",\"key\":\"%s\"}", sM.code, key);
-        for (i = 0; i < 165 && !STOPPED(); i++) { /* a room lasts ten minutes */
+        for (i = 0; i < 110 && !STOPPED(); i++) { /* a room lasts ten minutes */
             int k;
             /* asked every two seconds in the first minute, every four after it (the service's daily requests) */
-            for (k = 0; k < (i < 30 ? 20 : 40) && !STOPPED(); k++) {
+            for (k = 0; k < (i < 20 ? 30 : 60) && !STOPPED(); k++) {
                 SDL_Delay(100);
             }
             if (STOPPED()) {
                 break;
             }
-            if (http_post("poll", body, answer, sizeof(answer))) {
+            if (POSTB("poll", body, answer, sizeof(answer))) {
                 MatchStatus st;
                 SDL_memset(&st, 0, sizeof(st));
                 if (json_peer(answer, &st)) {
@@ -711,7 +784,7 @@ again:
                     sM.st.state = 3;
                     SDL_UnlockMutex(sM.lock);
                     if (relayAddr[0] != '\0' || SDL_getenv("BT3_NO_RELAY") != NULL) {
-                        http_post("leave", body, answer, sizeof(answer)); /* the room has done its work: it is given up at once */
+                        POSTB("leave", body, answer, sizeof(answer)); /* the room has done its work: it is given up at once */
                         return 0;
                     }
                     /* No relay address yet (it is asked for only when it is needed). The lobby now tries the direct
@@ -725,7 +798,7 @@ again:
                         for (w = 0; w < wait && !STOPPED(); w++) {
                             SDL_Delay(100);
                         }
-                        if (!STOPPED() && http_post("relay", body, answer, sizeof(answer))) {
+                        if (!STOPPED() && POSTB("relay", body, answer, sizeof(answer))) {
                             if (SDL_getenv("BT3_RELAY_LOG") != NULL) {
                                 char why[160] = "";
                                 json_str(answer, "noRelay", why, sizeof(why));
@@ -742,7 +815,7 @@ again:
                                 if (got && !STOPPED()) {
                                     char more[512];
                                     SDL_snprintf(more, sizeof(more), "{\"code\":\"%s\",\"key\":\"%s\",\"addrs\":[%s,\"relay=%s\"]}", sM.code, key, addrs, relay);
-                                    http_post("addrs", more, answer, sizeof(answer));
+                                    POSTB("addrs", more, answer, sizeof(answer));
                                     SDL_LockMutex(sM.lock);
                                     sM.st.relayGen++;
                                     SDL_UnlockMutex(sM.lock);
@@ -753,7 +826,7 @@ again:
                             SDL_Delay(100);
                         }
                     }
-                    http_post("leave", body, answer, sizeof(answer));
+                    POSTB("leave", body, answer, sizeof(answer));
                     return 0;
                 }
                 if (SDL_strstr(answer, "no room") != NULL) {
@@ -762,18 +835,18 @@ again:
             }
         }
         if (STOPPED()) {
-            http_post("leave", body, answer, sizeof(answer));
+            POSTB("leave", body, answer, sizeof(answer));
             return 0;
         }
         if (sM.role == 3) { /* (a quick match waits for as long as the player does) */
-            http_post("leave", body, answer, sizeof(answer));
+            POSTB("leave", body, answer, sizeof(answer));
             goto again;
         }
         set_state(-1, "Nobody joined: the room code has run out. Host again for a new one.");
     } else {
         MatchStatus st;
         SDL_snprintf(body, sizeof(body), "{\"v\":%d,\"rel\":%d,\"code\":\"%s\",\"name\":\"%s\",\"addrs\":[%s]}", sM.version, PORT_RELEASE, sM.code, name, addrs);
-        if (!http_post("join", body, answer, sizeof(answer))) {
+        if (!POSTB("join", body, answer, sizeof(answer))) {
             set_state(-1, "The matchmaking service could not be reached (is the network up?).");
             return 0;
         }
@@ -817,7 +890,7 @@ joined:
             for (w = 0; w < (round == 0 ? 30 : 20) && !STOPPED(); w++) {
                 SDL_Delay(100);
             }
-            if (STOPPED() || !http_post("poll", body, answer, sizeof(answer))) {
+            if (STOPPED() || !POSTB("poll", body, answer, sizeof(answer))) {
                 continue;
             }
             if (SDL_strstr(answer, "no room") != NULL) {
@@ -873,6 +946,21 @@ void Match_Begin(int role, int sock, int localPort, const char *code, const char
     sM.code[n] = '\0';
     SDL_strlcpy(sM.queue, role == 3 ? sM.code : "", sizeof(sM.queue));
     SDL_strlcpy(sM.name, name != NULL ? name : "Player", sizeof(sM.name));
+    sM.url[0] = '\0';
+    if (DrNet_Mode() == 0 && SDL_getenv("BT3_MATCH_URL") == NULL) {
+        if (DrRanked_Active()) {
+            if (DrNet_RankedUrl()[0] == '\0') {
+                SDL_LockMutex(sM.lock);
+                sM.st.state = -1;
+                SDL_strlcpy(sM.st.error, "Ranked is unavailable right now.", sizeof(sM.st.error));
+                SDL_UnlockMutex(sM.lock);
+                return;
+            }
+            SDL_strlcpy(sM.url, DrNet_RankedUrl(), sizeof(sM.url));
+        } else {
+            SDL_strlcpy(sM.url, DrNet_ActiveUrl(), sizeof(sM.url));
+        }
+    }
     sM.thread = SDL_CreateThread(match_thread, "bt3-match", (void *)(intptr_t)SDL_GetAtomicInt(&sM.gen));
     if (sM.thread == NULL) {
         set_state(-1, "The matchmaking could not be started.");
@@ -1084,7 +1172,23 @@ int Match_SignTest(void) {
    (also an error's: {"error":...}). 0 = no answer. Never signed (the build key is the PC port's). */
 int Match_PostDragon(const char *what, const char *json, char *out, size_t size) {
     char url[320];
-    SDL_snprintf(url, sizeof(url), "%s/v1/%s", DrNet_Url(), what);
+    const char *base;
+    int ok, presence = SDL_strcmp(what, "presence") == 0;
     out[0] = '\0';
-    return http_post_native(url, json, NULL, out, size);
+    if (SDL_strncmp(what, "ranked/", 7) == 0) {
+        base = DrNet_RankedUrl();
+        if (base[0] == '\0') {
+            return 0; /* sem C: Ranked indisponivel */
+        }
+    } else if (presence) {
+        base = DrNet_ActiveUrl();
+    } else {
+        return 0; /* chat e o resto: desligado */
+    }
+    SDL_snprintf(url, sizeof(url), "%s/v1/%s", base, what);
+    ok = http_post_native(url, json, NULL, out, size);
+    if (presence) {
+        DrNet_NoteResult(base, ok && out[0] == '{');
+    }
+    return ok;
 }

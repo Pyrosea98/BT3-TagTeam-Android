@@ -19,6 +19,12 @@ extern "C" {
 int DrNet_Mode(void);          /* 0 Dragon Net (Android + Switch), 1 against PC (the PC port's service); setting "net_mode" */
 void DrNet_SetMode(int mode);
 int DrNet_WireVersion(int netVersion); /* what the service is told as `v` in this mode */
+#define DRNET_CHAT 0 /* chat geral desligado */
+const char *DrNet_UrlB(void);       /* dragonnet_url_b.txt ("" se nao existe) */
+const char *DrNet_RankedUrl(void);  /* dragonnet_ranked_url.txt ("" se nao existe) */
+const char *DrNet_ActiveUrl(void);  /* A, ou B se o A falhou hoje */
+void DrNet_NoteResult(const char *base, int ok);
+int DrRanked_Active(void);
 const char *DrNet_Url(void);   /* Dragon Net's service */
 
 /* Players online (Dragon Net only): on while the online screen is open. -1 not known yet, -2 the service did not answer. */

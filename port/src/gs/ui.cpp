@@ -904,7 +904,7 @@ static void build_net(void) {
                     if (moved || active == 0) {
                         active = SDL_GetTicks() + 1;
                     }
-                    if (!sNetBusy && (asked == 0 || (SDL_GetTicks() - asked > 30000 && SDL_GetTicks() - active < 120000))) {
+                    if (!sNetBusy && (asked == 0 || (SDL_GetTicks() - asked > 90000 && SDL_GetTicks() - active < 120000))) {
                         asked = SDL_GetTicks() + 1;
                         Port_LobbyQueuesAsk();
                     }
