@@ -109,12 +109,20 @@ const char *DrNet_Url(void) {
     return fromFile[0] != '\0' ? fromFile : DRNET_URL_DEFAULT;
 }
 
+#ifndef DRNET_URL_B
+#define DRNET_URL_B ""
+#endif
+#ifndef DRNET_URL_RANKED
+#define DRNET_URL_RANKED "https://bt-ranked.arielnndrd.workers.dev"
+#endif
+
 const char *DrNet_UrlB(void) {
     static char f[256];
     static int read;
     if (!read) {
         read = 1;
         url_file("dragonnet_url_b.txt", f, sizeof(f));
+        if (f[0] == '\0') SDL_strlcpy(f, DRNET_URL_B, sizeof(f));
     }
     return f;
 }
@@ -125,6 +133,7 @@ const char *DrNet_RankedUrl(void) {
     if (!read) {
         read = 1;
         url_file("dragonnet_ranked_url.txt", f, sizeof(f));
+        if (f[0] == '\0') SDL_strlcpy(f, DRNET_URL_RANKED, sizeof(f));
     }
     return f;
 }
