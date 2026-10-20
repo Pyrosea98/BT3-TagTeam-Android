@@ -24,6 +24,8 @@ import com.dfdx047.dragonrage.data.formatBytes
 import com.dfdx047.dragonrage.data.ExtraItem
 import com.dfdx047.dragonrage.data.ExtraKind
 import com.dfdx047.dragonrage.data.FileMod
+import com.dfdx047.dragonrage.data.Bt4Installer
+import com.dfdx047.dragonrage.data.Game
 import com.dfdx047.dragonrage.data.GameDataInstaller
 import com.dfdx047.dragonrage.data.GamePaths
 import com.dfdx047.dragonrage.data.GpuDriver
@@ -63,23 +65,25 @@ import kotlin.coroutines.cancellation.CancellationException
 /** A long operation in progress (shown as a bar with its text). */
 data class Busy(val title: String, val detail: String = "")
 
-class AppViewModel(app: Application) : AndroidViewModel(app) {
-    val paths = GamePaths(app).also {
+class AppViewModel @JvmOverloads constructor(app: Application, val game: Game = Game.BT3) : AndroidViewModel(app) {
+    val paths = GamePaths(app, game).also {
         it.ensure()
         ActivityLog.init(it)
-        ActivityLog.info("app", "opened: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}), PC release ${BuildConfig.PORT_RELEASE}, Android ${Build.VERSION.RELEASE}, ${Build.MANUFACTURER} ${Build.MODEL}")
+        ActivityLog.info("app", "opened (${game.id}): ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}), PC release ${BuildConfig.PORT_RELEASE}, Android ${Build.VERSION.RELEASE}, ${Build.MANUFACTURER} ${Build.MODEL}")
     }
     private val resolver = app.contentResolver
     private val installer = GameDataInstaller(app, paths, resolver)
+    /** Budokai Tenkaichi 4's set-up (its own: the image is checked and read in place); null for Budokai Tenkaichi 3. */
+    private val bt4 = if (game == Game.BT4) Bt4Installer(app, paths, resolver) else null
     private val packs = TexturePacks(app, paths, resolver)
     private val mods = Mods(app, paths, resolver)
     private val settings = EngineSettings(paths.settings)
-    private val ui = UiPrefs(app)
+    private val ui = UiPrefs.get(app)
 
     val uiState = ui.state
-    val engineAvailable = EngineBridge.isAvailable(app)
+    val engineAvailable = EngineBridge.isAvailable(app, game.engine)
 
-    private val _install = MutableStateFlow(installer.currentState())
+    private val _install = MutableStateFlow(bt4?.currentState() ?: installer.currentState())
     val install: StateFlow<InstallState> = _install.asStateFlow()
 
     private val _packs = MutableStateFlow<List<TexturePack>>(emptyList())
@@ -397,20 +401,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
             var step = ""
             try {
-                val done = installer.install(uri) {
+                val report: (InstallState.Working) -> Unit = {
                     _install.value = it
                     if (it.step != step) {
                         step = it.step
                         ActivityLog.info("iso", "step: ${it.step} (${it.detail})")
                     }
                 }
+                val done = if (bt4 != null) bt4.install(uri, report) else installer.install(uri, report)
                 _install.value = done
                 ActivityLog.info("iso", "installed: ${done.files} files, ${done.bytes} bytes, modified image: ${done.modified}, " +
                     "${(System.currentTimeMillis() - started) / 1000} s")
                 say(str(R.string.msg_data_ready))
             } catch (e: CancellationException) {
                 ActivityLog.warn("iso", "cancelled at: $step")
-                withContext(Dispatchers.IO) { installer.uninstall() }
+                withContext(Dispatchers.IO) { if (bt4 != null) bt4.uninstall() else installer.uninstall() }
                 _install.value = InstallState.NotInstalled
                 throw e
             } catch (e: GameDataInstaller.Stop) {
@@ -433,12 +438,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun removeGameData() = viewModelScope.launch(Dispatchers.IO) {
         ActivityLog.info("iso", "game data removed by the player")
-        installer.uninstall()
+        if (bt4 != null) bt4.uninstall() else installer.uninstall()
         _install.value = InstallState.NotInstalled
     }
 
     fun dismissInstallError() {
-        if (_install.value is InstallState.Failed) _install.value = installer.currentState()
+        if (_install.value is InstallState.Failed) _install.value = bt4?.currentState() ?: installer.currentState()
     }
 
     // ---- texture packs
@@ -690,7 +695,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             _install.value !is InstallState.Installed -> say(str(R.string.msg_install_first))
             !engineAvailable -> say(str(R.string.msg_no_engine))
             else -> ActivityLog.info("game", "started (renderer ${_settings.value[EngineSettings.RENDERER] ?: 0}, online ${if ((_settings.value[OnlineStatus.MODE] ?: 0) == 0) "Dragon Net" else "PC"})").let { getApplication<android.app.Application>().startActivity(
-                android.content.Intent(getApplication(), com.dfdx047.dragonrage.engine.GameActivity::class.java)
+                android.content.Intent(getApplication(), if (game == Game.BT4) com.dfdx047.dragonrage.engine.Bt4Activity::class.java else com.dfdx047.dragonrage.engine.GameActivity::class.java)
                     .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
             ) }
         }
@@ -745,6 +750,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             } finally {
                 _busy.value = null
             }
+        }
+    }
+
+    companion object {
+        /** The view model of one game (MainActivity keeps one per game: switching does not mix their folders). */
+        fun factory(app: Application, game: Game) = object : androidx.lifecycle.ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T = AppViewModel(app, game) as T
         }
     }
 }

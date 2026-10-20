@@ -151,15 +151,17 @@ fun SettingsScreen(vm: AppViewModel) {
             StepSlider(stringResource(R.string.sfx), { "${it * 10}%" }, fx / 10, 0..20) { vm.setting(EngineSettings.EFFECTS, it * 10) }
         }
 
-        SectionCard(stringResource(R.string.online_server_title), Icons.Rounded.Public, accent = MaterialTheme.colorScheme.secondary) {
-            val netMode = get(com.dfdx047.dragonrage.data.OnlineStatus.MODE, 0).coerceIn(0, 1)
-            Text(stringResource(R.string.online_mode_title), style = MaterialTheme.typography.titleSmall)
-            ChipRow(
-                options = listOf(stringResource(R.string.online_mode_dragon) to 0, stringResource(R.string.online_mode_pc) to 1),
-                selected = netMode,
-                onSelect = { vm.setNetMode(it) },
-            )
-            Text(stringResource(R.string.online_mode_text), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (vm.game == com.dfdx047.dragonrage.data.Game.BT3) { // (online: the BT3 engine's)
+            SectionCard(stringResource(R.string.online_server_title), Icons.Rounded.Public, accent = MaterialTheme.colorScheme.secondary) {
+                val netMode = get(com.dfdx047.dragonrage.data.OnlineStatus.MODE, 0).coerceIn(0, 1)
+                Text(stringResource(R.string.online_mode_title), style = MaterialTheme.typography.titleSmall)
+                ChipRow(
+                    options = listOf(stringResource(R.string.online_mode_dragon) to 0, stringResource(R.string.online_mode_pc) to 1),
+                    selected = netMode,
+                    onSelect = { vm.setNetMode(it) },
+                )
+                Text(stringResource(R.string.online_mode_text), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
 
         SectionCard(stringResource(R.string.performance), Icons.Rounded.Speed, accent = MaterialTheme.colorScheme.secondary) {

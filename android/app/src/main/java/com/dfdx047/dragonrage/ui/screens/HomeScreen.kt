@@ -1,5 +1,6 @@
 package com.dfdx047.dragonrage.ui.screens
 
+import com.dfdx047.dragonrage.data.Game
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -106,12 +107,13 @@ fun HomeScreen(vm: AppViewModel) {
         Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Hero()
-        OnlineBanner(vm)
+        val bt4 = vm.game == Game.BT4
+        Hero(bt4)
+        if (!bt4) OnlineBanner(vm) // (online is the BT3 engine's: Dragon Net and the PC)
 
         val installed = install is InstallState.Installed
         PlayButton(enabled = installed, onClick = vm::play)
-        if (installed) {
+        if (installed && !bt4) {
             OutlinedButton(onClick = vm::createPlayShortcut, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Rounded.AddToHomeScreen, null, Modifier.size(20.dp))
                 Spacer(Modifier.size(8.dp))
@@ -127,7 +129,7 @@ fun HomeScreen(vm: AppViewModel) {
             when (val s = install) {
                 InstallState.NotInstalled -> {
                     Text(
-                        stringResource(R.string.game_data_intro),
+                        stringResource(if (bt4) R.string.bt4_game_data_intro else R.string.game_data_intro),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -180,10 +182,10 @@ fun HomeScreen(vm: AppViewModel) {
 
         SectionCard(stringResource(R.string.engine), Icons.Rounded.Memory, accent = MaterialTheme.colorScheme.secondary) {
             if (vm.engineAvailable) {
-                Text(stringResource(R.string.engine_included), style = MaterialTheme.typography.bodyMedium)
+                Text(stringResource(if (bt4) R.string.bt4_engine_included else R.string.engine_included), style = MaterialTheme.typography.bodyMedium)
             } else {
                 Text(
-                    stringResource(R.string.engine_missing),
+                    stringResource(if (bt4) R.string.bt4_engine_missing else R.string.engine_missing),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -194,9 +196,11 @@ fun HomeScreen(vm: AppViewModel) {
 
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
             StatPill(stringResource(R.string.stat_textures), "${packs.count { it.enabled }}", Dbz.SaiyanGold, Modifier.weight(1f))
-            StatPill(stringResource(R.string.stat_mods), "${mods.count { it.enabled }}", MaterialTheme.colorScheme.primary, Modifier.weight(1f))
-            StatPill(stringResource(R.string.stat_stages), "${stages.size}", Dbz.KiBlue, Modifier.weight(1f))
-            StatPill(stringResource(R.string.stat_songs), "${songs.size}", Dbz.ShenronGreen, Modifier.weight(1f))
+            if (!bt4) {
+                StatPill(stringResource(R.string.stat_mods), "${mods.count { it.enabled }}", MaterialTheme.colorScheme.primary, Modifier.weight(1f))
+                StatPill(stringResource(R.string.stat_stages), "${stages.size}", Dbz.KiBlue, Modifier.weight(1f))
+                StatPill(stringResource(R.string.stat_songs), "${songs.size}", Dbz.ShenronGreen, Modifier.weight(1f))
+            }
         }
     }
 
@@ -212,12 +216,13 @@ fun HomeScreen(vm: AppViewModel) {
 }
 
 @Composable
-private fun Hero() {
+private fun Hero(bt4: Boolean = false) {
     Box(Modifier.fillMaxWidth().padding(top = 12.dp), contentAlignment = Alignment.CenterStart) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             DragonBall(stars = 4, size = 120.dp)
             Column(Modifier.padding(start = 4.dp)) {
-                val gold = Brush.verticalGradient(listOf(Dbz.BallLight, Dbz.SaiyanGold, Dbz.GiOrange))
+                val gold = if (bt4) Brush.verticalGradient(listOf(Color(0xFFC4ECFF), Color(0xFF5CD6FF), Color(0xFFB27CF0)))
+                else Brush.verticalGradient(listOf(Dbz.BallLight, Dbz.SaiyanGold, Dbz.GiOrange))
                 Text(
                     "DRAGON\nRAGE",
                     style = TitleStyle.copy(lineHeight = TitleStyle.fontSize * 0.95f),
@@ -229,7 +234,7 @@ private fun Hero() {
                         },
                 )
                 Text(
-                    stringResource(R.string.tagline),
+                    stringResource(if (bt4) R.string.bt4_tagline else R.string.tagline),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

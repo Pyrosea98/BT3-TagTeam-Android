@@ -41,8 +41,8 @@ import org.libsdl.app.SDLActivity
  * Over the game's surface: the on-screen controller ([TouchSurface]: the game-specific layout or the classic one), which feeds player 1's pad through
  * [TouchBridge] and steps aside while the engine's own window (settings, online) is open.
  */
-class GameActivity : SDLActivity() {
-    private lateinit var paths: GamePaths
+open class GameActivity : SDLActivity() {
+    protected lateinit var paths: GamePaths
     private lateinit var store: TouchStore
     private var pad: TouchSurface? = null
     private val handler = Handler(Looper.getMainLooper())
@@ -55,7 +55,7 @@ class GameActivity : SDLActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        paths = GamePaths(this).also { it.ensure() }
+        paths = gamePaths().also { it.ensure() }
         // the renderer for this start (Vulkan, or OpenGL ES for Mali when automatic): written before the engine reads it
         runCatching {
             val es = EngineSettings(paths.settings)
@@ -257,7 +257,10 @@ class GameActivity : SDLActivity() {
     }
 
     /** The list of where the game's data tables come from (made with the engine, android.py) next to the game's files. */
-    private fun installDataList() {
+    /** The game's folder: Budokai Tenkaichi 3's (Bt4Activity: Budokai Tenkaichi 4's). */
+    protected open fun gamePaths(): GamePaths = GamePaths(this)
+
+    protected open fun installDataList() {
         // the list of the game's data tables (libbt3.so.dat) and of the engine's own addresses (libbt3.so.rel, for
         // loading it elsewhere than its usual place), both made with the engine (android.py), next to the game's files
         // and of the game's own variables (libbt3.so.mem: what a saved state holds, for online play)

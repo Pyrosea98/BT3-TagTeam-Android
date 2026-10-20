@@ -395,4 +395,17 @@
     <string name="online_chat">• Chat geral: desligado por enquanto (volta numa próxima versão).\n• Jogadores online: uma contagem aproximada de quem está com a tela online aberta agora, no Android e no Switch.</string>
     <string name="online_log_title">Continua falhando? Mande o log</string>
     <string name="online_log">Logo depois do problema, volte ao app e aperte Enviar log: ele salva um relatório em Downloads (o aparelho, as três últimas execuções do jogo e tudo o que o app fez) e abre o compartilhamento. Mande no nosso Discord com uma linha dizendo o que você tentou e contra quem.</string>
+    <string name="welcome_pick">Escolha o jogo</string>
+    <string name="welcome_bt3">O jogo original (disco americano). Online no Dragon Net, mods, cenários, músicas, cheats e drivers personalizados.</string>
+    <string name="welcome_bt4">O mod da Team BT4: personagens, formas e cenários novos. Experimental: motor próprio (o mod recompilado), desenhado pelo renderizador do Dragon Rage.</string>
+    <string name="welcome_note">Cada jogo tem sua própria imagem de disco, saves, texturas e ajustes. Dá para trocar pelo menu (Jogo) a qualquer momento.</string>
+    <string name="welcome_last">Jogado por último</string>
+    <string name="nav_switch_game">Jogo</string>
+    <string name="bt4_tagline">Budokai Tenkaichi 4 · Team BT4</string>
+    <string name="bt4_game_data_intro">Escolha sua imagem do mod da Team BT4: SLUS-219.78, Beta 14 Rev2 (outra versão não funciona: o jogo foi recompilado para essa). Só os arquivos de inicialização são copiados; o resto é lido da imagem onde ela está, então deixe ela na pasta.</string>
+    <string name="bt4_engine_included">O motor do Budokai Tenkaichi 4 está nesta versão.</string>
+    <string name="bt4_engine_missing">Esta versão ainda não tem o motor do Budokai Tenkaichi 4 (libbt4.so). A imagem já pode ser configurada.</string>
+    <string name="bt4_err_not_bt4">Esta imagem não é o Budokai Tenkaichi 4 (não tem SLUS_219.78). Precisa do mod da Team BT4, Beta 14 Rev2.</string>
+    <string name="bt4_err_version">Esta imagem é outra versão do mod: o jogo foi recompilado para a Beta 14 Rev2 (SLUS-219.78).</string>
+    <string name="bt4_err_permission">O Android não deixou o app continuar lendo esta imagem. Mova ela para Downloads ou para o armazenamento do celular e escolha de novo.</string>
 </resources>
