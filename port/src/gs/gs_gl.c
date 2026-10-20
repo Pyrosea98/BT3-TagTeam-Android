@@ -13,6 +13,7 @@
  *   - depth/colour state set explicitly before every draw, exactly like a pipeline object would be.
  * The GL floor is 3.3 core.
  */
+#include <time.h>
 #include <SDL3/SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -415,8 +416,9 @@ static GsTex tex_create(uint32_t w, uint32_t h, int format, int levels) {
 }
 
 /* Uploads a level at once (GL has no upload queue; the pixels are copied). Takes ownership of px. */
+static double sUpMs; static unsigned sUpN;
 static int tex_upload(GsTex handle, int level, uint32_t w, uint32_t h, int format, const void *px, uint32_t bytes) {
-    GLuint t = (GLuint)handle;
+    GLuint t = (GLuint)handle; struct timespec u0, u1; clock_gettime(CLOCK_MONOTONIC, &u0);
     glBindTexture(GL_TEXTURE_2D, t);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     if (format == GS_TEXFMT_RGBA8) {
@@ -428,6 +430,8 @@ static int tex_upload(GsTex handle, int level, uint32_t w, uint32_t h, int forma
         glCompressedTexImage2D(GL_TEXTURE_2D, level, ifmt, (GLsizei)w, (GLsizei)h, 0, (GLsizei)bytes, px);
     }
     free((void *)px);
+    clock_gettime(CLOCK_MONOTONIC, &u1);
+    { double ms = (u1.tv_sec - u0.tv_sec) * 1e3 + (u1.tv_nsec - u0.tv_nsec) / 1e6; sUpMs += ms; sUpN++; if (ms > 1.0) fprintf(stderr, "bt3: texture %ux%u fmt %d level %d uploaded in %.1f ms\n", w, h, format, level, ms); }
     return 1;
 }
 
@@ -1002,6 +1006,7 @@ static void gl_heartbeat(void) {
     now = SDL_GetTicksNS();
     fprintf(stderr, "bt3: alive: frame %u, game blank %u, %u draws, %u vertices, %d targets, %d textures\n", gGsFrame, gPortVBlanks,
             gsDrawCount, gsVertCount + gsVuVertCount, gsTargetCount, gsTexCount);
+    fprintf(stderr, "bt3: uploads: %u textures, %.1f ms since the last report\n", sUpN, sUpMs); sUpN = 0; sUpMs = 0;
     if (lastNs != 0 && now > lastNs) {
         double secs = (double)(now - lastNs) / 1e9, bps = (double)(gPortVBlanks - lastBlank) / secs;
         fprintf(stderr, "bt3: speed %.0f%% (%.1f game blanks/s, %.1f pictures/s over %.1f s%s), OpenGL ES\n", bps * 100.0 / 60.0, bps,
