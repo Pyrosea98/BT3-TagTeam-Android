@@ -1018,6 +1018,29 @@ static void gl_heartbeat(void) {
 }
 #endif
 
+/* bt3 measurement: frames that took more than 50 ms between two presents. */
+static uint64_t sSfPrev, sSfT1;
+static unsigned sSfUpN, sSfLines;
+static double sSfUpMs;
+static void sf_before_swap(void) { sSfT1 = SDL_GetTicksNS(); }
+static void sf_after_swap(void) {
+    uint64_t t2 = SDL_GetTicksNS();
+    unsigned upn = (unsigned)sUpN;
+    double upms = (double)sUpMs;
+    if (sSfPrev != 0 && t2 > sSfPrev && (t2 - sSfPrev) > 50000000ULL && sSfLines < 3000) {
+        unsigned dn = upn >= sSfUpN ? upn - sSfUpN : upn;
+        double dm = upms >= sSfUpMs ? upms - sSfUpMs : upms;
+        sSfLines++;
+        fprintf(stderr, "bt3: slow frame %u: %.1f ms (before the swap %.1f, in the swap %.1f), %u draws, %u vertices, %d targets, %u uploads %.1f ms\n",
+                (unsigned)gGsFrame, (double)(t2 - sSfPrev) / 1e6,
+                sSfT1 > sSfPrev ? (double)(sSfT1 - sSfPrev) / 1e6 : 0.0,
+                (double)(t2 - sSfT1) / 1e6,
+                (unsigned)gsDrawCount, (unsigned)(gsVertCount + gsVuVertCount),
+                (int)gsTargetCount, dn, dm);
+    }
+    sSfPrev = t2; sSfUpN = upn; sSfUpMs = upms;
+}
+
 /* While the game is paused (the settings window open, plat_stub.c): the last picture again with the window on it, and
    the window's events. 0: not this renderer, or nothing shown yet (the game goes on). */
 int GsGl_PauseFrame(void) {
@@ -1280,7 +1303,9 @@ static void frame_end(void) {
     }
     present_picture(best);
     Ui_DrawGL(); /* the overlay, over the presented picture */
+    sf_before_swap();
     SDL_GL_SwapWindow(sWindow);
+    sf_after_swap();
     /* BT3_GL_WINSHOT=<n>: dump the window's own framebuffer every n frames (what the user sees) */
     if (getenv("BT3_GL_WINSHOT") != NULL && atoi(getenv("BT3_GL_WINSHOT")) > 0 && (int)gGsFrame % atoi(getenv("BT3_GL_WINSHOT")) == 0) {
         int sw, sh, x, y;
