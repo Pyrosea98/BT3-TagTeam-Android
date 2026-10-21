@@ -1022,23 +1022,32 @@ static void gl_heartbeat(void) {
 static uint64_t sSfPrev, sSfT1;
 static unsigned sSfUpN, sSfLines;
 static double sSfUpMs;
+extern uint64_t gGpuTexNs;
+static unsigned sSfCopies, sSfPrevCopies;
+static uint64_t sSfCopyNs, sSfPrevCopyNs, sSfPrevTexNs;
 static void sf_before_swap(void) { sSfT1 = SDL_GetTicksNS(); }
 static void sf_after_swap(void) {
     uint64_t t2 = SDL_GetTicksNS();
     unsigned upn = (unsigned)sUpN;
     double upms = (double)sUpMs;
-    if (sSfPrev != 0 && t2 > sSfPrev && (t2 - sSfPrev) > 50000000ULL && sSfLines < 3000) {
+    uint64_t texns = gGpuTexNs, cpns = sSfCopyNs;
+    unsigned cps = sSfCopies;
+    double dtex = (double)(texns >= sSfPrevTexNs ? texns - sSfPrevTexNs : texns) / 1e6;
+    unsigned dcp = cps - sSfPrevCopies;
+    double dcpms = (double)(cpns - sSfPrevCopyNs) / 1e6;
+    if (sSfPrev != 0 && t2 > sSfPrev && (t2 - sSfPrev) > 90000000ULL && sSfLines < 3000) {
         unsigned dn = upn >= sSfUpN ? upn - sSfUpN : upn;
         double dm = upms >= sSfUpMs ? upms - sSfUpMs : upms;
         sSfLines++;
-        fprintf(stderr, "bt3: slow frame %u: %.1f ms (before the swap %.1f, in the swap %.1f), %u draws, %u vertices, %d targets, %u uploads %.1f ms\n",
+        fprintf(stderr, "bt3: slow frame %u: %.1f ms (before the swap %.1f, in the swap %.1f), %u draws, %u vertices, %d targets, %u uploads %.1f ms, %.1f ms decoding textures, %u copies %.1f ms\n",
                 (unsigned)gGsFrame, (double)(t2 - sSfPrev) / 1e6,
                 sSfT1 > sSfPrev ? (double)(sSfT1 - sSfPrev) / 1e6 : 0.0,
                 (double)(t2 - sSfT1) / 1e6,
                 (unsigned)gsDrawCount, (unsigned)(gsVertCount + gsVuVertCount),
-                (int)gsTargetCount, dn, dm);
+                (int)gsTargetCount, dn, dm, dtex, dcp, dcpms);
     }
     sSfPrev = t2; sSfUpN = upn; sSfUpMs = upms;
+    sSfPrevTexNs = texns; sSfPrevCopies = cps; sSfPrevCopyNs = cpns;
 }
 
 /* While the game is paused (the settings window open, plat_stub.c): the last picture again with the window on it, and
@@ -1408,7 +1417,14 @@ static int gl_target_read(int i, uint8_t *rgba) {
     return 1;
 }
 
+static void gl_target_copy_raw(int src, int dst);
 static void gl_target_copy(int src, int dst) {
+    uint64_t c0 = SDL_GetTicksNS();
+    gl_target_copy_raw(src, dst);
+    sSfCopies++;
+    sSfCopyNs += SDL_GetTicksNS() - c0;
+}
+static void gl_target_copy_raw(int src, int dst) {
     GLenum one[1] = {GL_COLOR_ATTACHMENT0};
     if (sTgCol[src] == 0 || sTgCol[dst] == 0) {
         return;
