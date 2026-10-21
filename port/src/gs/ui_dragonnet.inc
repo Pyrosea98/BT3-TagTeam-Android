@@ -342,7 +342,7 @@ static int lobby_step(void) {
     if (st < 0) { sLobbyLast = st; }
     if (st == -3 || st == -4 || st == -2) { sLobbyLast = st; }
     if (st == 2) {
-        if (sRankedLobby) { DrRanked_Handover(); }
+        if (sRankedLobby) { DrRanked_Connection(1); DrRanked_Handover(); }
         sRankedLobby = false;
         Port_LobbyLaunch();
         set_open(false);

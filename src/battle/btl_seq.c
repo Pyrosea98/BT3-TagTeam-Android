@@ -1314,6 +1314,9 @@ s32 BtlSeq_CheckBattleEnd(void) {
 
 /* State 3 enter: releases the fighters (clears the demo and ready flags); mode 8 shows the HUD. */
 s32 BtlSeqFight_Enter(BtlSeqWaitCtx *ctx) {
+#ifdef PORT
+    { extern void DrRanked_FightStarted(void); DrRanked_FightStarted(); }
+#endif
     Battle_GetWork()->flags &= ~BATTLE_FLAG_DEMO;
     Battle_GetWork()->flags &= ~BATTLE_FLAG_READY;
     if (Battle_GetMode() == 8) {

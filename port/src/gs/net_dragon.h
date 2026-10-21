@@ -40,6 +40,7 @@ enum {
 
 typedef struct DrRanked {
     int state;          /* 0 idle, 1 asking, 2 waiting for a rival, 3 rival found (paired), -1 a problem (msg) */
+    int flow;            /* 2: the service negotiated the lifecycle (flow:2) with the rival */
     int searching, role, mode; /* role 1 host, 2 the one who joins; mode 0 single, 1 team */
     int profile;        /* 0 not loaded, 1 loaded */
     int rating, wins, losses, draws, position;
@@ -57,6 +58,8 @@ void DrRanked_Cancel(void);
 void DrRanked_Board(void);
 void DrRanked_Poll(DrRanked *out);
 void DrRanked_SetRoom(const char *code);           /* the host's room code, once the lobby has it */
+void DrRanked_Connection(int ready);   /* the lobby is connected (flow:2): tells the service */
+void DrRanked_FightStarted(void);      /* the fight begins (flow:2): tells the service */
 int DrRanked_Handover(void);                       /* the match starts: remembered for its result (1 = it was a ranked one) */
 int DrRanked_InSession(void);
 

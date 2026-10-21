@@ -238,6 +238,8 @@ static char sId[33], sToken[65]; /* the device identity (the thread's) */
 static int sRefresh, sWantSearch, sWantCancel, sWantBoard;
 static unsigned sSearchGen;
 static char sCancelMatch[33], sRoomPending[8], sHandedOver[33];
+static char sLifeMatch[33], sStartSent[33]; /* flow:2: the match the lifecycle calls are for */
+static int sLifeReady, sLifeStarted, sLifeTries;
 
 static int sChatOpen, sChatState;
 static unsigned sChatAfter;
@@ -361,6 +363,7 @@ static void update_match(const char *answer, unsigned gen) {
     text_value(answer, "code", sView.code, sizeof(sView.code));
     text_value(answer, "peer", sView.peer, sizeof(sView.peer));
     sView.role = number_value(answer, "role");
+    sView.flow = number_value(answer, "flow") == 2;
     sView.state = strcmp(state, "paired") == 0 ? 3 : strcmp(state, "waiting") == 0 ? 2 : 0;
     if (sView.state == 0) {
         sView.searching = sWantSearch = 0;
@@ -491,6 +494,32 @@ static void do_presence(void) {
     }
 }
 
+/* flow:2 (the service's lifecycle): "ready" once the lobby is connected, "started" when the fight begins.
+   Sent by this thread (the game never waits for HTTP); gives up after a few failed tries. */
+static void do_lifecycle(void) {
+    char match[33], answer[512], extra[96];
+    int ready, started;
+    SDL_LockMutex(sLock);
+    ready = sLifeReady;
+    started = sLifeStarted;
+    SDL_strlcpy(match, sLifeMatch, sizeof(match));
+    SDL_UnlockMutex(sLock);
+    if ((!ready && !started) || !is_hex(match, 32)) {
+        return;
+    }
+    SDL_snprintf(extra, sizeof(extra), ",\"match\":\"%s\",\"action\":\"%s\"", match, ready ? "ready" : "started");
+    if (post_ranked("lifecycle", extra, answer, sizeof(answer)) || ++sLifeTries >= 5) {
+        SDL_LockMutex(sLock);
+        if (ready) {
+            sLifeReady = 0;
+        } else {
+            sLifeStarted = 0;
+        }
+        sLifeTries = 0;
+        SDL_UnlockMutex(sLock);
+    }
+}
+
 static int SDLCALL worker(void *unused) {
     Uint64 chatAt = 0;
     (void)unused;
@@ -589,7 +618,7 @@ static int SDLCALL worker(void *unused) {
                     }
                 } else {
                     /* (one fight per match: rematches 0. DBT-NX's rounds can come later, when both games score them) */
-                    SDL_snprintf(extra, sizeof(extra), ",\"rematches\":0,\"rules\":\"%s\"", mode ? "team3-inf-v1" : "solo-inf-v1");
+                    SDL_snprintf(extra, sizeof(extra), ",\"rematches\":0,\"flow\":2,\"rules\":\"%s\"", mode ? "team3-inf-v1" : "solo-inf-v1");
                     if (post_ranked("queue", extra, answer, sizeof(answer))) {
                         update_match(answer, gen);
                     } else if (sView.msg != DRMSG_VERSION) {
@@ -607,10 +636,11 @@ static int SDLCALL worker(void *unused) {
             sChat.state = -1;
             SDL_UnlockMutex(sLock);
         }
+        do_lifecycle();
         /* the next round: at once when asked for something, else in two seconds (a search) or a little more */
         for (i = 0; i < (search ? 200 : 100); i++) {
             SDL_LockMutex(sLock);
-            urgent = sRefresh || sWantCancel || sWantBoard || sRoomPending[0] != '\0' || sChatOutN > 0 || sPresenceLeave;
+            urgent = sRefresh || sWantCancel || sWantBoard || sRoomPending[0] != '\0' || sChatOutN > 0 || sPresenceLeave || sLifeReady || sLifeStarted;
             SDL_UnlockMutex(sLock);
             if (urgent) {
                 break;
@@ -639,6 +669,41 @@ static void start(const char *name) {
 }
 
 /* ---- the window's side ---- */
+
+/* flow:2 hooks (the game's side): only for matches whose rival also announced flow:2. */
+void DrRanked_Connection(int ready) {
+    if (!ready) {
+        return;
+    }
+    SDL_LockMutex(sLock);
+    if (sView.flow && is_hex(sView.match, 32)) {
+        SDL_strlcpy(sLifeMatch, sView.match, sizeof(sLifeMatch));
+        sLifeReady = 1;
+        sLifeTries = 0;
+    }
+    SDL_UnlockMutex(sLock);
+    start(NULL);
+}
+
+void DrRanked_FightStarted(void) {
+    char match[33];
+    int role, mode, sent, ok;
+    if (!session_read(match, &role, &mode, &sent) || sent) {
+        return;
+    }
+    SDL_LockMutex(sLock);
+    ok = sView.flow && strcmp(sView.match, match) == 0 && strcmp(sStartSent, match) != 0;
+    if (ok) {
+        SDL_strlcpy(sLifeMatch, match, sizeof(sLifeMatch));
+        SDL_strlcpy(sStartSent, match, sizeof(sStartSent));
+        sLifeStarted = 1;
+        sLifeTries = 0;
+    }
+    SDL_UnlockMutex(sLock);
+    if (ok) {
+        start(NULL);
+    }
+}
 
 void DrNet_PresenceActive(int on) {
     start(NULL);
