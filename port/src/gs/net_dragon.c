@@ -240,6 +240,11 @@ static unsigned sSearchGen;
 static char sCancelMatch[33], sRoomPending[8], sHandedOver[33];
 static char sLifeMatch[33], sStartSent[33]; /* flow:2: the match the lifecycle calls are for */
 static int sLifeReady, sLifeStarted, sLifeTries;
+/* flow:2 rematch: what the game asked for (act: 0 none, 1 status, 2 accept, 3 leave) and what the service answered
+   (state: 0 none, 1 confirming, 2 choice, 3 waiting, 4 declined, 5 a new match was saved to dragonnet-next.txt). */
+static int sFlowAct, sFlowNow, sFlowTries, sFlowState;
+static char sFlowMatch[33];
+static Uint64 sFlowAt;
 
 static int sChatOpen, sChatState;
 static unsigned sChatAfter;
@@ -520,6 +525,76 @@ static void do_lifecycle(void) {
     }
 }
 
+/* flow:2 rematch, on the worker thread: the game never waits for HTTP. "accept" is repeated until the service
+   has both results (it answers "confirming" until then), then the state is asked every 4 seconds. */
+static void do_flow(void) {
+    char match[33], next[33], st[24], answer[512], extra[96], text[100];
+    int act, fresh, role, mode;
+    Uint64 now = SDL_GetTicks();
+
+    SDL_LockMutex(sLock);
+    act = sFlowAct;
+    fresh = sFlowNow;
+    sFlowNow = 0;
+    SDL_strlcpy(match, sFlowMatch, sizeof(match));
+    mode = sView.mode;
+    SDL_UnlockMutex(sLock);
+    if (!act || !is_hex(match, 32)) {
+        return;
+    }
+    if (fresh) {
+        sFlowTries = 0;
+    } else if (now - sFlowAt < 4000) {
+        return;
+    }
+    sFlowAt = now;
+    SDL_snprintf(extra, sizeof(extra), ",\"match\":\"%s\",\"action\":\"%s\"", match,
+                 act == 3 ? "leave" : act == 2 ? "accept" : "status");
+    if (!post_ranked("lifecycle", extra, answer, sizeof(answer))) {
+        if (++sFlowTries >= 5) { /* the service does not answer (or is an old one): give up */
+            SDL_LockMutex(sLock);
+            if (act == sFlowAct && strcmp(match, sFlowMatch) == 0) {
+                sFlowAct = 0;
+                sFlowState = 4;
+            }
+            SDL_UnlockMutex(sLock);
+        }
+        return;
+    }
+    sFlowTries = 0;
+    st[0] = next[0] = '\0';
+    text_value(answer, "state", st, sizeof(st));
+    text_value(answer, "match", next, sizeof(next));
+    role = number_value(answer, "role");
+    SDL_LockMutex(sLock);
+    if (act != sFlowAct || strcmp(match, sFlowMatch) != 0) { /* the game asked for something else meanwhile */
+        SDL_UnlockMutex(sLock);
+        return;
+    }
+    if (is_hex(next, 32) && strcmp(next, match) != 0 && (role == 1 || role == 2)) { /* a NEW match: both accepted */
+        SDL_snprintf(text, sizeof(text), "%s %d %d 0\n", next, role, mode);
+        write_text("dragonnet-next.txt", text);
+        sFlowState = 5;
+        sFlowAct = 0;
+    } else if (strcmp(st, "declined") == 0) {
+        sFlowState = 4;
+        sFlowAct = 0;
+    } else if (strcmp(st, "waiting") == 0) {
+        sFlowState = 3;
+        if (act == 2) {
+            sFlowAct = 1; /* the vote is in: from now on only ask */
+        }
+    } else if (strcmp(st, "choice") == 0) {
+        sFlowState = 2;
+        if (act == 2) {
+            sFlowAct = 1;
+        }
+    } else {
+        sFlowState = 1; /* confirming: the service does not have both results yet (accept is repeated) */
+    }
+    SDL_UnlockMutex(sLock);
+}
+
 static int SDLCALL worker(void *unused) {
     Uint64 chatAt = 0;
     (void)unused;
@@ -637,10 +712,11 @@ static int SDLCALL worker(void *unused) {
             SDL_UnlockMutex(sLock);
         }
         do_lifecycle();
+        do_flow();
         /* the next round: at once when asked for something, else in two seconds (a search) or a little more */
         for (i = 0; i < (search ? 200 : 100); i++) {
             SDL_LockMutex(sLock);
-            urgent = sRefresh || sWantCancel || sWantBoard || sRoomPending[0] != '\0' || sChatOutN > 0 || sPresenceLeave || sLifeReady || sLifeStarted;
+            urgent = sFlowNow || sRefresh || sWantCancel || sWantBoard || sRoomPending[0] != '\0' || sChatOutN > 0 || sPresenceLeave || sLifeReady || sLifeStarted;
             SDL_UnlockMutex(sLock);
             if (urgent) {
                 break;
@@ -725,6 +801,58 @@ int DrNet_Online(void) {
     n = sOnline;
     SDL_UnlockMutex(sLock);
     return n;
+}
+
+/* flow:2 rematch (the game's side). The match is the one of the running session (dragonnet-session.txt). */
+void DrRanked_FlowAct(int act) {
+    char match[33];
+    int role, mode, sent;
+    if (act < 1 || act > 3 || !session_read(match, &role, &mode, &sent)) {
+        return;
+    }
+    SDL_LockMutex(sLock);
+    if (sView.flow && strcmp(sView.match, match) == 0) {
+        if (strcmp(sFlowMatch, match) != 0) {
+            SDL_strlcpy(sFlowMatch, match, sizeof(sFlowMatch));
+            sFlowState = 0;
+        }
+        if (sFlowState == 0) {
+            sFlowState = 1;
+        }
+        sFlowAct = act;
+        sFlowNow = 1;
+    }
+    SDL_UnlockMutex(sLock);
+    start(NULL);
+}
+
+int DrRanked_FlowState(void) {
+    int s;
+    SDL_LockMutex(sLock);
+    s = sFlowState;
+    SDL_UnlockMutex(sLock);
+    return s;
+}
+
+int DrRanked_FlowNext(char *match, int *role, int *mode) {
+    char text[160];
+    int sent = 0;
+    *role = *mode = 0;
+    if (!read_text("dragonnet-next.txt", text, sizeof(text))) {
+        return 0;
+    }
+    if (sscanf(text, "%32s %d %d %d", match, role, mode, &sent) < 3 || !is_hex(match, 32) || (*role != 1 && *role != 2)) {
+        return 0;
+    }
+    return 1;
+}
+
+void DrRanked_FlowClear(void) {
+    write_text("dragonnet-next.txt", "0 0 0 0\n"); /* not a valid match: reads as "none" */
+    SDL_LockMutex(sLock);
+    sFlowAct = sFlowNow = sFlowState = 0;
+    sFlowMatch[0] = '\0';
+    SDL_UnlockMutex(sLock);
 }
 
 void DrRanked_Open(const char *name) {

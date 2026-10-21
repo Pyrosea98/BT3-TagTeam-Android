@@ -52,6 +52,13 @@ typedef struct DrRanked {
     int boardRating[9];
 } DrRanked;
 
+/* flow:2 rematch, after the result (the Revanche screen): 1 asks the state, 2 accepts, 3 leaves. */
+void DrRanked_FlowAct(int act);
+/* 0 none, 1 confirming, 2 choice, 3 waiting, 4 declined or gave up, 5 a new match was saved. */
+int DrRanked_FlowState(void);
+/* The saved new match (match needs 33 bytes): 1 if there is one. */
+int DrRanked_FlowNext(char *match, int *role, int *mode);
+void DrRanked_FlowClear(void);
 void DrRanked_Open(const char *name);              /* starts the client and loads the profile */
 void DrRanked_Search(const char *name, int mode);  /* 0 single, 1 team */
 void DrRanked_Cancel(void);
