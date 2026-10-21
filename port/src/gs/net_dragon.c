@@ -748,7 +748,17 @@ static void start(const char *name) {
 /* ---- the window's side ---- */
 
 /* flow:2 hooks (the game's side): only for matches whose rival also announced flow:2. */
-void DrRanked_Connection(int ready) {
+/* The game restarts (relaunch = execv) between the lobby and the fight, and again after the session: the new process
+   knows nothing of sView. Connection(1) leaves the match in dragonnet-flow.txt, which says "this match is flow:2". */
+static int flow_file(const char *match) {
+    char text[64], saved[33];
+    if (!read_text("dragonnet-flow.txt", text, sizeof(text))) {
+        return 0;
+    }
+    return sscanf(text, "%32s", saved) == 1 && strcmp(saved, match) == 0;
+}
+
+static void connection_queue(int ready) {
     if (!ready) {
         return;
     }
@@ -762,6 +772,37 @@ void DrRanked_Connection(int ready) {
     start(NULL);
 }
 
+/* The lobby is connected (flow:2). The game restarts right after (relaunch), so the worker could not be trusted to
+   send `ready` in time: it is woken, and this waits (at most 2.5 s) until it has been sent. */
+void DrRanked_Connection(int ready) {
+    static char done[33];
+    char match[33], line[64];
+    int i, pending, flow;
+    if (!ready) {
+        return;
+    }
+    SDL_LockMutex(sLock);
+    flow = sView.flow && is_hex(sView.match, 32);
+    SDL_strlcpy(match, sView.match, sizeof(match));
+    SDL_UnlockMutex(sLock);
+    if (!flow || strcmp(done, match) == 0) {
+        return;
+    }
+    SDL_strlcpy(done, match, sizeof(done));
+    SDL_snprintf(line, sizeof(line), "%s 1\n", match);
+    write_text("dragonnet-flow.txt", line);
+    connection_queue(1);
+    for (i = 0; i < 250; i++) {
+        SDL_LockMutex(sLock);
+        pending = sLifeReady && strcmp(sLifeMatch, match) == 0;
+        SDL_UnlockMutex(sLock);
+        if (!pending) {
+            break;
+        }
+        SDL_Delay(10);
+    }
+}
+
 void DrRanked_FightStarted(void) {
     char match[33];
     int role, mode, sent, ok;
@@ -769,10 +810,11 @@ void DrRanked_FightStarted(void) {
         return;
     }
     SDL_LockMutex(sLock);
-    ok = sView.flow && strcmp(sView.match, match) == 0 && strcmp(sStartSent, match) != 0;
+    ok = (flow_file(match) || (sView.flow && strcmp(sView.match, match) == 0)) && strcmp(sStartSent, match) != 0;
     if (ok) {
         SDL_strlcpy(sLifeMatch, match, sizeof(sLifeMatch));
         SDL_strlcpy(sStartSent, match, sizeof(sStartSent));
+        sLifeReady = 1; /* again: the process that sent it may be gone (the service takes a repeat) */
         sLifeStarted = 1;
         sLifeTries = 0;
     }
@@ -829,7 +871,7 @@ void DrRanked_FlowAct(int act) {
         }
     }
     SDL_LockMutex(sLock);
-    if (after || (sView.flow && strcmp(sView.match, match) == 0)) {
+    if (after || flow_file(match) || (sView.flow && strcmp(sView.match, match) == 0)) {
         sFlowMode = mode;
         if (strcmp(sFlowMatch, match) != 0) {
             SDL_strlcpy(sFlowMatch, match, sizeof(sFlowMatch));
@@ -1044,7 +1086,7 @@ void DrNet_SessionEnding(int mine) {
     { /* flow:2: after the session the Revanche screen asks the service about this match */
         int flow;
         SDL_LockMutex(sLock);
-        flow = sent && sView.flow && strcmp(sView.match, match) == 0;
+        flow = sent && (flow_file(match) || (sView.flow && strcmp(sView.match, match) == 0));
         SDL_UnlockMutex(sLock);
         if (flow) {
             SDL_snprintf(line, sizeof(line), "%s %d %d 1\n", match, role, mode);
