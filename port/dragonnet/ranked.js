@@ -3,6 +3,7 @@
 // Dragon Net: a search keeps the netcode version it was made with (ranked_matches.version), and pairs only with a
 // search of the same version: a Switch of 40001 never meets an Android of 5001. Profiles and ratings are shared.
 import {versionAllowed} from "./versions.js";
+import {flowQueue,flowView,flowExpire,flowRequest} from './ranked_flow.js';
 const TTL=21600, WAIT_TTL=120;
 const json=(body,status=200)=>new Response(JSON.stringify(body),{status,headers:{"content-type":"application/json","cache-control":"no-store"}});
 const id=()=>crypto.randomUUID().replaceAll("-","");
@@ -24,7 +25,7 @@ async function view(db,p){
 async function matchView(db,m,player){
  const host=m.host_id===player;
  const peer=await one(db,"SELECT name FROM ranked_players WHERE id=?",host?m.guest_id:m.host_id);
- return {match:m.id,state:m.state,role:host?1:2,code:m.room_code??"",peer:peer?.name??"",rules:m.rule_set,rematches:m.rematch_caps===3?1:0,delta:m.delta===null?0:host?m.delta:-m.delta};
+ return {match:m.id,state:m.state,role:host?1:2,code:m.room_code??"",peer:peer?.name??"",rules:m.rule_set,rematches:m.rematch_caps===3?1:0,flow:await flowView(db,m),delta:m.delta===null?0:host?m.delta:-m.delta};
 }
 async function rematchResult(db,m,p,body,now,forfeit=false){
  if(forfeit)body={...body,score:m.host_id===p.id?0:2,digest:'f0fe1700'};
@@ -76,6 +77,7 @@ async function rematchResult(db,m,p,body,now,forfeit=false){
 }
 async function expire(db,p,now){
  if(!p.active_match)return;
+ await flowExpire(db,await one(db,'SELECT * FROM ranked_matches WHERE id=?',p.active_match),now);
  await db.batch([
   stmt(db,"UPDATE ranked_rounds SET state='expired' WHERE match_id=? AND state='paired' AND made<?",p.active_match,now-TTL),
   stmt(db,"UPDATE ranked_matches SET state='expired' WHERE id=? AND (made<? OR (state='waiting' AND made<?)) AND state IN ('waiting','paired')",p.active_match,now-TTL,now-WAIT_TTL),
@@ -102,6 +104,7 @@ export async function rankedFetch(request,env,path,body,now,ip){
  if(String(env.RANKED_ENABLED)!=="1")return json({error:"ranked unavailable"},503);
  if(!versionAllowed(env,body.v))return json({error:"version"},409);
  const db=env.DB;
+ if(path==='capabilities')return json({lifecycle:2,connect_timeout_ms:7000,rematch_timeout_ms:15000});
  if(path==="register"){
   if(!await limit(db,"ranked-register:"+ip,now-now%3600,10))return json({error:"busy"},429);
   const player=id(),token=id()+id();
@@ -129,7 +132,8 @@ export async function rankedFetch(request,env,path,body,now,ip){
    const mine=id();
    await db.batch([
     stmt(db,"INSERT INTO ranked_matches(id,host_id,made,host_rating,rule_set,rematch_caps,version) SELECT ?,?,?,?,?,?,? WHERE (SELECT active_match FROM ranked_players WHERE id=?) IS NULL",mine,p.id,now,p.rating,rules,body.rematches===1?1:0,body.v,p.id),
-    stmt(db,"UPDATE ranked_players SET active_match=? WHERE id=? AND active_match IS NULL AND EXISTS(SELECT 1 FROM ranked_matches WHERE id=?)",mine,p.id,mine)
+    stmt(db,"UPDATE ranked_players SET active_match=? WHERE id=? AND active_match IS NULL AND EXISTS(SELECT 1 FROM ranked_matches WHERE id=?)",mine,p.id,mine),
+    stmt(db,"INSERT OR IGNORE INTO ranked_flow(match_id,host_cap) SELECT ?,? WHERE EXISTS(SELECT 1 FROM ranked_matches WHERE id=?)",mine,body.flow===2?2:0,mine)
    ]);
    p=await one(db,"SELECT * FROM ranked_players WHERE id=?",p.id);
   }
@@ -143,22 +147,27 @@ export async function rankedFetch(request,env,path,body,now,ip){
     await db.batch([
      stmt(db,"UPDATE ranked_matches SET guest_id=?,guest_rating=?,state='paired',rematch_caps=rematch_caps|? WHERE id=? AND state='waiting' AND rule_set=? AND EXISTS(SELECT 1 FROM ranked_players WHERE id=? AND active_match=?) AND EXISTS(SELECT 1 FROM ranked_matches WHERE id=? AND state='waiting' AND rule_set=?)",p.id,p.rating,body.rematches===1?2:0,other.id,rules,p.id,m.id,m.id,rules),
      stmt(db,"UPDATE ranked_players SET active_match=? WHERE id=? AND EXISTS(SELECT 1 FROM ranked_matches WHERE id=? AND guest_id=? AND state='paired')",other.id,p.id,other.id,p.id),
-     stmt(db,"UPDATE ranked_matches SET state='superseded' WHERE id=? AND EXISTS(SELECT 1 FROM ranked_matches WHERE id=? AND guest_id=?)",m.id,other.id,p.id)
+     stmt(db,"UPDATE ranked_matches SET state='superseded' WHERE id=? AND EXISTS(SELECT 1 FROM ranked_matches WHERE id=? AND guest_id=?)",m.id,other.id,p.id),
+     stmt(db,"UPDATE ranked_flow SET guest_cap=?,paired_at=? WHERE match_id=? AND EXISTS(SELECT 1 FROM ranked_matches WHERE id=? AND guest_id=?)",body.flow===2?2:0,now,other.id,other.id,p.id)
     ]);
     p=await one(db,"SELECT * FROM ranked_players WHERE id=?",p.id);
    }
   }
   m=await one(db,"SELECT * FROM ranked_matches WHERE id=?",p.active_match);
+  await flowQueue(db,m,p,body);
   return json(await matchView(db,m,p.id));
  }
  if(!hex(body.match))return json({error:"match"},400);
  let m=await one(db,"SELECT * FROM ranked_matches WHERE id=?",body.match);
  if(!m || (m.host_id!==p.id && m.guest_id!==p.id))return json({error:"match"},404);
+ await flowExpire(db,m,now);m=await one(db,'SELECT * FROM ranked_matches WHERE id=?',m.id);
+ if(path==='lifecycle'){const r=await flowRequest(db,m,p,body,now,matchView);return json(r.body,r.status??200);}
  if(path==="cancel"){
+  if(m.state==='final'&&await flowView(db,m)===2)await flowRequest(db,m,p,{action:'leave'},now,matchView);
   // Leaving a screen after a legitimate finish must not erase a report
   // already submitted by either player. Await the other report or expiry.
   await db.batch([
-   stmt(db,"UPDATE ranked_matches SET state='cancelled' WHERE id=? AND state IN ('waiting','paired') AND host_score IS NULL AND guest_score IS NULL",m.id),
+   stmt(db,"UPDATE ranked_matches SET state='cancelled' WHERE id=? AND state IN ('waiting','paired') AND host_score IS NULL AND guest_score IS NULL AND NOT EXISTS(SELECT 1 FROM ranked_flow WHERE match_id=? AND started_mask<>0)",m.id,m.id),
    stmt(db,"UPDATE ranked_players SET active_match=NULL WHERE active_match=? AND EXISTS(SELECT 1 FROM ranked_matches WHERE id=? AND state NOT IN ('waiting','paired')) AND NOT EXISTS(SELECT 1 FROM ranked_rounds WHERE match_id=? AND state='paired')",m.id,m.id,m.id)
   ]);
  }else if(path==="room"){
