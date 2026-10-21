@@ -1932,7 +1932,7 @@ void GsGpu_SetSettings(const PortVideo *v) {
     PortVideo now;
     GsGpu_GetSettings(&now);
     if (v->scale4 != now.scale4) {
-        gsPendingScale4 = v->scale4 < 4 ? 4 : v->scale4 > 32 ? 32 : v->scale4; /* applied between two frames */
+        gsPendingScale4 = v->scale4 < 2 ? 2 : v->scale4 > 32 ? 32 : v->scale4; /* applied between two frames */
     }
     if (v->aspectMilli != now.aspectMilli) {
 #ifdef __ANDROID__
@@ -2011,7 +2011,7 @@ int GsGpu_Init(void) {
             gsScale4 = Port_Setting("scale", 2) * 4;
         }
     }
-    gsScale4 = gsScale4 < 4 ? 4 : gsScale4 > 32 ? 32 : gsScale4;
+    gsScale4 = gsScale4 < 2 ? 2 : gsScale4 > 32 ? 32 : gsScale4;
     gsPendingScale4 = 0;
     gsVerts = malloc(MAX_VERTS * sizeof(Vtx));
     gsVuVerts = malloc(MAX_VU_VERTS * 48);
