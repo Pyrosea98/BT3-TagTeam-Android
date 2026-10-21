@@ -59,6 +59,8 @@ int DrRanked_FlowState(void);
 /* The saved new match (match needs 33 bytes): 1 if there is one. */
 int DrRanked_FlowNext(char *match, int *role, int *mode);
 void DrRanked_FlowClear(void);
+/* flow:2 rematch: the saved new match becomes a paired search again (1 = resumed). */
+int DrRanked_Resume(void);
 void DrRanked_Open(const char *name);              /* starts the client and loads the profile */
 void DrRanked_Search(const char *name, int mode);  /* 0 single, 1 team */
 void DrRanked_Cancel(void);

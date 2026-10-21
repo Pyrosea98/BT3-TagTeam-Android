@@ -875,6 +875,39 @@ void DrRanked_FlowClear(void) {
     SDL_UnlockMutex(sLock);
 }
 
+/* flow:2 rematch accepted: the new match (dragonnet-next.txt) is already paired at the service. It resumes as a
+   paired search: the worker's queue/room calls bring its code, and the lobby screen takes it from there. */
+int DrRanked_Resume(void) {
+    char text[160], match[33];
+    int role = 0, mode = 0, sent = 0;
+    if (!read_text("dragonnet-next.txt", text, sizeof(text))) {
+        return 0;
+    }
+    if (sscanf(text, "%32s %d %d %d", match, &role, &mode, &sent) < 3 || !is_hex(match, 32) || (role != 1 && role != 2) || (mode != 0 && mode != 1)) {
+        return 0;
+    }
+    start(NULL);
+    SDL_LockMutex(sLock);
+    sSearchGen++;
+    sHandedOver[0] = '\0';
+    sRoomPending[0] = '\0';
+    sWantSearch = sView.searching = 1;
+    sView.state = 3;
+    sView.role = role;
+    sView.mode = mode;
+    sView.flow = 1;
+    sView.code[0] = sView.peer[0] = '\0';
+    SDL_strlcpy(sView.match, match, sizeof(sView.match));
+    sView.msg = DRMSG_FOUND;
+    sFlowAct = sFlowNow = sFlowState = 0;
+    sFlowMatch[0] = '\0';
+    SDL_UnlockMutex(sLock);
+    write_text("dragonnet-next.txt", "0 0 0 0\n");
+    write_text("dragonnet-prev.txt", "0 0 0 0\n");
+    fprintf(stderr, "dragonnet: rematch resumed (role %d)\n", role);
+    return 1;
+}
+
 void DrRanked_Open(const char *name) {
     start(name);
     SDL_LockMutex(sLock);
