@@ -245,6 +245,7 @@ static int sLifeReady, sLifeStarted, sLifeTries;
 static int sFlowAct, sFlowNow, sFlowTries, sFlowState;
 static char sFlowMatch[33];
 static Uint64 sFlowAt;
+static int sFlowMode;
 
 static int sChatOpen, sChatState;
 static unsigned sChatAfter;
@@ -537,7 +538,7 @@ static void do_flow(void) {
     fresh = sFlowNow;
     sFlowNow = 0;
     SDL_strlcpy(match, sFlowMatch, sizeof(match));
-    mode = sView.mode;
+    mode = sFlowMode;
     SDL_UnlockMutex(sLock);
     if (!act || !is_hex(match, 32)) {
         return;
@@ -803,15 +804,33 @@ int DrNet_Online(void) {
     return n;
 }
 
+/* flow:2: the match of the session that just ended (dragonnet-prev.txt, written by DrNet_SessionEnding). */
+static int prev_read(char *match, int *role, int *mode) {
+    char text[160];
+    int sent = 0;
+    *role = *mode = 0;
+    if (!read_text("dragonnet-prev.txt", text, sizeof(text))) {
+        return 0;
+    }
+    return sscanf(text, "%32s %d %d %d", match, role, mode, &sent) >= 3 && is_hex(match, 32) && (*role == 1 || *role == 2);
+}
+
 /* flow:2 rematch (the game's side). The match is the one of the running session (dragonnet-session.txt). */
 void DrRanked_FlowAct(int act) {
     char match[33];
-    int role, mode, sent;
-    if (act < 1 || act > 3 || !session_read(match, &role, &mode, &sent)) {
+    int role, mode, sent, after = 0;
+    if (act < 1 || act > 3) {
         return;
     }
+    if (!session_read(match, &role, &mode, &sent)) { /* no session any more: the one that just ended */
+        after = prev_read(match, &role, &mode);
+        if (!after) {
+            return;
+        }
+    }
     SDL_LockMutex(sLock);
-    if (sView.flow && strcmp(sView.match, match) == 0) {
+    if (after || (sView.flow && strcmp(sView.match, match) == 0)) {
+        sFlowMode = mode;
         if (strcmp(sFlowMatch, match) != 0) {
             SDL_strlcpy(sFlowMatch, match, sizeof(sFlowMatch));
             sFlowState = 0;
@@ -849,6 +868,7 @@ int DrRanked_FlowNext(char *match, int *role, int *mode) {
 
 void DrRanked_FlowClear(void) {
     write_text("dragonnet-next.txt", "0 0 0 0\n"); /* not a valid match: reads as "none" */
+    write_text("dragonnet-prev.txt", "0 0 0 0\n");
     SDL_LockMutex(sLock);
     sFlowAct = sFlowNow = sFlowState = 0;
     sFlowMatch[0] = '\0';
@@ -987,6 +1007,18 @@ void DrNet_SessionEnding(int mine) {
     int role, mode, sent;
     if (!session_read(match, &role, &mode, &sent)) {
         return;
+    }
+    { /* flow:2: after the session the Revanche screen asks the service about this match */
+        int flow;
+        SDL_LockMutex(sLock);
+        flow = sent && sView.flow && strcmp(sView.match, match) == 0;
+        SDL_UnlockMutex(sLock);
+        if (flow) {
+            SDL_snprintf(line, sizeof(line), "%s %d %d 1\n", match, role, mode);
+            write_text("dragonnet-prev.txt", line);
+        } else {
+            remove_file("dragonnet-prev.txt");
+        }
     }
     if (!sent && mine) {
         SDL_snprintf(line, sizeof(line), "%s -1 00000000 1\n", match);
