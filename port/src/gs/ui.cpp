@@ -558,6 +558,8 @@ int Ui_Init(SDL_Window *window, SDL_GPUDevice *device, void *gl_context, const c
     ImGui_ImplSDL3_SetGamepadMode(ImGui_ImplSDL3_GamepadMode_AutoAll, NULL, 0); // any connected controller works the window
     sDevice = device;
     sReady = true;
+    extern volatile int gPortRematchUi;
+    gPortRematchUi = 1; // the overlay exists: the game may wait for the Revanche screen
     language_init();
     load_strips(); /* the stage- and song-name overlays; the ready flags stay 0 if there is no strip */
     if (getenv("BT3_UI_OPEN") != NULL && !MenuTranslation_BootPending()) {
@@ -2538,6 +2540,13 @@ static bool frame_build(void) {
     } else if (sReady && gPortNetMenuRequest) { // Dragon Net Battle was chosen in the game's main menu
         gPortNetMenuRequest = 0;
         net_open();
+    } else if (sReady && gPortRematchRequest) { // flow:2: the Revanche screen, after the result of a ranked match
+        gPortRematchRequest = 0;
+        net_open();
+        rematch_open();
+    } else if (sReady && !sRematchBooted) { // after a rematch the game restarted: its new match waits in dragonnet-next.txt
+        sRematchBooted = true;
+        rematch_boot();
     }
     if (sReady && !sUpdTold && update_latest() > PORT_RELEASE && SDL_GetTicks() >= sNoticeUntil) {
         int latest = update_latest(); // (told once, and not over another notice)

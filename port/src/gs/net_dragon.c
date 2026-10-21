@@ -1038,6 +1038,19 @@ int DrRanked_Handover(void) {
     return 1;
 }
 
+/* flow:2: the game flags for the Revanche screen (ui.cpp shows it while MainMenu_Run waits, before the session ends). */
+volatile int gPortRematchRequest, gPortRematchDone, gPortRematchUi;
+
+/* Is the Revanche screen to be offered now: a session whose result is already registered, and that is flow:2? */
+int DrRanked_RematchOffer(void) {
+    char match[33];
+    int role, mode, sent;
+    if (!gPortRematchUi || !session_read(match, &role, &mode, &sent) || !sent) {
+        return 0;
+    }
+    return flow_file(match);
+}
+
 int DrRanked_InSession(void) {
     char match[33];
     int role, mode, sent;

@@ -61,6 +61,8 @@ int DrRanked_FlowNext(char *match, int *role, int *mode);
 void DrRanked_FlowClear(void);
 /* flow:2 rematch: the saved new match becomes a paired search again (1 = resumed). */
 int DrRanked_Resume(void);
+/* flow:2: should the Revanche screen come before the session ends (1 = yes). */
+int DrRanked_RematchOffer(void);
 void DrRanked_Open(const char *name);              /* starts the client and loads the profile */
 void DrRanked_Search(const char *name, int mode);  /* 0 single, 1 team */
 void DrRanked_Cancel(void);

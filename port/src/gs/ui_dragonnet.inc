@@ -12,7 +12,7 @@
 
 namespace dn {
 
-enum Screen { HOME, CREATE, CREATE_WAIT, JOIN, JOIN_WAIT, QUICK, QUICK_WAIT, RANKED, RANKED_WAIT, BOARD, CHAT };
+enum Screen { HOME, CREATE, CREATE_WAIT, JOIN, JOIN_WAIT, QUICK, QUICK_WAIT, RANKED, RANKED_WAIT, BOARD, CHAT, REMATCH };
 
 static Screen sScreen = HOME;
 static int sRow, sHomeRow;
@@ -748,6 +748,107 @@ static void screen_board(void) {
            "", T("Tap or A: update   B: back", "Toque ou A: atualizar   B: voltar", "Toca o A: actualizar   B: volver"));
 }
 
+// ---- Rematch (flow:2): after the result of a ranked match. While it is open the game waits in MainMenu_Run
+// (menu_a.c); gPortRematchDone says how it ended: 1 = leave (the online menu), 2 = a new match was saved
+// (dragonnet-next.txt: the game restarts and rematch_boot() picks it up).
+extern volatile int gPortRematchRequest, gPortRematchDone;
+extern volatile int gPortNetWindowClose;
+static Uint64 sRematchSince, sRematchAccept, sRematchLeave;
+static bool sRematchBooted;
+
+static void rematch_open(void) {
+    sRematchSince = SDL_GetTicks();
+    sRematchAccept = sRematchLeave = 0;
+    DrRanked_FlowAct(1);
+    goto_screen(REMATCH, 0);
+}
+
+static void rematch_done(int how) {
+    gPortRematchDone = how;
+    gPortNetWindowClose = 1; // the window closes by the same way as when a session ends
+}
+
+// The game has restarted after a rematch was agreed: the new match is resumed as a paired search and the lobby takes over.
+static void rematch_boot(void) {
+    char m[33];
+    int r, md;
+    if (!DrRanked_FlowNext(m, &r, &md)) {
+        return;
+    }
+    DrRanked_Open(sName);
+    if (DrRanked_Resume()) {
+        net_open();
+        sFoundAt = 0;
+        sLobbyLast = 0;
+        goto_screen(RANKED_WAIT, 0);
+    }
+}
+
+static void screen_rematch(void) {
+    const float u = U();
+    const Uint64 now = SDL_GetTicks();
+    const int st = DrRanked_FlowState();
+    const bool back = header(T("Rematch", "Revanche", "Revancha"), true) || padB();
+    if (!sRematchLeave && back) { // B / back: the rival is told, then the game goes on to the online menu
+        DrRanked_FlowAct(3);
+        sRematchLeave = now;
+    }
+    if (st == 5) { // both accepted: the new match is saved
+        rematch_done(2);
+        return;
+    }
+    if (sRematchLeave) {
+        if (st == 4 || now - sRematchLeave > 2500) {
+            rematch_done(1);
+            return;
+        }
+    } else if (st == 4) {
+        rematch_done(1);
+        return;
+    } else if (!sRematchAccept && st < 2 && now - sRematchSince > 20000) { // the service does not answer
+        rematch_done(1);
+        return;
+    } else if (sRematchAccept && now - sRematchAccept > 15000) { // the rival did not accept in time
+        DrRanked_FlowAct(3);
+        sRematchLeave = now;
+    }
+    const char *big;
+    const char *note;
+    if (sRematchLeave) {
+        big = T("LEAVING", "SAINDO", "SALIENDO");
+        note = T("Telling the rival...", "Avisando o rival...", "Avisando al rival...");
+    } else if (sRematchAccept) {
+        big = T("WAITING", "AGUARDANDO", "ESPERANDO");
+        note = T("Waiting for the rival to accept...", "Esperando o rival aceitar...", "Esperando que el rival acepte...");
+    } else if (st == 2) {
+        big = T("REMATCH?", "REVANCHE?", "¿REVANCHA?");
+        note = T("Both must accept. The result is saved.", "Os dois precisam aceitar. O resultado ja esta salvo.",
+                 "Ambos deben aceptar. El resultado ya esta guardado.");
+    } else {
+        big = T("CONFIRMING", "CONFIRMANDO", "CONFIRMANDO");
+        note = T("Confirming the result...", "Confirmando o resultado...", "Confirmando el resultado...");
+    }
+    wait_card(u * 3.3f, T("Online match", "Partida online", "Partida en linea"), big, note, col(1.0f, 0.86f, 0.30f));
+    if (st == 2 && !sRematchAccept && !sRematchLeave) {
+        card_start(u * 9.2f, u * 3.3f, NULL);
+        int m = padMove();
+        if (m != 0) {
+            sRow = (sRow + m + 2) % 2;
+        }
+        bool again = card_row(0, u * 0.35f, T("Rematch", "Revanche", "Revancha"), "") || (sRow == 0 && padA());
+        bool menu = card_row(1, u * 1.9f, T("Online menu", "Menu online", "Menu en linea"), "") || (sRow == 1 && padA());
+        if (again) {
+            DrRanked_FlowAct(2);
+            sRematchAccept = now;
+        }
+        if (menu) {
+            DrRanked_FlowAct(3);
+            sRematchLeave = now;
+        }
+    }
+    footer(T("A: choose", "A: escolher", "A: elegir"), "", T("B: back", "B: voltar", "B: volver"));
+}
+
 static void screen_chat(void) {
     DrChat c;
     DrChat_Poll(&c);
@@ -877,6 +978,7 @@ static void window(void) {
     case RANKED_WAIT: screen_ranked_wait(); break;
     case BOARD: screen_board(); break;
     case CHAT: screen_chat(); break;
+        case REMATCH: screen_rematch(); break;
     }
     ImGui::End();
     if (close) {

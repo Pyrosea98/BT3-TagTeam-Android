@@ -592,6 +592,22 @@ s32 MainMenu_Run(s32 section) {
 
 #ifdef PORT
     if (Port_NetSession()) {
+        { /* Dragon Net (flow:2): the Revanche screen (port/src/gs/ui.cpp) comes before the session ends */
+            extern volatile int gPortRematchRequest, gPortRematchDone;
+            extern int DrRanked_RematchOffer(void);
+            if (DrRanked_RematchOffer()) {
+                int frames;
+                gPortRematchDone = 0;
+                gPortRematchRequest = 1;
+                for (frames = 0; frames < 3000 && !gPortRematchDone; frames++) {
+                    Gfx_BeginFrame();
+                    Pad_Update();
+                    Snd_Update();
+                    Gfx_EndFrame(1);
+                    Dma_Flush();
+                }
+            }
+        }
         Port_NetLeave(); /* an online session lives in the versus mode: back at the main menu it is over (no return) */
     }
 #endif
