@@ -166,7 +166,7 @@ static void save_setting(const char *name, int value) {
 static void page_video(PortVideo &v) {
     card_begin("res", T("Picture", "Imagem", "Imagen"));
     {
-        static const int q[] = {4, 5, 6, 7, 8, 10, 12, 16, 20, 24};
+        static const int q[] = {2, 3, 4, 5, 6, 7, 8, 10, 12, 16, 20, 24};
         static const char *const names[] = {"1x", "1.25x", "1.5x", "1.75x", "2x", "2.5x", "3x", "4x", "5x", "6x"};
         char desc[200];
         snprintf(desc, sizeof(desc), T("%d x %d. 1x is the PlayStation 2's own. Higher is sharper and heavier for the GPU.",
