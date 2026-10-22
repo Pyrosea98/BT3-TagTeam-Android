@@ -277,8 +277,14 @@ static int post_ranked(const char *what, const char *extra, char *answer, size_t
 /* the device identity: read, or made once by the service (then kept: deleting the file makes a new profile) */
 static int identity(void) {
     char file[160], answer[1024], body[200], name[20];
+    /* after a failed registration the next try waits (15 s, doubling to 5 minutes): a service out of its daily
+       requests answered 429 and the worker asked again every 70 ms while the window kept refreshing */
+    static Uint64 retryAt, retryWait;
     if (sId[0] != '\0') {
         return 1;
+    }
+    if (retryAt != 0 && SDL_GetTicks() < retryAt) {
+        return 0;
     }
     if (read_text("dragonnet-device.txt", file, sizeof(file)) && sscanf(file, "%32s %64s", sId, sToken) == 2 && is_hex(sId, 32) && is_hex(sToken, 64)) {
         return 1;
@@ -296,6 +302,8 @@ static int identity(void) {
     if (!Match_PostDragon("ranked/register", body, answer, sizeof(answer)) || !text_value(answer, "id", sId, sizeof(sId)) ||
         !text_value(answer, "token", sToken, sizeof(sToken)) || !is_hex(sId, 32) || !is_hex(sToken, 64)) {
         sId[0] = sToken[0] = '\0';
+        retryWait = retryWait == 0 ? 15000 : retryWait * 2 > 300000 ? 300000 : retryWait * 2;
+        retryAt = SDL_GetTicks() + retryWait;
         message(strstr(answer, "\"version\"") != NULL ? DRMSG_VERSION : DRMSG_REGISTER_FAILED, -1);
         return 0;
     }

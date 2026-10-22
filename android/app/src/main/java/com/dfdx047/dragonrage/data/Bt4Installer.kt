@@ -46,10 +46,11 @@ class Bt4Installer(
         var files = 0
         var bytes = 0L
         pfd.use {
+            val channel = FileInputStream(pfd.fileDescriptor).channel
             val iso = try {
-                IsoImage(FileInputStream(pfd.fileDescriptor).channel)
+                IsoImage(channel)
             } catch (e: IOException) {
-                throw GameDataInstaller.Stop(context.getString(R.string.err_not_iso))
+                throw GameDataInstaller.Stop(GameDataInstaller.notIsoMessage(context, channel))
             }
             iso.use {
                 val elf = iso.find(ELF) ?: throw GameDataInstaller.Stop(context.getString(R.string.bt4_err_not_bt4))

@@ -18,6 +18,8 @@ class Bt4Activity : GameActivity() {
 
     override fun gamePaths(): GamePaths = GamePaths(this, Game.BT4)
 
+    override val game: Game get() = Game.BT4
+
     override fun installDataList() {} // (the BT3 engine's data lists: not this engine's)
 
     override fun onCreate(savedInstanceState: Bundle?) {

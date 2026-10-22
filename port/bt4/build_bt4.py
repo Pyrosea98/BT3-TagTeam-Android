@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+"""Builds libbt4.so, the Budokai Tenkaichi 4 engine of Dragon Rage (Team BT4's mod, SLUS-219.78 Beta 14 Rev2), and
+puts it next to libbt3.so in the app (android/app/src/main/jniLibs/arm64-v8a). See port/bt4/README.md.
+
+    python3 port/tools/android.py                            (first: the toolchain, SDL3 and the GS shaders)
+    python3 port/bt4/build_bt4.py --data <folder>            (the first time: the game's code is generated)
+    python3 port/bt4/build_bt4.py                            (later: rebuilds with the code already generated)
+
+<folder> holds the mod's SLUS_219.78 and BIN/DBZP.BIN: the app copies them out of the image to
+Android/data/com.dfdx047.dragonrage/files/bt4/runtime/data (copy that folder to the PC), or extract them from the ISO.
+Nothing of the game is in this repository: its code is generated here from your copy.
+
+Everything goes to port/build/bt4/ (BT3-Recomp, dbz-bt4-recomp, FFmpeg, the generated code, the build). Needs, on the
+PC: git, cmake, ninja, make, a C/C++ compiler (the recompiler runs here) and Python 3.
+"""
+import argparse
+import hashlib
+import os
+import pathlib
+import shutil
+import subprocess
+import sys
+import types
+
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+HERE = ROOT / "port/bt4"
+WORK = ROOT / "port/build/bt4"
+TC = pathlib.Path(os.environ.get("BT3_TOOLCHAIN", str(ROOT / "port/build/android-toolchain")))
+LLVM = pathlib.Path(os.environ.get("BT3_LLVM", str(TC / "llvm")))
+SYSROOT = pathlib.Path(os.environ.get("BT3_SYSROOT", str(TC / "ndk/sysroot")))
+SDL3 = pathlib.Path(os.environ.get("BT3_SDL3", str(TC / "sdl3")))
+GEN = ROOT / "port/build/android/gen/gs"
+API = 29
+
+BT3R_URL, BT3R_REV = "https://github.com/z3xox/BT3-Recomp", "e22a34b"
+BT4R_URL, BT4R_REV = "https://github.com/recomp-code/dbz-bt4-recomp", "a5771ed"
+FFMPEG_URL, FFMPEG_TAG = "https://github.com/FFmpeg/FFmpeg", "n7.1"
+ELF_SHA256 = "224525c5639c00e01c2604c4685d307bc739c041000dcf8c69a4f884f465e8a4"  # SLUS_219.78, Beta 14 Rev2
+
+BT3R = WORK / "BT3-Recomp"
+BT4R = WORK / "dbz-bt4-recomp"
+OURS = HERE / "patches/bt3recomp-android.patch"
+
+
+def run(cmd, cwd=None, env=None):
+    print("+", " ".join(str(c) for c in cmd), flush=True)
+    subprocess.run([str(c) for c in cmd], cwd=cwd, env=env, check=True)
+
+
+def sha256(path):
+    return hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()
+
+
+def clone(url, rev, dst):
+    if not (dst / ".git").exists():
+        run(["git", "clone", "--quiet", url, dst])
+    if subprocess.run(["git", "-C", dst, "cat-file", "-e", rev + "^{commit}"]).returncode != 0:
+        run(["git", "-C", dst, "fetch", "--quiet", "origin"])
+
+
+def sources():
+    """BT3-Recomp at its revision with the mod's patch and ours (applied again whenever ours changed)."""
+    WORK.mkdir(parents=True, exist_ok=True)
+    clone(BT3R_URL, BT3R_REV, BT3R)
+    clone(BT4R_URL, BT4R_REV, BT4R)
+    run(["git", "-C", BT4R, "checkout", "--quiet", BT4R_REV])
+    mark = BT3R / ".dragonrage-patched"
+    want = sha256(OURS) + " " + BT3R_REV + " " + BT4R_REV
+    if mark.exists() and mark.read_text().strip() == want:
+        return
+    print("== BT3-Recomp: the mod's patch and Dragon Rage's", flush=True)
+    run(["git", "-C", BT3R, "checkout", "--quiet", "--force", BT3R_REV])
+    run(["git", "-C", BT3R, "reset", "--quiet", "--hard", BT3R_REV])
+    # (clean, but keep the generated game code and the VU1 programs: they come from the ELF, not from git)
+    run(["git", "-C", BT3R, "clean", "--quiet", "-fdx", "-e", "ps2xRuntime/src/runner", "-e", "ps2xRuntime/src/runner_overlay",
+         "-e", "ps2xRuntime/include/ps2_recompiled_functions.h", "-e", "ps2xRuntime/include/ps2_recompiled_stubs.h",
+         "-e", "games/bt3/work", "-e", "ps2xRuntime/src/lib/vu1_jit_gen.inc"])
+    run(["git", "-C", BT3R, "apply", "--whitespace=nowarn", "--exclude=ps2xRuntime/third_party/parallel-gs",
+         BT4R / "patches/bt3recomp-bt4mod-full.patch"])
+    run(["git", "-C", BT3R, "apply", "--whitespace=nowarn", OURS])
+    mark.write_text(want + "\n")
+
+
+def toolchain_file():
+    f = WORK / "android.cmake"
+    f.write_text(f"""set(CMAKE_SYSTEM_NAME Linux)
+set(CMAKE_SYSTEM_PROCESSOR aarch64)
+set(CMAKE_SYSROOT "{SYSROOT}")
+set(CMAKE_C_COMPILER "{LLVM / 'bin/clang'}")
+set(CMAKE_CXX_COMPILER "{LLVM / 'bin/clang++'}")
+set(CMAKE_ASM_COMPILER "{LLVM / 'bin/clang'}")
+set(CMAKE_C_COMPILER_TARGET aarch64-linux-android{API})
+set(CMAKE_CXX_COMPILER_TARGET aarch64-linux-android{API})
+set(CMAKE_ASM_COMPILER_TARGET aarch64-linux-android{API})
+set(CMAKE_C_FLAGS_INIT "-fPIC")
+set(CMAKE_CXX_FLAGS_INIT "-fPIC -stdlib=libc++")
+set(CMAKE_SHARED_LINKER_FLAGS_INIT "-fuse-ld=lld -rtlib=compiler-rt --unwindlib=none -L{TC / 'ndk/clang_rt'}")
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+""")
+    return f
+
+
+def ffmpeg():
+    """FFmpeg for Android (the game's videos: MPEG-2), static, decoders only."""
+    out = WORK / "ffmpeg"
+    if (out / "lib/libavcodec.a").exists():
+        return out
+    src = WORK / "ffmpeg-src"
+    if not (src / "configure").exists():
+        run(["git", "clone", "--quiet", "--depth", "1", "-b", FFMPEG_TAG, FFMPEG_URL, src])
+    cc = f"{LLVM / 'bin/clang'} --target=aarch64-linux-android{API}"
+    ar = LLVM / "bin/llvm-ar"
+    ranlib = LLVM / "bin/llvm-ranlib"
+    if not ranlib.exists():
+        ranlib = shutil.which("llvm-ranlib") or "true"  # (llvm-ar writes the index itself)
+    run(["./configure", f"--prefix={out}", "--target-os=android", "--arch=aarch64", "--enable-cross-compile", f"--cc={cc}",
+         f"--sysroot={SYSROOT}", f"--ar={ar}", f"--ranlib={ranlib}", f"--nm={LLVM / 'bin/llvm-nm'}", f"--strip={LLVM / 'bin/llvm-strip'}",
+         "--enable-static", "--disable-shared", "--disable-programs", "--disable-doc", "--disable-avdevice", "--disable-avfilter",
+         "--disable-network", "--disable-everything", "--enable-decoder=mpeg2video,mpeg1video,av1,pcm_s16le,adpcm_*",
+         "--enable-parser=mpegvideo,av1", "--enable-demuxer=mpegps,mpegvideo,ivf,matroska,mov,wav", "--enable-protocol=file",
+         "--enable-swscale", "--enable-swresample", "--enable-pic", "--disable-asm"], cwd=src)
+    run(["make", f"-j{os.cpu_count() or 4}"], cwd=src)
+    run(["make", "install"], cwd=src)
+    return out
+
+
+def generate(data):
+    """The game's code from the mod's ELF and DBZP.BIN, with BT3-Recomp's own generator (games/bt3/setup.py, stage 3
+    steps 2b-6: the VU1 programs, the function maps of the mod, the recompiler, the overlay)."""
+    data = pathlib.Path(data)
+    elf = next((p for p in (data / "SLUS_219.78", data / "SLUS_216.78") if p.exists()), None)
+    dbzp = data / "BIN/DBZP.BIN"
+    if elf is None or not dbzp.exists():
+        sys.exit(f"{data} needs SLUS_219.78 and BIN/DBZP.BIN (the app's bt4/runtime/data folder, or the ISO's files)")
+    if sha256(elf) != ELF_SHA256:
+        sys.exit(f"{elf} is not the ELF of Budokai Tenkaichi 4 Beta 14 Rev2 (SLUS-219.78): the code is generated for that one")
+    work = BT3R / "games/bt3/work"
+    (work / "BIN").mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(elf, work / "SLUS_216.78")
+    shutil.copyfile(dbzp, work / "BIN/DBZP.BIN")
+    # the recompiler, for this PC
+    rb = WORK / "recomp-build"
+    run(["cmake", "-S", BT3R, "-B", rb, "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release", "-DPS2X_BUILD_RUNTIME=OFF",
+         "-DPS2X_BUILD_ANALYZER=OFF"])
+    run(["cmake", "--build", rb, "--target", "ps2_recomp"])
+    recomp = next(rb.rglob("ps2_recomp"), None)
+    if recomp is None:
+        sys.exit("the recompiler (ps2_recomp) was not built")
+    sys.path.insert(0, str(BT3R / "games/bt3"))
+    import setup as bt3setup  # BT3-Recomp's games/bt3/setup.py (its functions, not its main)
+    ctx = types.SimpleNamespace(elf=work / "SLUS_216.78", args=types.SimpleNamespace(skip_setup=False, gen_only=True))
+    bt3setup.gen_vu1(ctx)
+    bt3setup.generate_runner(ctx, recomp)
+
+
+def build():
+    out = WORK / "build"
+    run(["cmake", "-S", HERE, "-B", out, "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release", f"-DCMAKE_TOOLCHAIN_FILE={toolchain_file()}",
+         f"-DBT3R={BT3R}", f"-DDR={ROOT}", f"-DDRGEN={GEN}", f"-DSDL3={SDL3}", f"-DFFMPEG={ffmpeg()}"])
+    run(["cmake", "--build", out, "--target", "bt4"])
+    lib = out / "libbt4.so"
+    dst = ROOT / "android/app/src/main/jniLibs/arm64-v8a"
+    dst.mkdir(parents=True, exist_ok=True)
+    run([LLVM / "bin/llvm-strip", "--strip-debug", "-o", dst / "libbt4.so", lib])
+    print(f"== libbt4.so ({(dst / 'libbt4.so').stat().st_size >> 20} MB) installed into {dst}")
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--data", help="folder with the mod's SLUS_219.78 and BIN/DBZP.BIN (generates the game's code)")
+    args = ap.parse_args()
+    if not (LLVM / "bin/clang").exists() or not (SDL3 / "lib/libSDL3.so").exists() or not (GEN / "shaders.h").exists():
+        sys.exit("Run python3 port/tools/android.py first (the toolchain, SDL3 and the GS shaders come from it).")
+    sources()
+    if args.data:
+        generate(args.data)
+    elif not any((BT3R / "ps2xRuntime/src/runner").glob("*.cpp")):
+        sys.exit("No game code yet: run once with --data <folder with SLUS_219.78 and BIN/DBZP.BIN>.")
+    build()
+
+
+if __name__ == "__main__":
+    main()

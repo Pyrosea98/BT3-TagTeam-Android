@@ -124,6 +124,7 @@ class ClassicPadView(context: Context, initial: TouchConfig, editing: Boolean = 
     }
 
     private val dp = resources.displayMetrics.density
+    private val showChip = ShowControlsChip(this)
     private val els = mutableListOf<El>()
 
     private fun baseSize(kind: CtlKind, size: Float): Pair<Float, Float> = when (kind) {
@@ -144,7 +145,7 @@ class ClassicPadView(context: Context, initial: TouchConfig, editing: Boolean = 
             val (bw, bh) = baseSize(c.kind, c.size)
             val cx = p?.x?.times(w) ?: (c.x * w + c.dx * dp * all)
             val cy = p?.y?.times(h) ?: (c.y * h + c.dy * dp * all)
-            els += El(c.name, c, null, c.kind, cx, cy, bw * dp * all * s, bh * dp * all * s, s, p?.visible ?: c.shownByDefault)
+            els += El(c.name, c, null, c.kind, cx, cy, bw * dp * all * s, bh * dp * all * s, s, c == ClassicCtl.OPTIONS || (p?.visible ?: c.shownByDefault))
         }
         config.macros.forEachIndexed { i, m ->
             val size = 58f * dp * all * m.place.scale
@@ -257,7 +258,15 @@ class ClassicPadView(context: Context, initial: TouchConfig, editing: Boolean = 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(ev: MotionEvent): Boolean {
         if (suppressed && !editing) return false
-        if (config.mode == TouchMode.OFF && !editing) return false
+        if (config.mode == TouchMode.OFF && !editing) {
+            // switched off: only the chip that switches it on again takes a touch, the rest goes to the game
+            if (ev.actionMasked == MotionEvent.ACTION_DOWN && showChip.hit(ev.x, ev.y)) {
+                config = config.copy(mode = TouchMode.AUTO)
+                listener?.onConfigChanged(config)
+                return true
+            }
+            return false
+        }
         if (hiddenForPad && !editing) {
             if (ev.actionMasked == MotionEvent.ACTION_DOWN) hiddenForPad = false
             return true
@@ -484,7 +493,8 @@ class ClassicPadView(context: Context, initial: TouchConfig, editing: Boolean = 
                 }
             }
             2 -> if (e != null) {
-                e.visible = !e.visible
+                // (the options button stays: it is the only way to the editor and to "Show controls")
+                if (e.ctl != ClassicCtl.OPTIONS) e.visible = !e.visible
                 store(e)
             }
             3 -> {
@@ -538,6 +548,10 @@ class ClassicPadView(context: Context, initial: TouchConfig, editing: Boolean = 
     private fun a(base: Int, alpha: Float): Int = Color.argb((Color.alpha(base) * alpha).roundToInt().coerceIn(0, 255), Color.red(base), Color.green(base), Color.blue(base))
 
     override fun onDraw(canvas: Canvas) {
+        if (!editing && !suppressed && config.mode == TouchMode.OFF) {
+            showChip.draw(canvas)
+            return
+        }
         if (!editing && (suppressed || hiddenForPad || config.mode == TouchMode.OFF)) return
         val alpha = config.opacity / 100f
         for (e in els) {

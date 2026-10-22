@@ -738,6 +738,80 @@ JNIEXPORT jboolean JNICALL Java_com_dfdx047_dragonrage_engine_TouchBridge_native
     return fn != NULL && fn() ? JNI_TRUE : JNI_FALSE;
 }
 
+/* The touch menu (engine/GameMenu.kt through MenuBridge): the engine's Ui_Nm* (port/src/gs/ui_android.inc). */
+static void *menu_fn(const char *name) {
+    return sEngine != NULL ? dlsym(sEngine, name) : NULL;
+}
+
+JNIEXPORT jboolean JNICALL Java_com_dfdx047_dragonrage_engine_MenuBridge_nativeOpen(JNIEnv *env, jclass cls, jboolean open) {
+    int (*fn)(int) = (int (*)(int))menu_fn("Ui_NmOpen");
+    (void)env;
+    (void)cls;
+    return fn != NULL && fn(open ? 1 : 0) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jint JNICALL Java_com_dfdx047_dragonrage_engine_MenuBridge_nativeGen(JNIEnv *env, jclass cls) {
+    int (*fn)(void) = (int (*)(void))menu_fn("Ui_NmGen");
+    (void)env;
+    (void)cls;
+    return fn != NULL ? fn() : -1;
+}
+
+JNIEXPORT jint JNICALL Java_com_dfdx047_dragonrage_engine_MenuBridge_nativeGet(JNIEnv *env, jclass cls, jstring key, jint def) {
+    int (*fn)(const char *, int) = (int (*)(const char *, int))menu_fn("Ui_NmGet");
+    const char *k;
+    jint v = def;
+    (void)cls;
+    if (fn == NULL || key == NULL) {
+        return def;
+    }
+    k = (*env)->GetStringUTFChars(env, key, NULL);
+    if (k != NULL) {
+        v = fn(k, def);
+        (*env)->ReleaseStringUTFChars(env, key, k);
+    }
+    return v;
+}
+
+JNIEXPORT void JNICALL Java_com_dfdx047_dragonrage_engine_MenuBridge_nativeSet(JNIEnv *env, jclass cls, jstring key, jint value) {
+    void (*fn)(const char *, int) = (void (*)(const char *, int))menu_fn("Ui_NmSet");
+    const char *k;
+    (void)cls;
+    if (fn == NULL || key == NULL) {
+        return;
+    }
+    k = (*env)->GetStringUTFChars(env, key, NULL);
+    if (k != NULL) {
+        fn(k, value);
+        (*env)->ReleaseStringUTFChars(env, key, k);
+    }
+}
+
+JNIEXPORT jstring JNICALL Java_com_dfdx047_dragonrage_engine_MenuBridge_nativeText(JNIEnv *env, jclass cls, jstring key) {
+    int (*fn)(const char *, char *, int) = (int (*)(const char *, char *, int))menu_fn("Ui_NmText");
+    char out[1100];
+    const char *k;
+    (void)cls;
+    out[0] = '\0';
+    if (fn != NULL && key != NULL) {
+        k = (*env)->GetStringUTFChars(env, key, NULL);
+        if (k != NULL) {
+            fn(k, out, (int)sizeof(out));
+            (*env)->ReleaseStringUTFChars(env, key, k);
+        }
+    }
+    return (*env)->NewStringUTF(env, out);
+}
+
+JNIEXPORT void JNICALL Java_com_dfdx047_dragonrage_engine_MenuBridge_nativeAction(JNIEnv *env, jclass cls, jint action) {
+    void (*fn)(int) = (void (*)(int))menu_fn("Ui_NmAction");
+    (void)env;
+    (void)cls;
+    if (fn != NULL) {
+        fn(action);
+    }
+}
+
 /* Read the player's actual side from BattleWork. In some battle setups the human side is side 1,
    so assuming sides[0] hides the team controls even though the touch buttons exist in the editor.
    BattleSide offsets are verified in include/battle/battle.h: sides at +0xC0, size 0x270,

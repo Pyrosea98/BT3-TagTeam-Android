@@ -504,6 +504,40 @@ void BtlObj_Rebind(s32 id, s32 slot) {
     BtlObjFlash_Reset(obj);
 }
 
+#ifdef PORT
+#include <stdio.h>
+/* Android / PC build: a fighter's model that is not in its buffer when the battle builds the fighter (the model
+   file's table read as empty: BtlObjMdl_BindFiles+0x30, address 0x6c, seen in team battles on phones). Says what
+   the slot holds and reads the model again, synchronously, into the same buffer; 1 if it was read again. */
+s32 BtlRes_PortReloadModel(void *slotPtr) {
+    BtlResSlot *slot = slotPtr;
+    BtlResFile *file;
+    static int told;
+
+    if (slot == NULL) {
+        fprintf(stderr, "bt3: battle: a fighter has no model slot\n");
+        return 0;
+    }
+    file = &slot->file[0];
+    if (told < 8) {
+        told++;
+        fprintf(stderr, "bt3: battle: the model of slot %d was not in its buffer (file %d, %d bytes, buffer %s, flags %u); "
+                "read again\n", (int)slot->number, (int)file->id, (int)file->size, file->buf != NULL ? "set" : "none",
+                (unsigned)slot->flags);
+    }
+    if (file->id < 0) {
+        return 0;
+    }
+    if (file->buf != NULL && !(slot->flags & BTL_RES_SLOT_HEAP) && file->size > BTL_RES_MODEL_SIZE) {
+        fprintf(stderr, "bt3: battle: the model file %d (%d bytes) is larger than the buffer (%d)\n", (int)file->id,
+                (int)file->size, BTL_RES_MODEL_SIZE);
+        return 0;
+    }
+    file->buf = File_LoadSyncEx(file->id, NULL, file->buf, 0);
+    return file->buf != NULL;
+}
+#endif
+
 /* Returns the model resource slot block. */
 BtlResWork *BtlRes_GetWork(void) {
     return &gBtlObjWork->res;

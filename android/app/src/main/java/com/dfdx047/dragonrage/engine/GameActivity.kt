@@ -46,10 +46,14 @@ open class GameActivity : SDLActivity() {
     private lateinit var store: TouchStore
     private var pad: TouchSurface? = null
     private val handler = Handler(Looper.getMainLooper())
+    private var menu: GameMenu? = null
+
+    /** Which game this screen runs (the menu's look and pages). */
+    protected open val game: com.dfdx047.dragonrage.data.Game get() = com.dfdx047.dragonrage.data.Game.BT3
 
     private val watchMenu = object : Runnable {
         override fun run() {
-            pad?.suppressed = TouchBridge.menuOpen()
+            pad?.suppressed = TouchBridge.menuOpen() || menu?.isShown == true
             handler.postDelayed(this, 100)
         }
     }
@@ -92,10 +96,7 @@ open class GameActivity : SDLActivity() {
         view.listener = object : TouchListener {
             override fun onPad(buttons: Int, lx: Int, ly: Int, rx: Int, ry: Int) = TouchBridge.setPad(buttons, lx, ly, rx, ry)
 
-            override fun onMenu() {
-                SDLActivity.onNativeKeyDown(KeyEvent.KEYCODE_BACK)
-                SDLActivity.onNativeKeyUp(KeyEvent.KEYCODE_BACK)
-            }
+            override fun onMenu() = toggleMenu()
 
             override fun onOptions() = showOptions()
 
@@ -107,6 +108,51 @@ open class GameActivity : SDLActivity() {
         }
         layout.addView(view.view, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         pad = view
+        menu = GameMenu(this, game, { EngineSettings(paths.settings) }, object : GameMenu.Actions {
+            override fun resumed() {
+                pad?.suppressed = TouchBridge.menuOpen()
+            }
+
+            override fun quit() = quitToApp()
+
+            override fun editTouchLayout() {
+                pad?.editing = true
+            }
+
+            override fun touchOptions() = showOptions()
+
+            override fun padButtons() = MenuBridge.action(MenuBridge.ACTION_PAD_BUTTONS)
+        })
+    }
+
+    /**
+     * The back key, the controller's MENU button and the engine's request: the touch menu (GameMenu) opens or closes.
+     * While the engine's own window is up (the controller's menu, START + SELECT, or the online window), the key goes to
+     * the engine and closes that window, as before; and when the engine cannot answer, the key opens its window.
+     */
+    private fun toggleMenu() {
+        val m = menu
+        when {
+            pad?.editing == true -> pad?.editing = false
+            m?.isShown == true -> m.close()
+            TouchBridge.menuOpen() -> backToEngine()
+            else -> {
+                TouchBridge.setPad(0, 128, 128, 128, 128)
+                val layout = SDLActivity.getContentView() as? ViewGroup
+                if (m == null || layout == null || !m.show(layout)) backToEngine() else pad?.suppressed = true
+            }
+        }
+    }
+
+    private fun backToEngine() {
+        SDLActivity.onNativeKeyDown(KeyEvent.KEYCODE_BACK)
+        SDLActivity.onNativeKeyUp(KeyEvent.KEYCODE_BACK)
+    }
+
+    /** The engine asks for the menu (Budokai Tenkaichi 4: START + SELECT; from its own thread). */
+    @Suppress("unused")
+    fun openGameMenu() {
+        runOnUiThread { if (menu?.isShown != true) toggleMenu() }
     }
 
     override fun onResume() {
@@ -186,12 +232,18 @@ open class GameActivity : SDLActivity() {
         if (v.config.mode == TouchMode.AUTO && !v.editing) v.hiddenForPad = true
     }
 
+    /** A controller that is there: not a virtual device (some phones send their own sensors' or the system's key
+     *  events as a "gamepad", which hid the on-screen controls again and again). */
+    private fun realDevice(d: InputDevice?): Boolean =
+        d != null && !d.isVirtual && (d.sources and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD ||
+            d.sources and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK)
+
     private fun fromController(source: Int): Boolean =
         source and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD ||
             source and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK
 
     override fun dispatchGenericMotionEvent(ev: MotionEvent): Boolean {
-        if (fromController(ev.source)) padUsed()
+        if (fromController(ev.source) && realDevice(ev.device)) padUsed()
         return super.dispatchGenericMotionEvent(ev)
     }
 
@@ -311,13 +363,10 @@ open class GameActivity : SDLActivity() {
                 if (event.action == KeyEvent.ACTION_UP) pad?.editing = false
                 return true
             }
-            when (event.action) {
-                KeyEvent.ACTION_DOWN -> if (event.repeatCount == 0) SDLActivity.onNativeKeyDown(KeyEvent.KEYCODE_BACK)
-                KeyEvent.ACTION_UP -> SDLActivity.onNativeKeyUp(KeyEvent.KEYCODE_BACK)
-            }
+            if (event.action == KeyEvent.ACTION_UP) toggleMenu() // (the whole press: down and up are this one key)
             return true
         }
-        if (KeyEvent.isGamepadButton(event.keyCode) || fromController(event.source)) padUsed()
+        if ((KeyEvent.isGamepadButton(event.keyCode) || fromController(event.source)) && realDevice(event.device)) padUsed()
         return super.dispatchKeyEvent(event)
     }
 

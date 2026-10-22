@@ -408,4 +408,7 @@
     <string name="bt4_err_not_bt4">Esta imagem não é o Budokai Tenkaichi 4 (não tem SLUS_219.78). Precisa do mod da Team BT4, Beta 14 Rev2.</string>
     <string name="bt4_err_version">Esta imagem é outra versão do mod: o jogo foi recompilado para a Beta 14 Rev2 (SLUS-219.78).</string>
     <string name="bt4_err_permission">O Android não deixou o app continuar lendo esta imagem. Mova ela para Downloads ou para o armazenamento do celular e escolha de novo.</string>
+    <string name="err_iso_packed">Este arquivo é um %1$s compactado, não a imagem do disco. Extraia primeiro (com o ZArchiver, por exemplo) e escolha o .iso que estiver dentro. Imagens CHD e CSO precisam ser convertidas de volta para .iso (chdman / maxcso no PC).</string>
+    <string name="err_iso_web_page">Este arquivo é uma página da web, não o jogo: o link de download salvou a página no lugar do arquivo. Baixe a ISO de novo e escolha o .iso.</string>
+    <string name="err_iso_too_small">Este arquivo é pequeno demais para ser o jogo (%1$s; a ISO tem uns 3 GB). Pode ser um download incompleto ou um atalho.</string>
 </resources>

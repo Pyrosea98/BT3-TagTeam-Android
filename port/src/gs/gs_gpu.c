@@ -1067,7 +1067,7 @@ static void vk_frame_end(void) {
                 gsDrawCount, gsVertCount + gsVuVertCount, gsTargetCount, gsTexCount);
         /* how fast the game runs (60 game blanks a second is full speed) and where a frame's end spends its time, over
            the last 300 frames: the numbers a report about slowness needs, without BT3_GS_VERBOSE */
-        if (lastNs != 0 && nowNs > lastNs && sHbN > 0) {
+        if (lastNs != 0 && nowNs > lastNs && sHbN > 0 && (int)(gPortVBlanks - lastBlank) >= 0) { /* (the count starts again online) */
             double secs = (double)(nowNs - lastNs) / 1e9, bps = (double)(gPortVBlanks - lastBlank) / secs;
             fprintf(stderr, "bt3: speed %.0f%% (%.1f game blanks/s, %.1f pictures/s over %.1f s%s); per frame, ms: uploads %.2f, "
                             "draws %.2f, to the driver %.2f, waiting for the screen %.2f, showing %.2f, presenting %.2f; "

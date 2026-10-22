@@ -1002,7 +1002,7 @@ static void gl_heartbeat(void) {
     now = SDL_GetTicksNS();
     fprintf(stderr, "bt3: alive: frame %u, game blank %u, %u draws, %u vertices, %d targets, %d textures\n", gGsFrame, gPortVBlanks,
             gsDrawCount, gsVertCount + gsVuVertCount, gsTargetCount, gsTexCount);
-    if (lastNs != 0 && now > lastNs) {
+    if (lastNs != 0 && now > lastNs && (int)(gPortVBlanks - lastBlank) >= 0) { /* (the count starts again online) */
         double secs = (double)(now - lastNs) / 1e9, bps = (double)(gPortVBlanks - lastBlank) / secs;
         fprintf(stderr, "bt3: speed %.0f%% (%.1f game blanks/s, %.1f pictures/s over %.1f s%s), OpenGL ES\n", bps * 100.0 / 60.0, bps,
                 (double)(gGsFrame - lastFrame) / secs, secs, Ui_Pauses() ? ", the menu was open" : gPortInMenus ? ", menus" : ", fight");

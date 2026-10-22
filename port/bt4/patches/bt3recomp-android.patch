@@ -1,0 +1,111 @@
+diff --git a/ps2xRuntime/include/runtime/ps2_gs_gpu_renderer.h b/ps2xRuntime/include/runtime/ps2_gs_gpu_renderer.h
+index b988183..3ce0f43 100644
+--- a/ps2xRuntime/include/runtime/ps2_gs_gpu_renderer.h
++++ b/ps2xRuntime/include/runtime/ps2_gs_gpu_renderer.h
+@@ -413,7 +413,7 @@ public:
+     // thread, an internal blit, an alias pass), so the retained state is no longer the batch head's.
+     uint64_t batchSeq() const { return m_batchSeq; }
+     void swapFrame();      // frame boundary (FUN_00100ab8): publish command list
+-#if defined(__EMSCRIPTEN__)
++#if defined(__EMSCRIPTEN__) || defined(PS2X_HEADLESS_HOST)
+     void webDrain();       // [web] no GL in the browser build: drop published lists/uploads, answer barrier requests
+ #endif
+     void onVramUpload(uint32_t dbpBlock, uint32_t sizeBlocks); // stamp the written VRAM pages
+diff --git a/ps2xRuntime/src/lib/ps2_fiber.cpp b/ps2xRuntime/src/lib/ps2_fiber.cpp
+index 51f6cfd..e0d2b91 100644
+--- a/ps2xRuntime/src/lib/ps2_fiber.cpp
++++ b/ps2xRuntime/src/lib/ps2_fiber.cpp
+@@ -18,6 +18,9 @@
+ #    define _XOPEN_SOURCE 700
+ #  endif
+ #  include <ucontext.h>
++#  if defined(__ANDROID__)
++#    include "android_ucontext.h"   // [android] bionic: getcontext / makecontext / swapcontext of our own
++#  endif
+ #  include <sys/mman.h>
+ #  include <unistd.h>
+ #  define PS2X_FIBER_UCTX 1
+@@ -252,7 +255,7 @@ bool ps2xFiberRestore(Ps2xFiber *f, const void *buf, size_t size)
+     // The context's fpregs pointer refers into the ucontext_t itself; restoring into the same
+     // object keeps it valid. The stack goes back to the same addresses it was copied from.
+     std::memcpy(&f->ctx, &ctx, sizeof ctx);
+-#if defined(__linux__)
++#if defined(__linux__) && !defined(__ANDROID__)   // [android] bionic's aarch64 context keeps its FP state inline
+     f->ctx.uc_mcontext.fpregs = &f->ctx.__fpregs_mem;
+ #endif
+     std::memcpy(f->stack + f->stackSize - n, i, n);
+diff --git a/ps2xRuntime/src/lib/ps2_gs_gpu_renderer.cpp b/ps2xRuntime/src/lib/ps2_gs_gpu_renderer.cpp
+index 535061c..22cc12d 100644
+--- a/ps2xRuntime/src/lib/ps2_gs_gpu_renderer.cpp
++++ b/ps2xRuntime/src/lib/ps2_gs_gpu_renderer.cpp
+@@ -3229,7 +3229,7 @@ void GsGpuRenderer::flushPageToVram(uint32_t fbp)
+ // [barblock] GL thread: serve queued blocking barriers. Drains any published-but-unrendered
+ // lists first (so m_segFrom keeps indexing the current list), then renders the in-progress
+ // list up to the request point and flushes the page straight into VRAM.
+-#if defined(__EMSCRIPTEN__)
++#if defined(__EMSCRIPTEN__) || defined(PS2X_HEADLESS_HOST)
+ // [web] The browser build has no GL: the page draws the live GS stream. Whatever the guest side publishes for the
+ // present thread is dropped here, and barrier requests are answered at once (the parse records no draws there, so
+ // there is nothing to render first).
+diff --git a/ps2xRuntime/src/lib/ps2_gs_live.cpp b/ps2xRuntime/src/lib/ps2_gs_live.cpp
+index 086b77e..862d4b3 100644
+--- a/ps2xRuntime/src/lib/ps2_gs_live.cpp
++++ b/ps2xRuntime/src/lib/ps2_gs_live.cpp
+@@ -16,11 +16,14 @@
+ #include <string>
+ #include <vector>
+ 
+-#if defined(__EMSCRIPTEN__)
++#if defined(__EMSCRIPTEN__) || defined(PS2X_HEADLESS_HOST)
+ // [web] The GS host is the page itself (web/play_gs_host.cpp, Play!'s GS on WebGL2, on the browser's main thread):
+ // the ring is plain memory of this module, shared with it. Same protocol as the POSIX ring.
++// [android] The same in Dragon Rage: the GS host is the app's main thread (Dragon Rage's GS, port/bt4/host).
+ #include <cerrno>
++#if defined(__EMSCRIPTEN__)
+ #include <emscripten.h>
++#endif
+ #include <sys/wait.h>
+ bool ps2xWebStartGsHost(ps2live::RingHeader *header);
+ #define PS2X_GS_LIVE_RING 1
+diff --git a/ps2xRuntime/src/lib/ps2_runtime.cpp b/ps2xRuntime/src/lib/ps2_runtime.cpp
+index 8fbc98c..106e39e 100644
+--- a/ps2xRuntime/src/lib/ps2_runtime.cpp
++++ b/ps2xRuntime/src/lib/ps2_runtime.cpp
+@@ -8216,7 +8216,7 @@ void PS2Runtime::run()
+         // GPU mode: render the recorded GS command list into the FBO and present that
+         // (its texture is bottom-up, so flip Y). Software mode: upload guest VRAM.
+         const bool gpuMode = GsGpuRenderer::enabled();
+-#if defined(__EMSCRIPTEN__)
++#if defined(__EMSCRIPTEN__) || defined(PS2X_HEADLESS_HOST)   // [android] the same: Dragon Rage's GS draws the live stream
+         // [web] Nothing is presented here: the page draws the live GS stream (web/play_gs_host.cpp). The renderer's
+         // published lists and texture uploads are dropped (there is no GL), the pad layer is polled and the loop is paced
+         // to 60 Hz by the headless raylib (web/bt3gl_headless.cpp).
+diff --git a/ps2xRuntime/src/main.cpp b/ps2xRuntime/src/main.cpp
+index 75a2d92..f0ff6fd 100644
+--- a/ps2xRuntime/src/main.cpp
++++ b/ps2xRuntime/src/main.cpp
+@@ -555,11 +555,15 @@ extern "C" const char *ps2xExeDirC()
+ }
+ #if defined(__EMSCRIPTEN__)
+ void ps2xWasmPlatformInit(int &argc, char **&argv);   // [web] web/web_platform.cpp: files, settings, arguments
++#elif defined(PS2X_HEADLESS_HOST)
++void ps2xAndroidPlatformInit(int &argc, char **&argv);   // [android] port/bt4/host: folders, image, environment
+ #endif
+ int main(int argc, char *argv[])
+ {
+ #if defined(__EMSCRIPTEN__)
+     ps2xWasmPlatformInit(argc, argv);
++#elif defined(PS2X_HEADLESS_HOST)
++    ps2xAndroidPlatformInit(argc, argv);
+ #endif
+     // [boot] process/main start: the runtime logs start -> first frame on its first present.
+     extern std::chrono::steady_clock::time_point g_ps2xBootT0;
+@@ -771,7 +775,7 @@ int main(int argc, char *argv[])
+             }
+ #endif
+         }
+-#if !defined(__EMSCRIPTEN__)   // [web] no overlay in the browser (it would need GL); its settings are still loaded above
++#if !(defined(__EMSCRIPTEN__) || defined(PS2X_HEADLESS_HOST))   // [web] no overlay in the browser (it would need GL); its settings are still loaded above
+         runtime.setDebugUiCallbacks(
+             [](PS2Runtime &rt, void *userData)
+             {

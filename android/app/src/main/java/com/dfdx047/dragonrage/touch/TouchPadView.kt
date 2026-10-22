@@ -108,6 +108,7 @@ class TouchPadView(context: Context, initial: TouchConfig, editing: Boolean = fa
     }
 
     private val dp = resources.displayMetrics.density
+    private val showChip = ShowControlsChip(this)
     private val els = mutableListOf<El>()
 
     // The editor and runtime overlay can span the physical display, including a camera cutout. Keep a local
@@ -212,7 +213,7 @@ class TouchPadView(context: Context, initial: TouchConfig, editing: Boolean = fa
             val marginY = max(eh / 2f + 10f * dp, vh * 0.035f).coerceAtMost(vh / 2f)
             val cx = rawX.coerceIn(left + marginX, max(left + marginX, right - marginX))
             val cy = rawY.coerceIn(top + marginY, max(top + marginY, bottom - marginY))
-            els += El(c.name, c, null, c.kind, cx, cy, ew, eh, s, p?.visible ?: c.shownByDefault, p?.opacity ?: 100,
+            els += El(c.name, c, null, c.kind, cx, cy, ew, eh, s, c == Ctl.OPTIONS || (p?.visible ?: c.shownByDefault), p?.opacity ?: 100,
                 roundShoulder = config.style == PadStyle.DRAGON)
         }
         config.macros.forEachIndexed { i, m ->
@@ -402,7 +403,15 @@ class TouchPadView(context: Context, initial: TouchConfig, editing: Boolean = fa
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(ev: MotionEvent): Boolean {
         if (suppressed && !editing) return false
-        if (config.mode == TouchMode.OFF && !editing) return false
+        if (config.mode == TouchMode.OFF && !editing) {
+            // switched off: only the chip that switches it on again takes a touch, the rest goes to the game
+            if (ev.actionMasked == MotionEvent.ACTION_DOWN && showChip.hit(ev.x, ev.y)) {
+                config = config.copy(mode = TouchMode.AUTO)
+                listener?.onConfigChanged(config)
+                return true
+            }
+            return false
+        }
         if (hiddenForPad && !editing) {
             if (ev.actionMasked == MotionEvent.ACTION_DOWN) hiddenForPad = false
             return true
@@ -700,7 +709,8 @@ class TouchPadView(context: Context, initial: TouchConfig, editing: Boolean = fa
                 }
             }
             4 -> if (e != null) {
-                e.visible = !e.visible
+                // (the options button stays: it is the only way to the editor and to "Show controls")
+                if (e.ctl != Ctl.OPTIONS) e.visible = !e.visible
                 store(e)
             }
             5 -> {
@@ -758,6 +768,10 @@ class TouchPadView(context: Context, initial: TouchConfig, editing: Boolean = fa
     private fun a(base: Int, alpha: Float): Int = Color.argb((Color.alpha(base) * alpha).roundToInt().coerceIn(0, 255), Color.red(base), Color.green(base), Color.blue(base))
 
     override fun onDraw(canvas: Canvas) {
+        if (!editing && !suppressed && config.mode == TouchMode.OFF) {
+            showChip.draw(canvas)
+            return
+        }
         if (!editing && (suppressed || hiddenForPad || config.mode == TouchMode.OFF)) return
         val alpha = config.opacity / 100f
         for (e in els) {

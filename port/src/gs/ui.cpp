@@ -1073,7 +1073,15 @@ void Ui_Toggle(void) {
 }
 
 // The game waits while the settings window is open (plat_stub.c), except behind the online screen and in a match.
+#ifdef __ANDROID__
+static int nm_pauses(void); // ui_android.inc: the app's touch menu is up
+#endif
 int Ui_Pauses(void) {
+#ifdef __ANDROID__
+    if (sReady && nm_pauses()) {
+        return 1;
+    }
+#endif
     return sReady && sOpen && !sNet;
 }
 
@@ -2516,6 +2524,11 @@ static void chat_draw(void) {
 // Builds this frame's picture of the overlay (the settings or the online window, the line over the picture).
 // false: there is nothing to draw. The same for both back ends; each then draws ImGui's data its own way.
 static bool frame_build(void) {
+#ifdef __ANDROID__
+    if (sReady) {
+        nm_frame(); // (ui_android.inc: the app's touch menu)
+    }
+#endif
     PortInput_TboClipboard();
     { // a keypad of Tenkaichi Budokai Online takes text: the system's text input is on for it (letters as typed)
         static SDL_Window *on = NULL;

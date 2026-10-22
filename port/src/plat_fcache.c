@@ -132,7 +132,19 @@ static int slot_of(const char *rel) {
         fp = fopen(path, "rb");
     }
     if (fp == NULL) {
-        fprintf(stderr, "bt3: file not found: %s\n", path);
+        /* the game asks again and again for a file it cannot do without (a modified disc of another layout: a
+           phone's log grew to 120 MB of this one line): said the first times, then at every power of two */
+        static char lastMissing[256];
+        static unsigned repeats;
+        if (strcmp(lastMissing, path) != 0) {
+            snprintf(lastMissing, sizeof(lastMissing), "%s", path);
+            repeats = 0;
+        }
+        repeats++;
+        if (repeats <= 3 || (repeats & (repeats - 1)) == 0) {
+            fprintf(stderr, "bt3: file not found: %s%s\n", path,
+                    repeats > 3 ? " (asked for again and again: the game data does not have it)" : "");
+        }
         return -1;
     }
     for (i = 0; i < SLOTS; i++) {
