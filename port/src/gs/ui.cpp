@@ -703,6 +703,7 @@ static void build_quit(void) {
 extern "C" {
 extern volatile int gPortNetMenuRequest;
 extern volatile int gPortNetWindowClose; // gs/state.c
+extern volatile int gPortRematchRequest, gPortRematchDone; // net_dragon.c (global C)
 }
 
 static void net_open(void) {
@@ -2543,10 +2544,10 @@ static bool frame_build(void) {
     } else if (sReady && gPortRematchRequest) { // flow:2: the Revanche screen, after the result of a ranked match
         gPortRematchRequest = 0;
         net_open();
-        rematch_open();
-    } else if (sReady && !sRematchBooted) { // after a rematch the game restarted: its new match waits in dragonnet-next.txt
-        sRematchBooted = true;
-        rematch_boot();
+        dn::rematch_open();
+    } else if (sReady && !dn::sRematchBooted) { // after a rematch the game restarted: its new match waits in dragonnet-next.txt
+        dn::sRematchBooted = true;
+        dn::rematch_boot();
     }
     if (sReady && !sUpdTold && update_latest() > PORT_RELEASE && SDL_GetTicks() >= sNoticeUntil) {
         int latest = update_latest(); // (told once, and not over another notice)

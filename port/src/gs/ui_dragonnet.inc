@@ -751,8 +751,8 @@ static void screen_board(void) {
 // ---- Rematch (flow:2): after the result of a ranked match. While it is open the game waits in MainMenu_Run
 // (menu_a.c); gPortRematchDone says how it ended: 1 = leave (the online menu), 2 = a new match was saved
 // (dragonnet-next.txt: the game restarts and rematch_boot() picks it up).
-extern volatile int gPortRematchRequest, gPortRematchDone;
-extern volatile int gPortNetWindowClose;
+// gPortRematchRequest/Done e gPortNetWindowClose: declarados no escopo global em ui.cpp.
+// Dentro de dn virariam outro simbolo (dn::...) e o link falharia.
 static Uint64 sRematchSince, sRematchAccept, sRematchLeave;
 static bool sRematchBooted;
 
