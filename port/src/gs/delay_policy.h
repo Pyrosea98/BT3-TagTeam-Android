@@ -2,7 +2,7 @@
 #ifndef DBT_DELAY_POLICY_H
 #define DBT_DELAY_POLICY_H
 #include <stdint.h>
-enum { DBT_DELAY_AUTO_CAP = 4, DBT_DELAY_MIN = 1, DBT_DELAY_MAX = 12 };
+enum { DBT_DELAY_AUTO_CAP = 4, DBT_DELAY_MIN = 2, DBT_DELAY_MAX = 12 };
 typedef struct { int samples[16]; unsigned count; int peer_auto; } DbtDelayPolicy;
 static inline void DbtDelay_Note(DbtDelayPolicy *p, int ms) {
     if (ms >= 0 && ms < 5000 && p->count < 16) p->samples[p->count++] = ms;
