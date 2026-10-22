@@ -43,6 +43,7 @@ static SDL_GPUDevice *sDev;
    full 1024 x 1024, as before. */
 static int sTW = 512, sTH = 512;
 static unsigned sPassN, sCopyN; /* render passes and copies of the frames since the last report (BT3_GS_VERBOSE) */
+static unsigned sBy[10], sHbBy[10]; static int sWhy; /* quebras de passe por causa */
 static SDL_GPUShader *sVs, *sFs, *sFsNd, *sFsNz, *sFsNzNd; /* Nd: gs.frag without its discards (key bit 25); Nz: without its depth output (bit 23) */
 static SDL_GPUTextureFormat sDepthFormat = SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
 static int sShadowStencil;
@@ -1076,6 +1077,10 @@ static void vk_frame_end(void) {
                     (double)sHb[0] / sHbN / 1e6, (double)sHb[1] / sHbN / 1e6, (double)sHb[5] / sHbN / 1e6, (double)sHb[2] / sHbN / 1e6,
                     (double)sHb[3] / sHbN / 1e6, (double)sHb[4] / sHbN / 1e6, (double)sHbPass / sHbN, (double)sHbCopy / sHbN);
         }
+        { double hn = sHbN ? (double)sHbN : 1.0;
+          fprintf(stderr, "bt3: pass starts per frame: first %.1f, target switch %.1f, after upload %.1f, after DATE copy %.1f, after ids copy %.1f, after table %.1f, after fx %.1f, after shadow %.1f; table passes %.1f, fx passes %.1f\n",
+                  sHbBy[0] / hn, sHbBy[1] / hn, sHbBy[2] / hn, sHbBy[3] / hn, sHbBy[4] / hn, sHbBy[5] / hn, sHbBy[6] / hn, sHbBy[7] / hn, sHbBy[8] / hn, sHbBy[9] / hn);
+          memset(sHbBy, 0, sizeof(sHbBy)); }
         memset(sHb, 0, sizeof(sHb));
         sHbN = 0;
         sHbPass = sHbCopy = 0;
@@ -1244,6 +1249,7 @@ static void vk_frame_end(void) {
     sEndT[1] = gpu_now();
     /* replay the frame */
     lastPipe = lastUni = lastSampler = -1;
+    sWhy = 0;
     for (n = 0; n < gsDrawCount; n++) {
         const GsDraw *d = &gsDraws[n];
         SDL_GPUBufferBinding vb;
@@ -1259,6 +1265,7 @@ static void vk_frame_end(void) {
                 pass = NULL;
             }
             cur = -1;
+            sWhy = 2;
             SDL_zero(bl);
             bl.source.texture = sFbTex[d->native - 100];
             bl.source.w = sTW;
@@ -1296,6 +1303,7 @@ static void vk_frame_end(void) {
                 pass = NULL;
             }
             cur = -1;
+            sWhy = 3;
             cp = SDL_BeginGPUCopyPass(cmd);
             SDL_zero(from);
             SDL_zero(to);
@@ -1319,6 +1327,7 @@ static void vk_frame_end(void) {
                 pass = NULL;
             }
             cur = -1;
+            sWhy = 4;
             cp = SDL_BeginGPUCopyPass(cmd);
             SDL_zero(from);
             SDL_zero(to);
@@ -1342,6 +1351,7 @@ static void vk_frame_end(void) {
                 pass = NULL;
             }
             cur = -1;
+            sWhy = 5; sBy[8]++;
             SDL_zero(cts);
             cts[0].texture = sTgCol[d->target];
             cts[0].load_op = SDL_GPU_LOADOP_LOAD;
@@ -1381,6 +1391,7 @@ static void vk_frame_end(void) {
                 pass = NULL;
             }
             cur = -1;
+            sWhy = 6; sBy[9]++;
             SDL_zero(ft);
             ft.texture = sTgCol[d->target];
             ft.load_op = SDL_GPU_LOADOP_LOAD;
@@ -1411,6 +1422,7 @@ static void vk_frame_end(void) {
             SDL_EndGPURenderPass(pass);
             pass = NULL;
             cur = -1;
+            sWhy = 7;
         }
         if (d->target != cur) {
             SDL_GPUColorTargetInfo ct, cts[2];
@@ -1435,6 +1447,8 @@ static void vk_frame_end(void) {
             dt.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
             gsTargets[d->target].cleared = 1;
             cts[0] = ct;
+            sBy[(cur != -1) ? 1 : sWhy]++;
+            sWhy = 0;
             sPassN++;
             pass = SDL_BeginGPURenderPass(cmd, cts, 2, &dt);
             {   /* the draws' 1024 x 1024 page (see sTW): larger than the target, which holds its top-left part */
@@ -1659,6 +1673,7 @@ static void vk_frame_end(void) {
         if (++count == 60) {
             sHbPass += sPassN;
             sHbCopy += sCopyN;
+            for (int q = 0; q < 10; q++) { sHbBy[q] += sBy[q]; sBy[q] = 0; }
             if (getenv("BT3_GS_VERBOSE") != NULL) {
                 fprintf(stderr, "time:   of ending the frame: uploads %.2f ms, issuing the draws %.2f, handing them to the driver %.2f, "
                                 "waiting for the screen's buffer %.2f, showing %.2f, presenting %.2f\n",
