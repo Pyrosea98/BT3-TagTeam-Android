@@ -251,6 +251,7 @@ private fun MenuScreen(
             .kiBackground(scheme.primary, scheme.secondary)
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
     ) {
+        androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides scheme.onBackground) {
         BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 12.dp, vertical = 8.dp)) {
             val wide = maxWidth >= 560.dp
             Column(Modifier.fillMaxSize()) {
@@ -278,6 +279,7 @@ private fun MenuScreen(
                     PageContent(Modifier.fillMaxSize(), l, game, page, values, actions, closeMenu)
                 }
             }
+        }
         }
     }
     if (askQuit) {
@@ -396,6 +398,8 @@ private fun Card(title: String, content: @Composable ColumnScope.() -> Unit) {
     Surface(
         shape = RoundedCornerShape(20.dp),
         color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.92f),
+        // (a colour with its own alpha is not one of the scheme's: the text colour has to be said, or it is black)
+        contentColor = MaterialTheme.colorScheme.onSurface,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
         modifier = Modifier.fillMaxWidth(),
     ) {
