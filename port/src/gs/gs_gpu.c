@@ -1279,11 +1279,6 @@ static void vk_frame_end(void) {
             SDL_GPUCopyPass *cp;
             SDL_GPUTextureLocation from, to;
             int rx, ry, rw, rh;
-            if (pass != NULL) {
-                SDL_EndGPURenderPass(pass);
-                pass = NULL;
-            }
-            cur = -1;
             if (!gsTargets[d->target].cleared) {
                 continue;
             }
@@ -1296,6 +1291,11 @@ static void vk_frame_end(void) {
             if (rw <= 0 || rh <= 0) {
                 continue;
             }
+            if (pass != NULL) {
+                SDL_EndGPURenderPass(pass);
+                pass = NULL;
+            }
+            cur = -1;
             cp = SDL_BeginGPUCopyPass(cmd);
             SDL_zero(from);
             SDL_zero(to);
@@ -1310,15 +1310,15 @@ static void vk_frame_end(void) {
         if (d->native == 4) { /* the ids as they are now (GfxPost_CopyAlphaToDepth): kept for the passes that index them */
             SDL_GPUCopyPass *cp;
             SDL_GPUTextureLocation from, to;
+            if (!gsTargets[d->target].cleared) {
+                continue;
+            }
+            sCopyN++;
             if (pass != NULL) {
                 SDL_EndGPURenderPass(pass);
                 pass = NULL;
             }
             cur = -1;
-            if (!gsTargets[d->target].cleared) {
-                continue;
-            }
-            sCopyN++;
             cp = SDL_BeginGPUCopyPass(cmd);
             SDL_zero(from);
             SDL_zero(to);
@@ -1334,14 +1334,14 @@ static void vk_frame_end(void) {
             SDL_FColor bc;
             SDL_Rect sc = { d->scissor[0], d->scissor[1], d->scissor[2], d->scissor[3] };
             float params[4] = {(float)d->src, d->misc[0], 0.0f, 0.0f};
+            if (!gsTargets[d->target].cleared) {
+                continue;
+            }
             if (pass != NULL) {
                 SDL_EndGPURenderPass(pass);
                 pass = NULL;
             }
             cur = -1;
-            if (!gsTargets[d->target].cleared) {
-                continue;
-            }
             SDL_zero(cts);
             cts[0].texture = sTgCol[d->target];
             cts[0].load_op = SDL_GPU_LOADOP_LOAD;
@@ -1373,14 +1373,14 @@ static void vk_frame_end(void) {
             SDL_GPUTextureSamplerBinding fs;
             SDL_Rect sc;
             float params[4];
+            if (!gsTargets[d->target].cleared) {
+                continue;
+            }
             if (pass != NULL) {
                 SDL_EndGPURenderPass(pass);
                 pass = NULL;
             }
             cur = -1;
-            if (!gsTargets[d->target].cleared) {
-                continue;
-            }
             SDL_zero(ft);
             ft.texture = sTgCol[d->target];
             ft.load_op = SDL_GPU_LOADOP_LOAD;
