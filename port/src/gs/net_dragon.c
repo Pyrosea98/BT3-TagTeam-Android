@@ -1165,3 +1165,43 @@ int DrRanked_Active(void) {
     SDL_UnlockMutex(sLock);
     return a;
 }
+
+/* ---- Ranked C/D: id da autoridade E aprendido de um C verificado (DBT-NX v1.7) ---- */
+static int cd_id_ok(const char *s) {
+    size_t n = 0;
+    for (; s[n] != '\0'; n++) {
+        char c = s[n];
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-')) {
+            return 0;
+        }
+    }
+    return n >= 16 && n <= 64;
+}
+
+int DrNet_CdLoad(char *out, int n) {
+    char text[96];
+    int i = 0;
+    out[0] = '\0';
+    if (!read_text("dragonnet-ranked-authority.txt", text, sizeof(text))) {
+        return 0;
+    }
+    while (text[i] != '\0' && text[i] != '\n' && text[i] != '\r' && i + 1 < n) {
+        out[i] = text[i];
+        i++;
+    }
+    out[i] = '\0';
+    if (!cd_id_ok(out)) {
+        out[0] = '\0';
+        return 0;
+    }
+    return 1;
+}
+
+int DrNet_CdSave(const char *authority) {
+    char text[96];
+    if (!cd_id_ok(authority)) {
+        return 0;
+    }
+    SDL_snprintf(text, sizeof(text), "%s\n", authority);
+    return write_text("dragonnet-ranked-authority.txt", text);
+}
