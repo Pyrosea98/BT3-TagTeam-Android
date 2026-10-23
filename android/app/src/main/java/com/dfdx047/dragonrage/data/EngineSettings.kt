@@ -71,6 +71,11 @@ class EngineSettings(private val file: File) {
         const val SUSTAINED = "dr_sustained"      // Android's sustained performance mode for the game's window: 1 on
         const val BT4_ASPECT = "bt4_aspect"       // Budokai Tenkaichi 4: 0 16:9 (the mod's own), 1 4:3, 2 the whole screen
         const val BT4_FPS60 = "bt4_fps60"         // Budokai Tenkaichi 4: 60 fps fights (BT3-Recomp's mode)
+        const val BT4_RENDERER = "bt4_renderer"   // Budokai Tenkaichi 4: 0 Dragon Rage's GS, 1 ARMSX2's (libbt4gsx.so)
+
+        /** Whether this build has ARMSX2's renderer for Budokai Tenkaichi 4 (port/bt4/build_bt4.py --armsx2). */
+        fun hasArmsx2Renderer(context: android.content.Context): Boolean =
+            java.io.File(context.applicationInfo.nativeLibraryDir, "libbt4gsx.so").exists()
         const val INTERP = "interp"               // smooth motion: 0 off, 1 60, 2 120, 3 240 pictures a second (the engine's)
         const val PRESENT = "present"             // present mode: 0 automatic, 1 vsync (FIFO), 2 mailbox, 3 immediate
         const val GPU_API = "gpu_api"             // the engine's renderer: 0 Vulkan, 1 OpenGL ES 3.2 (written from RENDERER)

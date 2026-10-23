@@ -11,6 +11,7 @@
 //     packs, the on-screen controller and the gamepads of gs_input.c), and sends the pad back through the ring.
 #include <SDL3/SDL.h>
 #include <android/log.h>
+#include <dlfcn.h>
 #include <jni.h>
 
 #include <atomic>
@@ -51,6 +52,10 @@ void Port_SettingsWrite(void);
 int Bt4_AspectMode(void);                                      /* bt4_shim.c: bt4_aspect, 0 16:9, 1 4:3, 2 the screen */
 void Bt4_AspectSet(int mode);
 void GsAdpf_Frame(uint64_t workNs, uint64_t targetNs);         /* gs_adpf.c: the system's performance hints */
+SDL_Window *GsDraw_WindowCreate(int opengl);                   /* gs_draw.c: the game's window (its shape, full screen) */
+int PortInput_ComboPoll(void);                                 /* gs_input.c: START + SELECT held */
+extern int gPortPadAlways;                                     /* gs_input.c: the pads without Dragon Rage's renderer */
+void Bt4_OpenMenu(void);                                       /* (below) the app's touch menu */
 }
 void ps2Set60Fps(bool on, const char *sitesPath);              /* BT3-Recomp (ps2_stepcensus.cpp): 60 fps fights */
 
@@ -66,9 +71,10 @@ int ps2x_runtime_main(int argc, char *argv[]); // the runtime's main() (src/main
 namespace
 {
 const char *TAG = "bt4";
-std::string g_root, g_image;
+std::string g_root, g_image, g_libDir, g_driverDir, g_driverLib;
 std::atomic<ps2live::RingHeader *> g_ring{nullptr};
 std::atomic<bool> g_quit{false};
+std::atomic<bool> g_gsxRunning{false}; // ARMSX2's renderer draws the game (not Dragon Rage's)
 FILE *g_log = nullptr;
 int g_pipe[2] = {-1, -1};
 
@@ -336,6 +342,7 @@ void menuSnapshot()
     g_menuSnap["glow"] = v.glow;
     g_menuSnap["bt4_aspect"] = Bt4_AspectMode();
     g_menuSnap["bt4_fps60"] = Port_Setting("bt4_fps60", 0);
+    g_menuSnap["bt4_renderer"] = Port_Setting("bt4_renderer", 0);
     g_menuGen++;
 }
 
@@ -367,6 +374,11 @@ void menuApply(const std::string &key, int value)
         Port_SettingSave("bt4_aspect", value);
         Port_SettingsWrite();
         Bt4_AspectSet(value);
+    }
+    else if (key == "bt4_renderer")
+    {
+        Port_SettingSave("bt4_renderer", value ? 1 : 0); // (from the next start)
+        Port_SettingsWrite();
     }
     else if (key == "bt4_fps60")
     {
@@ -427,7 +439,213 @@ void quitToApp()
     if (env->ExceptionCheck())
         env->ExceptionClear();
 }
+
+// ---- the renderer "ARMSX2" (bt4_renderer = 1): the stream drawn by ARMSX2's GS, libbt4gsx.so (port/bt4/gsx). This
+// thread keeps the window, its events, the pad and the menu; libbt4gsx.so reads the ring on a thread of its own.
+struct GsxArgs
+{
+    void *ring;
+    void *window;
+    int width, height;
+    const char *root, *ini, *renderer;
+    float upscale;
+    const char *driverDir, *driverLib, *hookDir;
+};
+struct Gsx
+{
+    int (*run)(const GsxArgs *);
+    void (*surfaceChanged)(void *, int, int);
+    void (*surfaceDestroyed)(void);
+    void (*hold)(int);
+    void (*stop)(void);
+};
+
+// The GS settings for this start (gsx/dbz.ini), from the launcher's: Team BT4's PCSX2 profile (dbz-bt4-recomp's
+// gshost/dbz.ini) with the internal resolution, the shape and the texture offset of that resolution.
+float gsxWriteIni(const std::string &path)
+{
+    const int scale4 = Port_Setting("scale4", 8);
+    float upscale = scale4 / 4.0f;
+    if (upscale < 1.0f)
+        upscale = 1.0f;
+    // the texture offset that removes the doubled cel outline, per internal resolution (measured by dbz-bt4-recomp)
+    const int s = static_cast<int>(upscale + 0.5f);
+    const int tc = s <= 1 ? 0 : s == 2 ? 345 : s <= 5 ? 425 : 500;
+    const int aspect = Bt4_AspectMode();
+    FILE *f = std::fopen(path.c_str(), "w");
+    if (!f)
+        return upscale;
+    std::fprintf(f,
+                 "; Budokai Tenkaichi 4 on ARMSX2's GS: written by the game at every start from the launcher's settings\n"
+                 "[EmuCore/GS]\n"
+                 "upscale_multiplier = %g\n"
+                 "MaxAnisotropy = 0\n"
+                 "filter = 2\n"
+                 "fxaa = false\n"
+                 "CASMode = 0\n"
+                 "AspectRatio = %s\n"
+                 "OsdShowFPS = %s\n"
+                 "VsyncEnable = 0\n"
+                 "pcrtc_antiblur = false\n"
+                 "pcrtc_offsets = false\n"
+                 "UserHacks = true\n"
+                 "UserHacks_merge_pp_sprite = true\n"
+                 "UserHacks_CPUCLUTRender = 1\n"
+                 "UserHacks_TCOffsetX = %d\n"
+                 "UserHacks_TCOffsetY = %d\n"
+                 "LoadTextureReplacements = false\n"
+                 "DumpReplaceableTextures = false\n",
+                 static_cast<double>(upscale), aspect == 1 ? "4:3" : aspect == 2 ? "Stretch" : "16:9",
+                 Port_Setting("meter", 0) ? "true" : "false", tc, tc);
+    std::fclose(f);
+    return upscale;
+}
+
+void *gsxWindowHandle(SDL_Window *w, int *pw, int *ph)
+{
+    SDL_GetWindowSizeInPixels(w, pw, ph);
+    return SDL_GetPointerProperty(SDL_GetWindowProperties(w), SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr);
+}
+
+bool menuFrame();
+
+// Runs the game with ARMSX2's GS: false when it cannot (the library is missing or the stream never came), and the
+// caller then uses Dragon Rage's renderer.
+bool runArmsx2()
+{
+    const std::string lib = g_libDir + "/libbt4gsx.so";
+    void *h = dlopen(lib.c_str(), RTLD_NOW | RTLD_LOCAL);
+    if (!h)
+    {
+        std::fprintf(stderr, "bt4: ARMSX2's renderer is not in this version (%s): Dragon Rage's is used\n", dlerror());
+        return false;
+    }
+    Gsx g;
+    g.run = reinterpret_cast<int (*)(const GsxArgs *)>(dlsym(h, "Bt4Gsx_Run"));
+    g.surfaceChanged = reinterpret_cast<void (*)(void *, int, int)>(dlsym(h, "Bt4Gsx_SurfaceChanged"));
+    g.surfaceDestroyed = reinterpret_cast<void (*)(void)>(dlsym(h, "Bt4Gsx_SurfaceDestroyed"));
+    g.hold = reinterpret_cast<void (*)(int)>(dlsym(h, "Bt4Gsx_Hold"));
+    g.stop = reinterpret_cast<void (*)(void)>(dlsym(h, "Bt4Gsx_Stop"));
+    if (!g.run || !g.surfaceChanged || !g.surfaceDestroyed || !g.hold || !g.stop)
+    {
+        std::fprintf(stderr, "bt4: libbt4gsx.so is not the expected one: Dragon Rage's renderer is used\n");
+        return false;
+    }
+    const std::string root = g_root + "/gsx";
+    if (access((root + "/resources/shaders").c_str(), R_OK) != 0)
+    {
+        std::fprintf(stderr, "bt4: %s/resources is missing (the app copies it): Dragon Rage's renderer is used\n", root.c_str());
+        return false;
+    }
+    SDL_Window *win = GsDraw_WindowCreate(0);
+    int w = 0, hgt = 0;
+    void *native = win ? gsxWindowHandle(win, &w, &hgt) : nullptr;
+    if (!native)
+    {
+        std::fprintf(stderr, "bt4: no window for ARMSX2's renderer (%s)\n", SDL_GetError());
+        return false;
+    }
+    gPortPadAlways = 1;
+    g_gsxRunning = true;
+    const std::string ini = root + "/dbz.ini";
+    const float upscale = gsxWriteIni(ini);
+    static std::string sRoot, sIni, sRenderer, sDriverDir, sDriverLib, sHookDir;
+    sRoot = root;
+    sIni = ini;
+    sRenderer = Port_Setting("gpu_api", 0) == 1 ? "gl" : "vulkan";
+    sDriverDir = g_driverDir;
+    sDriverLib = g_driverLib;
+    sHookDir = g_libDir;
+    std::fprintf(stderr, "bt4: GS host: ARMSX2's renderer (%s, %gx, window %dx%d)\n", sRenderer.c_str(), static_cast<double>(upscale), w, hgt);
+
+    // the ring, once the game has made it
+    ps2live::RingHeader *ring = nullptr;
+    while (!g_quit && !(ring = g_ring.load()))
+    {
+        SDL_PumpEvents();
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    if (!ring)
+        return true;
+    static GsxArgs a;
+    a = {ring, native, w, hgt, sRoot.c_str(), sIni.c_str(), sRenderer.c_str(), upscale,
+         sDriverDir.c_str(), sDriverLib.c_str(), sHookDir.c_str()};
+    std::atomic<bool> ended{false};
+    std::thread gs([&] {
+        const int code = g.run(&a);
+        std::fprintf(stderr, "bt4: ARMSX2's renderer ended (%d)\n", code);
+        ended = true;
+    });
+
+    auto lastPad = std::chrono::steady_clock::now();
+    bool held = false;
+    while (!g_quit && !ended)
+    {
+        if (PortInput_ComboPoll())
+            Bt4_OpenMenu();
+        SDL_Event ev;
+        while (SDL_PollEvent(&ev))
+        {
+            if (ev.type == SDL_EVENT_QUIT)
+            {
+                g.stop();
+                std::fflush(nullptr);
+                _exit(0);
+            }
+            if (ev.type == SDL_EVENT_WILL_ENTER_BACKGROUND)
+                g.surfaceDestroyed(); // (the surface goes: no presenting into it)
+            else if (ev.type == SDL_EVENT_DID_ENTER_FOREGROUND || ev.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED)
+            {
+                int nw = 0, nh = 0;
+                if (void *n = gsxWindowHandle(win, &nw, &nh))
+                    g.surfaceChanged(n, nw, nh);
+            }
+            else if (ev.type == SDL_EVENT_KEY_DOWN && !ev.key.repeat && ev.key.key == SDLK_AC_BACK)
+                Bt4_OpenMenu();
+        }
+        const bool open = menuFrame();
+        if (open != held)
+        {
+            held = open;
+            g.hold(open ? 1 : 0); // the menu is up: the stream waits (the game with it), the last picture stays
+        }
+        const auto now = std::chrono::steady_clock::now();
+        if (now - lastPad >= std::chrono::milliseconds(8))
+        {
+            if (open)
+            {
+                ring->padButtons = 0;
+                ring->padAxes = 0x80808080u;
+                ring->padSequence = ring->padSequence + 1;
+            }
+            else
+                sendPad(ring);
+            lastPad = now;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(4));
+    }
+    g.stop();
+    if (gs.joinable())
+        gs.join();
+    return true;
+}
 } // namespace
+
+// The game, on a thread of its own (the runtime's main thread runs the game's fibers' scheduler); once.
+static void startGame()
+{
+    static bool started = false;
+    if (started)
+        return;
+    started = true;
+    std::thread([] {
+        static char arg0[] = "ps2EntryRunner";
+        static char *args[] = {arg0, nullptr};
+        const int code = ps2x_runtime_main(1, args);
+        std::fprintf(stderr, "bt4: the game ended (%d)\n", code);
+        g_quit = true;
+    }).detach();
+}
 
 // ps2_gs_live.cpp asks for the host once the ring is ready (in the browser build: the page): here it is this thread.
 bool ps2xWebStartGsHost(ps2live::RingHeader *header)
@@ -502,7 +720,7 @@ extern "C" JNIEXPORT jint JNICALL Java_com_dfdx047_dragonrage_engine_TouchBridge
 extern "C" JNIEXPORT jboolean JNICALL Java_com_dfdx047_dragonrage_engine_MenuBridge_nativeOpen(JNIEnv *, jclass, jboolean open)
 {
     g_menuWant = open ? 1 : 0;
-    return GsGpu_Enabled() ? JNI_TRUE : JNI_FALSE;
+    return GsGpu_Enabled() || g_gsxRunning ? JNI_TRUE : JNI_FALSE;
 }
 extern "C" JNIEXPORT jint JNICALL Java_com_dfdx047_dragonrage_engine_MenuBridge_nativeGen(JNIEnv *, jclass)
 {
@@ -557,7 +775,10 @@ extern "C" JNIEXPORT void JNICALL Java_com_dfdx047_dragonrage_engine_MenuBridge_
 extern "C" __attribute__((visibility("default"))) int SDL_main(int argc, char *argv[])
 {
     g_root = argc > 1 ? argv[1] : ".";
+    g_libDir = argc > 2 ? argv[2] : "";
     g_image = argc > 3 ? argv[3] : "";
+    g_driverDir = argc > 4 ? argv[4] : ""; // (the launcher's custom Vulkan driver, for ARMSX2's renderer)
+    g_driverLib = argc > 5 ? argv[5] : "";
     if (chdir(g_root.c_str()) != 0)
     {
         __android_log_print(ANDROID_LOG_ERROR, TAG, "cannot use the game folder %s: %s", g_root.c_str(), std::strerror(errno));
@@ -581,6 +802,20 @@ extern "C" __attribute__((visibility("default"))) int SDL_main(int argc, char *a
 
     fps60Prepare();
 
+    // the renderer: Dragon Rage's (0, the default) or ARMSX2's (1, bt4_renderer)
+    if (Port_Setting("bt4_renderer", 0) == 1)
+    {
+        startGame();
+        if (runArmsx2())
+        {
+            std::fprintf(stderr, "bt4: leaving\n");
+            std::fflush(nullptr);
+            quitToApp();
+            return 0;
+        }
+        std::fprintf(stderr, "bt4: ARMSX2's renderer could not start: Dragon Rage's instead\n");
+    }
+
     // Dragon Rage's GS: its window and renderer (Vulkan or OpenGL ES, the launcher's choice), on this thread
     setenv("BT3_GS", "gpu", 1);
     Port_GsGifChannel(0, 0, 0);
@@ -592,14 +827,7 @@ extern "C" __attribute__((visibility("default"))) int SDL_main(int argc, char *a
         return 1;
     }
 
-    // the game, on a thread of its own (large stack: the runtime's main thread runs the game's fibers' scheduler)
-    std::thread([] {
-        static char arg0[] = "ps2EntryRunner";
-        static char *args[] = {arg0, nullptr};
-        const int code = ps2x_runtime_main(1, args);
-        std::fprintf(stderr, "bt4: the game ended (%d)\n", code);
-        g_quit = true;
-    }).detach();
+    startGame();
 
     Reader r;
     auto lastPump = std::chrono::steady_clock::now();

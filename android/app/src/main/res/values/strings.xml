@@ -416,6 +416,9 @@
     <string name="bt4_aspect_hint">The mod draws its picture in 16:9: 16:9 shows it as Team BT4 made it. 4:3 is the PlayStation 2 frame as it is (people look thinner); Screen stretches it to the whole screen.</string>
     <string name="bt4_fps60">60 fps in fights</string>
     <string name="bt4_fps60_text">The fight runs at 60 pictures a second (BT3-Recomp\'s mode, as in the mod\'s PC build). Heavier for the CPU and the GPU.</string>
+    <string name="bt4_renderer">Renderer of Budokai Tenkaichi 4</string>
+    <string name="bt4_renderer_armsx2">ARMSX2 (experimental)</string>
+    <string name="bt4_renderer_text">Dragon Rage: the renderer of Budokai Tenkaichi 3. ARMSX2: the PlayStation 2 emulator\'s own (PCSX2\'s hardware renderer with ARMSX2\'s fixes for Mali and Adreno), drawing exactly what the game sends; it uses the resolution, the shape and the Vulkan or OpenGL ES choice above. From the next start.</string>
     <string name="bt4_err_not_bt4">This image is not Budokai Tenkaichi 4 (it has no SLUS_219.78). It needs Team BT4\'s mod, Beta 14 Rev2.</string>
     <string name="bt4_err_version">This image is another version of the mod: the game was recompiled for Beta 14 Rev2 (SLUS-219.78).</string>
     <string name="bt4_err_permission">Android did not let the app keep reading this image. Move it to Downloads or the phone\'s storage and pick it again.</string>

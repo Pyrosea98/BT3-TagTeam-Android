@@ -1,0 +1,271 @@
+diff --git a/pcsx2-gsrunner/Main.cpp b/pcsx2-gsrunner/Main.cpp
+index 695b76741f..3c65852b49 100644
+--- a/pcsx2-gsrunner/Main.cpp
++++ b/pcsx2-gsrunner/Main.cpp
+@@ -576,6 +576,10 @@ static std::optional<T> ParseNumericArg(const char* flag, const std::string_view
+ bool GSRunner::InitializeConfig()
+ {
+ 	EmuFolders::SetAppRoot();
++	// Dragon Rage (Budokai Tenkaichi 4): run inside an app, whose program is Android's app_process, so the folder with
++	// resources/ is named by the host (port/bt4/gsx/bt4_gsx.cpp).
++	if (const char* root = std::getenv("ARMSX2_APPROOT"); root && root[0])
++		EmuFolders::AppRoot = root;
+ 	if (!EmuFolders::SetResourcesDirectory())
+ 	{
+ 		EarlyError("resources directory '{}' is missing (looked for it under the application root '{}'). "
+@@ -743,8 +747,15 @@ std::optional<WindowInfo> Host::AcquireRenderWindow(bool recreate_window)
+ 	return GSRunner::GetPlatformWindowInfo();
+ }
+ 
++#if defined(__ANDROID__) && defined(BT4GSX)
++void Bt4Gsx_ReleaseWindow(); // port/bt4/gsx/bt4_gsx.cpp
++#endif
++
+ void Host::ReleaseRenderWindow()
+ {
++#if defined(__ANDROID__) && defined(BT4GSX)
++	::Bt4Gsx_ReleaseWindow();
++#endif
+ }
+ 
+ void Host::BeginPresentFrame()
+@@ -2390,6 +2401,23 @@ bool GSRunner::ParseCommandLineArgs(int argc, char* argv[], VMBootParameters& pa
+ 
+ void GSRunner::SettingsOverride()
+ {
++#ifdef BT4GSX
++	// Dragon Rage: a game to play, not a measurement. The picture's settings (VSync, the OSD) are the -ini file's; the
++	// pad, the sound and the memory cards are the game's own (libbt4.so), so PCSX2's stay off.
++	s_settings_interface.SetBoolValue("InputSources", "SDL", false);
++	s_settings_interface.SetBoolValue("InputSources", "XInput", false);
++	s_settings_interface.SetStringValue("SPU2/Output", "OutputModule", "nullout");
++	Pad::ClearPortBindings(s_settings_interface, 0);
++	s_settings_interface.ClearSection("Hotkeys");
++	s_settings_interface.SetBoolValue("Logging", "EnableSystemConsole", true);
++	s_settings_interface.SetBoolValue("Logging", "EnableVerbose", false);
++	for (u32 i = 0; i < 2; i++)
++	{
++		s_settings_interface.SetBoolValue("MemoryCards", fmt::format("Slot{}_Enable", i + 1).c_str(), false);
++		s_settings_interface.SetStringValue("MemoryCards", fmt::format("Slot{}_Filename", i + 1).c_str(), "");
++	}
++	return;
++#endif
+ 	// complete as quickly as possible
+ 	s_settings_interface.SetBoolValue("EmuCore/GS", "FrameLimitEnable", s_force_vsync);
+ 	s_settings_interface.SetIntValue("EmuCore/GS", "VsyncEnable", s_force_vsync);
+@@ -3099,7 +3127,9 @@ static std::atomic<bool> s_signal_stop_requested{false};
+ 
+ int main(int argc, char* argv[])
+ {
++#ifndef BT4GSX // (inside Dragon Rage the app has its own crash handling and signals)
+ 	CrashHandler::Install();
++#endif
+ 	GSRunner::InitializeConsole();
+ 
+ 	// Before the VM, and so before either VMManager's thread pinning or -gspin, which is
+@@ -3108,8 +3138,10 @@ int main(int argc, char* argv[])
+ 
+ 	// Clean SIGINT/SIGTERM → VM stop, so DumpStats() still fires on ^C or SIGTERM during -loop 0.
+ 	// Defer the actual stop to the CPU thread (see s_signal_stop_requested).
++#ifndef BT4GSX
+ 	std::signal(SIGINT, [](int) { s_signal_stop_requested.store(true); });
+ 	std::signal(SIGTERM, [](int) { s_signal_stop_requested.store(true); });
++#endif
+ 
+ 	if (!GSRunner::InitializeConfig())
+ 	{
+@@ -3759,6 +3791,40 @@ void GSRunner::StopPlatformMessagePump()
+ 	s_shutdown_requested.store(true);
+ }
+ 
++#elif defined(__ANDROID__) && defined(BT4GSX)
++// Dragon Rage (Budokai Tenkaichi 4): the game's window belongs to the app (SDL's surface), handed over by
++// port/bt4/gsx/bt4_gsx.cpp; Surfaceless while the app has no surface (in the background).
++extern std::optional<WindowInfo> Bt4Gsx_WindowInfo();
++static std::atomic<bool> s_shutdown_requested{false};
++
++bool GSRunner::CreatePlatformWindow()
++{
++	return true;
++}
++
++void GSRunner::DestroyPlatformWindow()
++{
++}
++
++std::optional<WindowInfo> GSRunner::GetPlatformWindowInfo()
++{
++	return Bt4Gsx_WindowInfo();
++}
++
++void GSRunner::PumpPlatformMessages(bool forever)
++{
++	if (!forever)
++		return;
++
++	while (!s_shutdown_requested.load())
++		std::this_thread::sleep_for(std::chrono::milliseconds(16));
++}
++
++void GSRunner::StopPlatformMessagePump()
++{
++	s_shutdown_requested.store(true);
++}
++
+ #elif defined(__linux__)
+ // No X11/Wayland on this build (handheld kmsdrm target). Vulkan VK_KHR_display
+ // owns the screen; VulkanDirect is reported with the requested resolution and
+diff --git a/pcsx2/GSDumpReplayer.cpp b/pcsx2/GSDumpReplayer.cpp
+index 2431077dee..b021364826 100644
+--- a/pcsx2/GSDumpReplayer.cpp
++++ b/pcsx2/GSDumpReplayer.cpp
+@@ -48,6 +48,8 @@ static u64 s_next_frame_time = 0;
+ static bool s_is_dump_runner = false;
+ static GSDumpReplayer::PacketHook s_packet_hook = nullptr;
+ static GSDumpReplayer::InitialStateHook s_initial_state_hook = nullptr;
++static GSDumpReplayer::LiveNext s_live_next = nullptr;
++static GSDumpReplayer::LiveReadback s_live_readback = nullptr;
+ 
+ R5900cpu GSDumpReplayerCpu = {
+ 	GSDumpReplayerCpuReserve,
+@@ -220,6 +222,17 @@ void GSDumpReplayer::SetInitialStateHook(InitialStateHook hook)
+ 	s_initial_state_hook = hook;
+ }
+ 
++void GSDumpReplayer::SetLive(LiveNext next, LiveReadback readback)
++{
++	s_live_next = next;
++	s_live_readback = readback;
++}
++
++bool GSDumpReplayer::IsLive()
++{
++	return s_live_next != nullptr;
++}
++
+ void GSDumpReplayerCpuReserve()
+ {
+ }
+@@ -304,19 +317,42 @@ void GSDumpReplayerCpuStep()
+ 	}
+ 
+ 	const u32 this_packet = s_current_packet;
+-	const GSDumpFile::GSData& packet = s_dump_file->GetPackets()[s_current_packet];
+-	s_current_packet = (s_current_packet + 1) % static_cast<u32>(s_dump_file->GetPackets().size());
+-	if (s_current_packet == 0)
++	GSDumpFile::GSData live_packet;
++	const GSDumpFile::GSData* next_packet;
++	if (s_live_next)
+ 	{
+-		s_dump_frame_number = 0;
+-		if (s_dump_loop_count > 0)
+-			s_dump_loop_count--;
+-		else if (s_dump_loop_count == 0)
++		// live: the next packet of the game's stream, as it comes (blocks while the game is still drawing)
++		GSDumpReplayer::LivePacket lp;
++		if (!s_live_next(&lp))
+ 		{
+ 			Host::RequestVMShutdown(false, false, false);
+ 			s_dump_running = false;
++			return;
++		}
++		live_packet.id = static_cast<GSDumpTypes::GSType>(lp.type);
++		live_packet.path = static_cast<GSDumpTypes::GSTransferPath>(lp.path);
++		live_packet.data = lp.data;
++		live_packet.length = lp.length;
++		next_packet = &live_packet;
++		s_current_packet++;
++	}
++	else
++	{
++		next_packet = &s_dump_file->GetPackets()[s_current_packet];
++		s_current_packet = (s_current_packet + 1) % static_cast<u32>(s_dump_file->GetPackets().size());
++		if (s_current_packet == 0)
++		{
++			s_dump_frame_number = 0;
++			if (s_dump_loop_count > 0)
++				s_dump_loop_count--;
++			else if (s_dump_loop_count == 0)
++			{
++				Host::RequestVMShutdown(false, false, false);
++				s_dump_running = false;
++			}
+ 		}
+ 	}
++	const GSDumpFile::GSData& packet = *next_packet;
+ 
+ 	switch (packet.id)
+ 	{
+@@ -361,8 +397,11 @@ void GSDumpReplayerCpuStep()
+ 		case GSDumpTypes::GSType::VSync:
+ 		{
+ 			s_dump_frame_number++;
+-			GSDumpReplayerUpdateFrameLimit();
+-			GSDumpReplayerFrameLimit();
++			if (!s_live_next) // (live: the game paces itself)
++			{
++				GSDumpReplayerUpdateFrameLimit();
++				GSDumpReplayerFrameLimit();
++			}
+ 			MTGS::PostVsyncStart(false);
+ 			VMManager::Internal::VSyncOnCPUThread();
+ 			if (VMManager::Internal::IsExecutionInterrupted())
+@@ -379,6 +418,8 @@ void GSDumpReplayerCpuStep()
+ 			// Allocate an extra quadword, some transfers write too much (e.g. Lego Racers 2 with Z24 downloads).
+ 			std::unique_ptr<u8[]> arr(new u8[(size + 1) * 16]);
+ 			MTGS::InitAndReadFIFO(arr.get(), size);
++			if (s_live_readback) // live: the game is waiting for these bytes
++				s_live_readback(arr.get(), size * 16);
+ 		}
+ 		break;
+ 
+@@ -447,7 +488,10 @@ void GSDumpReplayer::RenderUI()
+ 	DRAW_LINE(font, font_size, text.c_str(), IM_COL32(255, 255, 255, 255));
+ 
+ 	text.clear();
+-	fmt::format_to(std::back_inserter(text), "Packet Number: {}/{}", s_current_packet, static_cast<u32>(s_dump_file->GetPackets().size()));
++	if (s_live_next)
++		fmt::format_to(std::back_inserter(text), "Packet Number: {} (live)", s_current_packet);
++	else
++		fmt::format_to(std::back_inserter(text), "Packet Number: {}/{}", s_current_packet, static_cast<u32>(s_dump_file->GetPackets().size()));
+ 	DRAW_LINE(font, font_size, text.c_str(), IM_COL32(255, 255, 255, 255));
+ 
+ #undef DRAW_LINE
+diff --git a/pcsx2/GSDumpReplayer.h b/pcsx2/GSDumpReplayer.h
+index 88c29b43f0..9aeab8c817 100644
+--- a/pcsx2/GSDumpReplayer.h
++++ b/pcsx2/GSDumpReplayer.h
+@@ -47,4 +47,20 @@ namespace GSDumpReplayer
+ 	void SetInitialStateHook(InitialStateHook hook);
+ 
+ 	void RenderUI();
++
++	/// Live mode (Dragon Rage, Budokai Tenkaichi 4): a recompiled game's GS stream as it is made, in a dump's packet
++	/// format (PS2Recomp's live ring). The dump file the VM boots holds only the header (the GS state and registers);
++	/// the packets come from `next`, which blocks until one is there and returns false to stop. A ReadFIFO2's data
++	/// (the game reading the GS back) goes to `readback`. Set before the VM boots; no frame limiter (the game paces).
++	struct LivePacket
++	{
++		u8 type;
++		u8 path;
++		const u8* data;
++		u32 length;
++	};
++	using LiveNext = bool (*)(LivePacket* out);
++	using LiveReadback = void (*)(const u8* data, u32 bytes);
++	void SetLive(LiveNext next, LiveReadback readback);
++	bool IsLive();
+ } // namespace GSDumpReplayer
+diff --git a/platforms/android/app/src/main/cpp/CMakeLists.txt b/platforms/android/app/src/main/cpp/CMakeLists.txt
+index eeee0e925d..ce8c498eb3 100644
+--- a/platforms/android/app/src/main/cpp/CMakeLists.txt
++++ b/platforms/android/app/src/main/cpp/CMakeLists.txt
+@@ -423,3 +423,8 @@ if(ARMSX2_ENABLE_LSFG)
+ 	# test in place would silently drop the define and ship the toggle with nothing behind it.
+ 	target_compile_definitions(PCSX2_FLAGS INTERFACE ARMSX2_HAS_LSFG=1)
+ endif()
++
++# Dragon Rage (Budokai Tenkaichi 4): extra targets of a host built on this core (port/bt4/gsx/bt4gsx.cmake).
++if(ARMSX2_EXTRA_CMAKE)
++	include("${ARMSX2_EXTRA_CMAKE}")
++endif()

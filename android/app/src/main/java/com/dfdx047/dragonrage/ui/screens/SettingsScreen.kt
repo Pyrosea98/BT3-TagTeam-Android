@@ -195,6 +195,18 @@ fun SettingsScreen(vm: AppViewModel) {
                 stringResource(R.string.renderer_now, gpu.ifEmpty { "?" }, picks),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (vm.game == com.dfdx047.dragonrage.data.Game.BT4 && EngineSettings.hasArmsx2Renderer(androidx.compose.ui.platform.LocalContext.current)) {
+                Text(stringResource(R.string.bt4_renderer), style = MaterialTheme.typography.titleSmall)
+                ChipRow(
+                    options = listOf("Dragon Rage" to 0, stringResource(R.string.bt4_renderer_armsx2) to 1),
+                    selected = get(EngineSettings.BT4_RENDERER, 0),
+                    onSelect = { vm.setting(EngineSettings.BT4_RENDERER, it) },
+                )
+                Text(
+                    stringResource(R.string.bt4_renderer_text),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             if (choice == Renderer.OPENGL && Renderer.isMali(gpu)) {
                 Text(
                     stringResource(R.string.renderer_mali_gl),

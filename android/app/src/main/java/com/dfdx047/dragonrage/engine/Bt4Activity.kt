@@ -24,7 +24,32 @@ class Bt4Activity : GameActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         image = runCatching { Bt4Installer(this, GamePaths(this, Game.BT4), contentResolver).openImage() }.getOrNull()
+        runCatching { copyGsxResources() }.onFailure { android.util.Log.w("bt4", "ARMSX2 renderer resources", it) }
         super.onCreate(savedInstanceState)
+    }
+
+    /** ARMSX2's renderer (libbt4gsx.so, when this build has it) reads its shaders and fonts from files: the APK's
+     *  assets/bt4gsx/resources go to bt4/gsx/resources, again whenever the APK's copy is another version. */
+    private fun copyGsxResources() {
+        val names = assets.list("bt4gsx") ?: return
+        if ("version.txt" !in names) return
+        val want = assets.open("bt4gsx/version.txt").use { it.readBytes().decodeToString().trim() }
+        val dst = java.io.File(GamePaths(this, Game.BT4).root, "gsx") // (before GameActivity's onCreate sets `paths`)
+        val mark = java.io.File(dst, "version.txt")
+        if (mark.exists() && mark.readText().trim() == want) return
+        java.io.File(dst, "resources").deleteRecursively()
+        fun copy(from: String, to: java.io.File) {
+            val kids = assets.list(from).orEmpty()
+            if (kids.isEmpty()) {
+                to.parentFile?.mkdirs()
+                assets.open(from).use { i -> to.outputStream().use { o -> i.copyTo(o) } }
+            } else {
+                to.mkdirs()
+                kids.forEach { copy("$from/$it", java.io.File(to, it)) }
+            }
+        }
+        copy("bt4gsx/resources", java.io.File(dst, "resources"))
+        mark.writeText(want + "\n")
     }
 
     override fun onDestroy() {
@@ -35,7 +60,13 @@ class Bt4Activity : GameActivity() {
 
     override fun getLibraries(): Array<String> = arrayOf("SDL3", "bt4")
 
-    /** The game folder, the app's native libraries and the disc image ("" when it could not be opened). */
-    override fun getArguments(): Array<String> =
-        arrayOf(paths.root.path, applicationInfo.nativeLibraryDir, image?.let { "/proc/self/fd/${it.fd}" } ?: "")
+    /** The game folder, the app's native libraries, the disc image ("" when it could not be opened) and the chosen
+     *  custom GPU driver's folder and library ("" for the system's; ARMSX2's renderer loads it). */
+    override fun getArguments(): Array<String> {
+        val driver = runCatching { com.dfdx047.dragonrage.data.GpuDrivers(this, contentResolver).selected() }.getOrNull()
+        return arrayOf(
+            paths.root.path, applicationInfo.nativeLibraryDir, image?.let { "/proc/self/fd/${it.fd}" } ?: "",
+            driver?.dir?.path ?: "", driver?.library ?: "",
+        )
+    }
 }

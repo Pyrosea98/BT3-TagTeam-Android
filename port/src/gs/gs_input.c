@@ -931,13 +931,16 @@ void PortInput_Fresh(void) {
     SDL_PumpEvents();
 }
 
+/* The pads without this renderer (Budokai Tenkaichi 4 drawn by another one: port/bt4/host/bt4_main.cpp). */
+int gPortPadAlways;
+
 int Port_PadRead(int socket, unsigned char *data) {
     unsigned btn = 0;
     unsigned char rx = 0x80, ry = 0x80, lx = 0x80, ly = 0x80;
     SDL_Gamepad *g;
     int a;
 
-    if (!GsGpu_Enabled() || socket < 0 || socket > 1) {
+    if ((!GsGpu_Enabled() && !gPortPadAlways) || socket < 0 || socket > 1) {
         return 0;
     }
     pthread_once(&sLoadOnce, load);

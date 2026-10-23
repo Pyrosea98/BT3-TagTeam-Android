@@ -5,6 +5,7 @@ puts it next to libbt3.so in the app (android/app/src/main/jniLibs/arm64-v8a). S
     python3 port/tools/android.py                            (first: the toolchain, SDL3 and the GS shaders)
     python3 port/bt4/build_bt4.py --data <folder>            (the first time: the game's code is generated)
     python3 port/bt4/build_bt4.py                            (later: rebuilds with the code already generated)
+    python3 port/bt4/build_bt4.py --armsx2                   (also ARMSX2's renderer for the game: libbt4gsx.so)
 
 <folder> holds the mod's SLUS_219.78 and BIN/DBZP.BIN: the app copies them out of the image to
 Android/data/com.dfdx047.dragonrage/files/bt4/runtime/data (copy that folder to the PC), or extract them from the ISO.
@@ -36,6 +37,11 @@ BT3R_URL, BT3R_REV = "https://github.com/z3xox/BT3-Recomp", "e22a34b"
 BT4R_URL, BT4R_REV = "https://github.com/recomp-code/dbz-bt4-recomp", "a5771ed"
 FFMPEG_URL, FFMPEG_TAG = "https://github.com/FFmpeg/FFmpeg", "n7.1"
 ELF_SHA256 = "224525c5639c00e01c2604c4685d307bc739c041000dcf8c69a4f884f465e8a4"  # SLUS_219.78, Beta 14 Rev2
+
+ARMSX2_URL, ARMSX2_REV = "https://github.com/ARMSX2/ARMSX2", "90126bdfea7a3ffb1fd288b2f7f0ae0b033af2d6"
+ARMSX2 = WORK / "ARMSX2"
+ARMSX2_PATCH = HERE / "patches/armsx2-bt4.patch"
+GSX = HERE / "gsx"
 
 BT3R = WORK / "BT3-Recomp"
 BT4R = WORK / "dbz-bt4-recomp"
@@ -168,9 +174,66 @@ def build():
     print(f"== libbt4.so ({(dst / 'libbt4.so').stat().st_size >> 20} MB) installed into {dst}")
 
 
+def armsx2():
+    """libbt4gsx.so: the renderer "ARMSX2" of the game (port/bt4/gsx): ARMSX2's PCSX2 core (its Android build, all its
+    libraries from its own tree) with gsrunner as the host, reading the game's live GS stream. Its shaders and fonts go
+    to the app's assets (bt4gsx/), which Bt4Activity copies out. Long the first time (the whole core and shaderc)."""
+    src = ARMSX2
+    if not (src / ".git").exists():
+        run(["git", "clone", "--quiet", "--filter=blob:none", ARMSX2_URL, src])
+    if subprocess.run(["git", "-C", src, "cat-file", "-e", ARMSX2_REV + "^{commit}"]).returncode != 0:
+        run(["git", "-C", src, "fetch", "--quiet", "origin"])
+    mark = src / ".dragonrage-patched"
+    want = sha256(ARMSX2_PATCH) + " " + ARMSX2_REV
+    if not mark.exists() or mark.read_text().strip() != want:
+        print("== ARMSX2: its revision and Dragon Rage's patch (live GS stream, the app's window)", flush=True)
+        run(["git", "-C", src, "checkout", "--quiet", "--force", ARMSX2_REV])
+        run(["git", "-C", src, "reset", "--quiet", "--hard", ARMSX2_REV])
+        run(["git", "-C", src, "apply", "--whitespace=nowarn", ARMSX2_PATCH])
+        mark.write_text(want + "\n")
+    cpp = src / "platforms/android/app/src/main/cpp"
+    if not (cpp / "3rdparty/shaderc/third_party/spirv-tools").exists():
+        print("== shaderc's sources (SPIRV-Tools, glslang...)", flush=True)
+        run([sys.executable, "utils/git-sync-deps"], cwd=cpp / "3rdparty/shaderc")
+    # The core's Android build, configured as a Linux aarch64 build with this toolchain, then told it is Android
+    # (CMAKE_PROJECT_INCLUDE: after every project(), LINUX off and ANDROID on) - the NDK's own CMake files are not
+    # in the toolchain android.py makes. libwebp wants the NDK's cpu-features: a small one is in gsx/ndk.
+    out = WORK / "armsx2-build"
+    out.mkdir(parents=True, exist_ok=True)
+    after = out / "after_project.cmake"
+    after.write_text("set(LINUX FALSE)\nset(ANDROID TRUE)\n")
+    tcf = out / "android.cmake"
+    tcf.write_text(toolchain_file().read_text() + f"""set(CMAKE_SHARED_LINKER_FLAGS_INIT "${{CMAKE_SHARED_LINKER_FLAGS_INIT}} -static-libstdc++")
+set(CMAKE_LIBRARY_PATH "{SYSROOT / f'usr/lib/aarch64-linux-android/{API}'}")
+set(CMAKE_ANDROID_ARCH_ABI arm64-v8a)
+set(ANDROID_ABI arm64-v8a)
+set(ANDROID_PLATFORM android-{API})
+set(CMAKE_PROJECT_INCLUDE "{after}")
+""")
+    run(["cmake", "-S", cpp, "-B", out, "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release", f"-DCMAKE_TOOLCHAIN_FILE={tcf}",
+         "-DANDROID=true", "-DANDROID_STL=c++_static", "-DARMSX2_ANDROID_HOST_PAGE_SIZE=16384",
+         "-DARMSX2_EMUCORE_LIBRARY_NAME=emucore", "-DHAVE_WL_VERSION_SCRIPT=1", "-DCMAKE_HAVE_LIBC_PTHREAD=1", f"-DANDROID_NDK={GSX / 'ndk'}",
+         f"-DARMSX2_EXTRA_CMAKE={GSX / 'bt4gsx.cmake'}", f"-DBT4GSX_DIR={GSX}",
+         f"-DBT4GSX_RING_DIR={BT3R / 'ps2xRuntime/src/lib'}"])
+    run(["cmake", "--build", out, "--target", "bt4gsx"])
+    dst = ROOT / "android/app/src/main/jniLibs/arm64-v8a"
+    dst.mkdir(parents=True, exist_ok=True)
+    run([LLVM / "bin/llvm-strip", "--strip-debug", "-o", dst / "libbt4gsx.so", out / "libbt4gsx.so"])
+    # its resources: the shaders it compiles at run time, its fonts, the game index
+    res = src / "bin/resources"
+    assets = ROOT / "android/app/src/main/assets/bt4gsx"
+    shutil.rmtree(assets, ignore_errors=True)
+    for part in ("shaders/common", "shaders/opengl", "shaders/vulkan", "fonts"):
+        shutil.copytree(res / part, assets / "resources" / part)
+    shutil.copyfile(res / "GameIndex.yaml", assets / "resources/GameIndex.yaml")
+    (assets / "version.txt").write_text(ARMSX2_REV + " " + sha256(dst / "libbt4gsx.so")[:16] + "\n")
+    print(f"== libbt4gsx.so ({(dst / 'libbt4gsx.so').stat().st_size >> 20} MB) and its resources installed")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--data", help="folder with the mod's SLUS_219.78 and BIN/DBZP.BIN (generates the game's code)")
+    ap.add_argument("--armsx2", action="store_true", help="also build ARMSX2's renderer for the game (libbt4gsx.so)")
     args = ap.parse_args()
     if not (LLVM / "bin/clang").exists() or not (SDL3 / "lib/libSDL3.so").exists() or not (GEN / "shaders.h").exists():
         sys.exit("Run python3 port/tools/android.py first (the toolchain, SDL3 and the GS shaders come from it).")
@@ -180,6 +243,8 @@ def main():
     elif not any((BT3R / "ps2xRuntime/src/runner").glob("*.cpp")):
         sys.exit("No game code yet: run once with --data <folder with SLUS_219.78 and BIN/DBZP.BIN>.")
     build()
+    if args.armsx2:
+        armsx2()
 
 
 if __name__ == "__main__":

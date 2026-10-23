@@ -561,6 +561,15 @@ private fun VideoPage(l: L, game: Game, v: MenuValues) {
                 "Vale desde el próximo inicio del juego. Si no arranca, se prueba el otro."),
             listOf("Vulkan" to 0, "OpenGL ES" to 1), v.get("gpu_api", 0),
         ) { v.set("gpu_api", it) }
+        if (game == Game.BT4 && com.dfdx047.dragonrage.data.EngineSettings.hasArmsx2Renderer(androidx.compose.ui.platform.LocalContext.current)) {
+            Choice(
+                l.t("Renderer", "Renderizador", "Renderizador"),
+                l.t("ARMSX2: the PlayStation 2 emulator's renderer (experimental). From the next start of the game.",
+                    "ARMSX2: o renderizador do emulador de PlayStation 2 (experimental). Vale a partir da próxima vez que o jogo abrir.",
+                    "ARMSX2: el renderizador del emulador de PlayStation 2 (experimental). Desde el próximo inicio del juego."),
+                listOf("Dragon Rage" to 0, "ARMSX2" to 1), v.get("bt4_renderer", 0),
+            ) { v.set("bt4_renderer", it) }
+        }
         val gpu = v.texts["gpu"].orEmpty()
         Note("${l.t("Running now", "Rodando agora", "Ahora")}: ${if (gl) "OpenGL ES" else "Vulkan"}${if (gpu.isNotEmpty()) "  ·  GPU: $gpu" else ""}")
     }

@@ -55,6 +55,26 @@ On the PC: git, cmake, ninja, make, a C/C++ compiler (the recompiler runs there)
   (`games/bt3/fps60_sites.txt`, built into libbt4.so by CMakeLists.txt and written to `runtime/` at start), as the
   mod's Windows and Mac builds offer it. Live from the touch menu.
 
+## The renderer "ARMSX2" (experimental, `port/bt4/gsx`)
+
+`bt4_renderer` = 1 draws the game with the ARMSX2 emulator's GS instead of Dragon Rage's: PCSX2's hardware renderer
+with ARMSX2's Vulkan / OpenGL ES fixes for Mali and Adreno, reading exactly the live stream Dragon Rage's GS reads
+(it is a PCSX2 GS dump's format). It is what dbz-bt4-recomp does on Windows and macOS with `pcsx2-gsrunner` in a
+process of its own; here it is a library in the game's process, `libbt4gsx.so`:
+
+- `patches/armsx2-bt4.patch` (on ARMSX2 `90126bdfea`): GSDumpReplayer's live mode (the packets from a callback, no
+  frame limiter, ReadFIFO2 answered), gsrunner given the app's window and folders, and a hook for extra CMake targets
+  at the end of ARMSX2's Android build;
+- `gsx/bt4_gsx.cpp`: reads the ring for GSDumpReplayer, hands the window over (and again after the app comes back
+  from the background), runs gsrunner's `main` with `-renderer vulkan|gl -upscale <n> -ini gsx/dbz.ini live.gs`;
+- `gsx/bt4gsx.cmake`: the library, built inside ARMSX2's own Android build (all its libraries from its tree);
+- `host/bt4_main.cpp`: with `bt4_renderer` = 1 it loads the library, writes `gsx/dbz.ini` (Team BT4's PCSX2 profile:
+  CPU CLUT, merged sprites, the texture offset of the resolution, the shape) and keeps the window's events, the pad
+  and the menu; if the library is missing it falls back to Dragon Rage's renderer.
+
+`python3 port/bt4/build_bt4.py --armsx2` builds it (the first time: ARMSX2's core and shaderc, long) and puts its
+shaders and fonts in the app's assets (`bt4gsx/`), which Bt4Activity copies to `bt4/gsx/resources`.
+
 ## Not yet
 
 - Online, mods, cheats and custom drivers (the BT3 engine's).
