@@ -416,6 +416,8 @@ static SyncNote sSyncMine[SYNC_SLOTS], sSyncTheirs[SYNC_SLOTS];
 static uint32_t sSyncOutTick, sByeWhy;
 static unsigned sSyncCompared; /* (for the log: notes of the two copies compared since the last line) */
 static uint64_t sSyncOutValue;
+static unsigned sSyncFields[SYNC_SLOTS][14]; /* so para log */
+extern unsigned gPortNetFields[14]; /* headless.c */
 extern unsigned long long Port_NetDigest(void); /* headless.c */
 static void ended(const char *why, unsigned tick);
 
@@ -425,6 +427,7 @@ static void sync_note(uint32_t tick) {
         SyncNote *m = &sSyncMine[tick / SYNC_EVERY % SYNC_SLOTS];
         m->tick = tick;
         m->value = Port_NetDigest();
+        memcpy(sSyncFields[tick / SYNC_EVERY % SYNC_SLOTS], gPortNetFields, sizeof(sSyncFields[0]));
     }
 }
 
@@ -452,6 +455,12 @@ static void sync_check(uint32_t sure, unsigned tick) {
             if (differ) {
                 fprintf(stderr, "bt3: net: the two games differ at blank %u (this copy %016llx, the other %016llx)\n", (unsigned)was, (unsigned long long)m->value,
                         (unsigned long long)o->value);
+                {
+                    const unsigned *f = sSyncFields[k];
+                    fprintf(stderr, "bt3: net: this copy at blank %u: arrived %u mode %d first %d battle %d seq %d clock %d hp %d %d pos %08x %08x %08x / %08x %08x %08x; rollbacks %u\n",
+                            (unsigned)was, f[0], (int)f[1], (int)f[2], (int)f[3], (int)f[4], (int)f[5], (int)f[6], (int)f[7],
+                            f[8], f[9], f[10], f[11], f[12], f[13], (unsigned)sRollbacks);
+                }
                 sByeWhy = BYE_APART;
                 ended("The two games no longer agree (desync): the match has ended.", tick);
             }

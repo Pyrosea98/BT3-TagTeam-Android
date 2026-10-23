@@ -1,0 +1,54 @@
+[1mdiff --git a/port/src/gs/net.c b/port/src/gs/net.c[m
+[1mindex cdff59f..274f6c2 100644[m
+[1m--- a/port/src/gs/net.c[m
+[1m+++ b/port/src/gs/net.c[m
+[36m@@ -416,6 +416,8 @@[m [mstatic SyncNote sSyncMine[SYNC_SLOTS], sSyncTheirs[SYNC_SLOTS];[m
+ static uint32_t sSyncOutTick, sByeWhy;[m
+ static unsigned sSyncCompared; /* (for the log: notes of the two copies compared since the last line) */[m
+ static uint64_t sSyncOutValue;[m
+[32m+[m[32mstatic unsigned sSyncFields[SYNC_SLOTS][14]; /* so para log */[m
+[32m+[m[32mextern unsigned gPortNetFields[14]; /* headless.c */[m
+ extern unsigned long long Port_NetDigest(void); /* headless.c */[m
+ static void ended(const char *why, unsigned tick);[m
+ [m
+[36m@@ -425,6 +427,7 @@[m [mstatic void sync_note(uint32_t tick) {[m
+         SyncNote *m = &sSyncMine[tick / SYNC_EVERY % SYNC_SLOTS];[m
+         m->tick = tick;[m
+         m->value = Port_NetDigest();[m
+[32m+[m[32m        memcpy(sSyncFields[tick / SYNC_EVERY % SYNC_SLOTS], gPortNetFields, sizeof(sSyncFields[0]));[m
+     }[m
+ }[m
+ [m
+[36m@@ -452,6 +455,12 @@[m [mstatic void sync_check(uint32_t sure, unsigned tick) {[m
+             if (differ) {[m
+                 fprintf(stderr, "bt3: net: the two games differ at blank %u (this copy %016llx, the other %016llx)\n", (unsigned)was, (unsigned long long)m->value,[m
+                         (unsigned long long)o->value);[m
+[32m+[m[32m                {[m
+[32m+[m[32m                    const unsigned *f = sSyncFields[k];[m
+[32m+[m[32m                    fprintf(stderr, "bt3: net: this copy at blank %u: arrived %u mode %d first %d battle %d seq %d clock %d hp %d %d pos %08x %08x %08x / %08x %08x %08x; rollbacks %u\n",[m
+[32m+[m[32m                            (unsigned)was, f[0], (int)f[1], (int)f[2], (int)f[3], (int)f[4], (int)f[5], (int)f[6], (int)f[7],[m
+[32m+[m[32m                            f[8], f[9], f[10], f[11], f[12], f[13], (unsigned)sRollbacks);[m
+[32m+[m[32m                }[m
+                 sByeWhy = BYE_APART;[m
+                 ended("The two games no longer agree (desync): the match has ended.", tick);[m
+             }[m
+[1mdiff --git a/port/src/headless.c b/port/src/headless.c[m
+[1mindex 90a7fa7..18ad41d 100644[m
+[1m--- a/port/src/headless.c[m
+[1m+++ b/port/src/headless.c[m
+[36m@@ -266,6 +266,7 @@[m [mint Port_NetMenuListed(void) {[m
+    BT3_HASH logs as the fight's own without the generator: both fighters' health and position, the sequence's[m
+    state and the battle clock. (Not the whole state: each copy shows its own view, and two systems' programs keep[m
+    other addresses in the game's memory.) */[m
+[32m+[m[32munsigned gPortNetFields[14]; /* so para log */[m
+ unsigned long long Port_NetDigest(void) {[m
+     struct { unsigned arrived; int mode, first, battle, seq, clock, hp[2]; unsigned pos[2][3]; } d;[m
+     float q[4] __attribute__((aligned(16)));[m
+[36m@@ -290,6 +291,7 @@[m [munsigned long long Port_NetDigest(void) {[m
+             memcpy(d.pos[k], q, 12);[m
+         }[m
+     }[m
+[32m+[m[32m    memcpy(gPortNetFields, &d, sizeof(d) < sizeof(gPortNetFields) ? sizeof(d) : sizeof(gPortNetFields));[m
+     for (i = 0; i < sizeof(d); i++) { /* FNV-1a */[m
+         h = (h ^ b[i]) * 0x100000001B3ull;[m
+     }[m

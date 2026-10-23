@@ -266,6 +266,7 @@ int Port_NetMenuListed(void) {
    BT3_HASH logs as the fight's own without the generator: both fighters' health and position, the sequence's
    state and the battle clock. (Not the whole state: each copy shows its own view, and two systems' programs keep
    other addresses in the game's memory.) */
+unsigned gPortNetFields[14]; /* so para log */
 unsigned long long Port_NetDigest(void) {
     struct { unsigned arrived; int mode, first, battle, seq, clock, hp[2]; unsigned pos[2][3]; } d;
     float q[4] __attribute__((aligned(16)));
@@ -290,6 +291,7 @@ unsigned long long Port_NetDigest(void) {
             memcpy(d.pos[k], q, 12);
         }
     }
+    memcpy(gPortNetFields, &d, sizeof(d) < sizeof(gPortNetFields) ? sizeof(d) : sizeof(gPortNetFields));
     for (i = 0; i < sizeof(d); i++) { /* FNV-1a */
         h = (h ^ b[i]) * 0x100000001B3ull;
     }
