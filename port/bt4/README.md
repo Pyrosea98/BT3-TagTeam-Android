@@ -47,9 +47,15 @@ the code is generated for Beta 14 Rev2 only. Everything goes to `port/build/bt4/
 
 On the PC: git, cmake, ninja, make, a C/C++ compiler (the recompiler runs there) and Python 3.
 
+## Picture and speed
+
+- The mod draws 16:9 squeezed into the PlayStation 2's 4:3 frame (the community widescreen values are built into its
+  program), so the frame is shown stretched to 16:9 (`bt4_aspect`: 0 16:9, 1 4:3, 2 the whole screen; bt4_shim.c).
+- 60 fps fights (`bt4_fps60`): BT3-Recomp's mode, the fight at step 1 with its pacing table
+  (`games/bt3/fps60_sites.txt`, built into libbt4.so by CMakeLists.txt and written to `runtime/` at start), as the
+  mod's Windows and Mac builds offer it. Live from the touch menu.
+
 ## Not yet
 
-- The in-game settings window: the back key (or START + SELECT) goes back to the launcher, where the settings are.
 - Online, mods, cheats and custom drivers (the BT3 engine's).
-- GS → EE downloads are not answered (as in the browser build): the game keeps its own data there.
-- 4:3 only.
+- GS -> EE downloads are not answered (as in the browser build): the game keeps its own data there.

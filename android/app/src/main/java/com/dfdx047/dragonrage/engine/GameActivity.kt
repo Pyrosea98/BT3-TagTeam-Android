@@ -68,16 +68,25 @@ open class GameActivity : SDLActivity() {
             val lang = when (resources.configuration.locales[0].language) { "pt" -> 1; "es" -> 2; else -> 0 }
             if (es.get(EngineSettings.LANG, -1) != lang) es.set(EngineSettings.LANG, lang)
             orientation = es.get(EngineSettings.ORIENTATION, 0)
+            sustained = es.get(EngineSettings.SUSTAINED, 0) != 0
         }
         requestedOrientation = orientationFlag()
         store = TouchStore(paths.root)
         installDataList()
         super.onCreate(savedInstanceState)
         addTouchPad()
+        if (sustained) { // (Settings: steady clocks the phone can hold, where it supports them)
+            runCatching {
+                val pm = getSystemService(POWER_SERVICE) as android.os.PowerManager
+                if (pm.isSustainedPerformanceModeSupported) window.setSustainedPerformanceMode(true)
+                android.util.Log.i("bt3", "sustained performance mode: ${pm.isSustainedPerformanceModeSupported}")
+            }
+        }
     }
 
     /** The player's choice (launcher, Settings): 0 landscape, 1 portrait, 2 as the device is held. */
     private var orientation = 0
+    private var sustained = false
 
     private fun orientationFlag(): Int = when (orientation) {
         1 -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT

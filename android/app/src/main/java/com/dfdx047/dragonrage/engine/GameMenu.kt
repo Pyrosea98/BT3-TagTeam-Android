@@ -519,6 +519,15 @@ private fun VideoPage(l: L, game: Game, v: MenuValues) {
                 listOf(l.t("Screen", "Tela", "Pantalla") to 0, "4:3" to 1333, "16:10" to 1600, "16:9" to 1778, "20:9" to 2222, "21:9" to 2389),
                 v.get("aspect_milli", 0),
             ) { v.set("aspect_milli", it) }
+        } else {
+            Choice(
+                l.t("Aspect ratio", "Proporção", "Relación de aspecto"),
+                l.t("The mod draws 16:9: 16:9 shows it as made. 4:3 is the PlayStation 2's frame as it is (people look thinner). Screen stretches it to the whole screen.",
+                    "O mod desenha em 16:9: 16:9 mostra como foi feito. 4:3 é o quadro do PlayStation 2 como ele é (os personagens ficam mais finos). Tela estica para a tela toda.",
+                    "El mod dibuja en 16:9: 16:9 lo muestra como fue hecho. 4:3 es el cuadro del PlayStation 2 tal cual (los personajes se ven más delgados). Pantalla lo estira a toda la pantalla."),
+                listOf("16:9" to 0, "4:3" to 1, l.t("Screen", "Tela", "Pantalla") to 2),
+                v.get("bt4_aspect", 0),
+            ) { v.set("bt4_aspect", it) }
         }
         if (!gl) {
             Choice(
@@ -585,6 +594,14 @@ private fun PerformancePage(l: L, game: Game, v: MenuValues) {
                     "Cuadros extra entre los 30 del juego. Pesa en la GPU; la pelea no cambia."),
                 listOf(l.t("Off (30)", "Desligado (30)", "Apagado (30)") to 0, "60" to 1, "120" to 2), v.get("interp", 0),
             ) { v.set("interp", it) }
+        } else {
+            SwitchRow(
+                l.t("60 fps in fights", "60 fps nas lutas", "60 fps en las peleas"),
+                l.t("The fight runs at 60 pictures a second (BT3-Recomp's mode, as in the mod's PC build). Heavier for the CPU and GPU; menus stay at their own rate.",
+                    "A luta roda a 60 quadros por segundo (o modo do BT3-Recomp, como na versão de PC do mod). Pesa mais na CPU e na GPU; os menus ficam no ritmo deles.",
+                    "La pelea va a 60 cuadros por segundo (el modo de BT3-Recomp, como en la versión de PC del mod). Pesa más en la CPU y la GPU; los menús siguen a su ritmo."),
+                v.get("bt4_fps60", 0) != 0,
+            ) { v.set("bt4_fps60", if (it) 1 else 0) }
         }
         if (!gl) {
             Choice(

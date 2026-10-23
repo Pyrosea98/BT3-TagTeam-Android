@@ -97,18 +97,33 @@ fun SettingsScreen(vm: AppViewModel) {
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(stringResource(R.string.aspect), style = MaterialTheme.typography.titleSmall)
-            ChipRow(
-                options = listOf(
-                    stringResource(R.string.aspect_screen) to 0, "4:3" to 1333, "16:10" to 1600, "16:9" to 1778, "20:9" to 2222,
-                    "21:9" to 2389, "32:9" to 3556,
-                ),
-                selected = get(EngineSettings.ASPECT, EngineSettings.ASPECT_DEFAULT),
-                onSelect = { vm.setting(EngineSettings.ASPECT, it) },
-            )
-            Text(
-                stringResource(R.string.aspect_hint),
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            if (vm.game == com.dfdx047.dragonrage.data.Game.BT4) {
+                ChipRow(
+                    options = listOf("16:9" to 0, "4:3" to 1, stringResource(R.string.aspect_screen) to 2),
+                    selected = get(EngineSettings.BT4_ASPECT, 0),
+                    onSelect = { vm.setting(EngineSettings.BT4_ASPECT, it) },
+                )
+                Text(
+                    stringResource(R.string.bt4_aspect_hint),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                ToggleRow(stringResource(R.string.bt4_fps60), stringResource(R.string.bt4_fps60_text), get(EngineSettings.BT4_FPS60, 0) != 0) {
+                    vm.setting(EngineSettings.BT4_FPS60, if (it) 1 else 0)
+                }
+            } else {
+                ChipRow(
+                    options = listOf(
+                        stringResource(R.string.aspect_screen) to 0, "4:3" to 1333, "16:10" to 1600, "16:9" to 1778, "20:9" to 2222,
+                        "21:9" to 2389, "32:9" to 3556,
+                    ),
+                    selected = get(EngineSettings.ASPECT, EngineSettings.ASPECT_DEFAULT),
+                    onSelect = { vm.setting(EngineSettings.ASPECT, it) },
+                )
+                Text(
+                    stringResource(R.string.aspect_hint),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Text(stringResource(R.string.orientation), style = MaterialTheme.typography.titleSmall)
             ChipRow(
                 options = listOf(
@@ -199,16 +214,24 @@ fun SettingsScreen(vm: AppViewModel) {
             ToggleRow(stringResource(R.string.frame_skip), stringResource(R.string.frame_skip_text), get(EngineSettings.FRAME_SKIP, 1) != 0) {
                 vm.setting(EngineSettings.FRAME_SKIP, if (it) 1 else 0)
             }
-            Text(stringResource(R.string.fps60), style = MaterialTheme.typography.titleSmall)
-            ChipRow(
-                options = listOf(stringResource(R.string.off) to 0, "60" to 1, "120" to 2),
-                selected = get(EngineSettings.INTERP, 0).coerceIn(0, 2),
-                onSelect = { vm.setting(EngineSettings.INTERP, it) },
-            )
-            Text(
-                stringResource(R.string.fps60_text),
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            if (vm.game != com.dfdx047.dragonrage.data.Game.BT4) { // (smooth motion is the BT3 engine's)
+                Text(stringResource(R.string.fps60), style = MaterialTheme.typography.titleSmall)
+                ChipRow(
+                    options = listOf(stringResource(R.string.off) to 0, "60" to 1, "120" to 2),
+                    selected = get(EngineSettings.INTERP, 0).coerceIn(0, 2),
+                    onSelect = { vm.setting(EngineSettings.INTERP, it) },
+                )
+                Text(
+                    stringResource(R.string.fps60_text),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            ToggleRow(stringResource(R.string.adpf), stringResource(R.string.adpf_text), get(EngineSettings.ADPF, 1) != 0) {
+                vm.setting(EngineSettings.ADPF, if (it) 1 else 0)
+            }
+            ToggleRow(stringResource(R.string.sustained), stringResource(R.string.sustained_text), get(EngineSettings.SUSTAINED, 0) != 0) {
+                vm.setting(EngineSettings.SUSTAINED, if (it) 1 else 0)
+            }
             Text(stringResource(R.string.present_mode), style = MaterialTheme.typography.titleSmall)
             ChipRow(
                 options = listOf(

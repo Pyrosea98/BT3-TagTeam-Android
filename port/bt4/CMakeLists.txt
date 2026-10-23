@@ -87,12 +87,12 @@ target_compile_options(ps2_runtime PRIVATE -O3 ${PS2X_NUMERIC} $<$<COMPILE_LANGU
 set(GS "${DR}/port/src/gs")
 file(GLOB ASTCENC_SRC "${DR}/port/third_party/astcenc/*.cpp")
 add_library(drgs STATIC
-    ${GS}/gs_core.c ${GS}/gs_draw.c ${GS}/gs_gpu.c ${GS}/gs_gl.c ${GS}/gs_vu1.c ${GS}/gs_texpack.c ${GS}/gs_input.c
+    ${GS}/gs_core.c ${GS}/gs_draw.c ${GS}/gs_gpu.c ${GS}/gs_gl.c ${GS}/gs_vu1.c ${GS}/gs_texpack.c ${GS}/gs_input.c ${GS}/gs_adpf.c
     ${DR}/port/src/plat_settings.c ${HOST}/bt4_shim.c ${GS}/gs_astc.cpp ${ASTCENC_SRC})
 target_include_directories(drgs PRIVATE "${GS}" "${DRGEN}" "${DR}/port/src" "${SDL3}/include")
 target_compile_definitions(drgs PRIVATE BT3_ANDROID=1)
 set_source_files_properties(${GS}/gs_core.c ${GS}/gs_draw.c ${GS}/gs_gpu.c ${GS}/gs_gl.c ${GS}/gs_vu1.c ${GS}/gs_texpack.c
-    ${GS}/gs_input.c ${DR}/port/src/plat_settings.c ${HOST}/bt4_shim.c PROPERTIES COMPILE_OPTIONS "-std=gnu99;-O2;-fno-strict-aliasing;-w")
+    ${GS}/gs_input.c ${GS}/gs_adpf.c ${DR}/port/src/plat_settings.c ${HOST}/bt4_shim.c PROPERTIES COMPILE_OPTIONS "-std=gnu99;-O2;-fno-strict-aliasing;-w")
 set_source_files_properties(${GS}/gs_astc.cpp PROPERTIES COMPILE_OPTIONS "-std=c++17;-O2;-fno-exceptions;-fno-rtti;-w")
 set_source_files_properties(${ASTCENC_SRC} PROPERTIES COMPILE_OPTIONS
     "-std=c++17;-O2;-w;-DASTCENC_NEON=1;-DASTCENC_SSE=0;-DASTCENC_AVX=0;-DASTCENC_POPCNT=0;-DASTCENC_F16C=0;-DASTCENC_SVE=0")
@@ -109,7 +109,13 @@ add_library(bt4 SHARED
     ${RUNNER_SRC_FILES} ${RUNNER_OVERLAY_SRC_FILES} ${IOP_NATIVE_SRC_FILES}
     ${RT}/src/main.cpp ${RT}/src/lib/ps2_settings_overlay.cpp ${RT}/src/gfx/ps2x_ui.cpp
     ${HOST}/bt4_main.cpp)
-target_include_directories(bt4 PRIVATE "${RT}/src/lib" "${SDL3}/include")
+# BT3-Recomp's pacing table of the 60 fps fights, built into the library (bt4_main.cpp writes it out for the runtime)
+set(FPS60_SITES "${BT3R}/games/bt3/fps60_sites.txt")
+file(READ "${FPS60_SITES}" _fps60)
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/gen/fps60_sites.inc.new" "R\"fps60(${_fps60})fps60\"\n")
+file(COPY_FILE "${CMAKE_CURRENT_BINARY_DIR}/gen/fps60_sites.inc.new" "${CMAKE_CURRENT_BINARY_DIR}/gen/fps60_sites.inc" ONLY_IF_DIFFERENT)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${FPS60_SITES}")
+target_include_directories(bt4 PRIVATE "${RT}/src/lib" "${SDL3}/include" "${CMAKE_CURRENT_BINARY_DIR}/gen")
 set_source_files_properties(${RT}/src/main.cpp PROPERTIES COMPILE_DEFINITIONS "main=ps2x_runtime_main")
 set(PS2X_RUNNER_OPT "-O2" CACHE STRING "Optimisation of the generated game code")
 target_compile_options(bt4 PRIVATE ${PS2X_RUNNER_OPT} ${PS2X_NUMERIC} $<$<COMPILE_LANGUAGE:C,CXX>:-include${HOST}/android_compat.h>)

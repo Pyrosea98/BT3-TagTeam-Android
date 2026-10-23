@@ -47,6 +47,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dfdx047.dragonrage.AppViewModel
 import com.dfdx047.dragonrage.R
 import com.dfdx047.dragonrage.data.DriverSource
+import com.dfdx047.dragonrage.data.isAdreno
+import com.dfdx047.dragonrage.data.isMaliSx2Gpu
 import com.dfdx047.dragonrage.data.formatBytes
 import com.dfdx047.dragonrage.ui.components.ScreenTitle
 import com.dfdx047.dragonrage.ui.components.SectionCard
@@ -63,8 +65,9 @@ fun DriversScreen(vm: AppViewModel) {
     val gpu by vm.gpuName.collectAsStateWithLifecycle()
     val lists by vm.driverLists.collectAsStateWithLifecycle()
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { vm.importDriver(it) } }
+    val sources = remember(gpu) { DriverSource.forGpu(gpu).ifEmpty { DriverSource.entries.toList() } }
     var sourceIndex by rememberSaveable { mutableIntStateOf(0) }
-    val source = DriverSource.entries[sourceIndex]
+    val source = sources[sourceIndex.coerceIn(0, sources.size - 1)]
     var confirmDelete by remember { mutableStateOf<com.dfdx047.dragonrage.data.GpuDriver?>(null) }
     val uri = LocalUriHandler.current
 
@@ -76,7 +79,14 @@ fun DriversScreen(vm: AppViewModel) {
     ) {
         ScreenTitle(stringResource(R.string.nav_drivers), stringResource(R.string.drivers_sub))
 
-        if (gpu.isNotEmpty() && !gpu.contains("Adreno", ignoreCase = true)) {
+        if (gpu.isNotEmpty() && isMaliSx2Gpu(gpu)) {
+            SectionCard(stringResource(R.string.drivers_malisx2_title), Icons.Rounded.DeveloperBoard, accent = Dbz.SaiyanGold) {
+                Text(
+                    stringResource(R.string.drivers_malisx2, gpu),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else if (gpu.isNotEmpty() && !isAdreno(gpu)) {
             SectionCard(stringResource(R.string.drivers_not_adreno_title), Icons.Rounded.Warning, accent = MaterialTheme.colorScheme.error) {
                 Text(
                     stringResource(R.string.drivers_not_adreno, gpu),
@@ -111,12 +121,12 @@ fun DriversScreen(vm: AppViewModel) {
         SectionCard(stringResource(R.string.drivers_download), Icons.Rounded.CloudDownload, accent = Dbz.SaiyanGold) {
             Text(stringResource(R.string.drivers_download_text), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             ChipRow(
-                options = DriverSource.entries.map { it.label to it.ordinal },
+                options = sources.mapIndexed { i, it -> it.label to i },
                 selected = sourceIndex,
                 onSelect = { sourceIndex = it },
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(source.repo, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                Text(if (source.experimental) source.repo + " · " + stringResource(R.string.drivers_experimental) else source.repo, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
                 IconButton(onClick = { vm.loadDrivers(source, again = true) }) { Icon(Icons.Rounded.Refresh, stringResource(R.string.drivers_refresh)) }
                 IconButton(onClick = { runCatching { uri.openUri(source.page) } }) { Icon(Icons.AutoMirrored.Rounded.OpenInNew, stringResource(R.string.drivers_open_page)) }
             }

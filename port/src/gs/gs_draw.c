@@ -136,7 +136,23 @@ extern void GsAstc_Queue(const char *src);
 #endif
 /* and how much GPU memory they may take: a texture pack's replacements can be megabytes each */
 #ifdef __ANDROID__
-#define TEX_BYTES_CAP (768ull << 20)
+/* scaled by the phone's memory (as ARMSX2 sizes its texture pools by the GPU: the GPU's memory is the phone's): 384 MB
+   up to 4 GB of RAM, 512 MB up to 6 GB, 768 MB above (what every phone had before). BT3_TEX_MB=<n> for a test. */
+#include <unistd.h>
+static unsigned long long tex_bytes_cap(void) {
+    static unsigned long long cap;
+    if (cap == 0) {
+        long pages = sysconf(_SC_PHYS_PAGES), size = sysconf(_SC_PAGESIZE);
+        unsigned long long ram = pages > 0 && size > 0 ? (unsigned long long)pages * (unsigned long long)size : 0;
+        cap = ram == 0 ? (768ull << 20) : ram <= (4500ull << 20) ? (384ull << 20) : ram <= (6500ull << 20) ? (512ull << 20) : (768ull << 20);
+        if (getenv("BT3_TEX_MB") != NULL && atoi(getenv("BT3_TEX_MB")) > 0) {
+            cap = (unsigned long long)atoi(getenv("BT3_TEX_MB")) << 20;
+        }
+        fprintf(stderr, "bt3: texture cache: up to %llu MB (%llu MB of memory)\n", cap >> 20, ram >> 20);
+    }
+    return cap;
+}
+#define TEX_BYTES_CAP tex_bytes_cap()
 #else
 #define TEX_BYTES_CAP (6ull << 30)
 #endif

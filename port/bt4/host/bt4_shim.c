@@ -35,12 +35,36 @@ int Port_LateInput(void) { return 0; }
 int Port_DataState(void) { return 0; }
 void Port_AudioRefresh(void) {}
 
-/* ---- the picture's shape: 4:3, as the mod draws it */
-static int sAspect = 1333;
-int Port_AspectMilli(void) { return sAspect; }
+/* ---- the picture's shape. The mod draws 16:9 squeezed into the PlayStation 2's 4:3 frame (the community widescreen
+   values are built into its program: the 16:9 FOV, BT3-Recomp's bt4mod-widescreen notes), as Team BT4's PCSX2
+   profile shows it. So the frame is shown stretched to 16:9 by default; "bt4_aspect" (bt3_settings.txt):
+   0 16:9, 1 4:3 (the frame as it is, people look thinner), 2 the whole screen (stretched further). Only the
+   presentation changes: the game draws the same picture. */
+static int sAspect = 0;
+static int screen_milli(void) {
+    int count = 0, milli = 1778;
+    SDL_DisplayID *d = SDL_GetDisplays(&count);
+    SDL_Rect r;
+    if (d != NULL && count > 0 && SDL_GetDisplayBounds(d[0], &r) && r.w > 0 && r.h > 0) {
+        int big = r.w > r.h ? r.w : r.h, small = r.w > r.h ? r.h : r.w;
+        milli = big * 1000 / small;
+    }
+    SDL_free(d);
+    return milli;
+}
+int Bt4_AspectMode(void) { return Port_Setting("bt4_aspect", 0); }
+void Bt4_AspectSet(int mode) {
+    sAspect = mode == 1 ? 1333 : mode == 2 ? screen_milli() : 1778;
+}
+int Port_AspectMilli(void) {
+    if (sAspect == 0) {
+        Bt4_AspectSet(Bt4_AspectMode());
+    }
+    return sAspect;
+}
 void Port_SetAspectMilli(int milli) { (void)milli; }
-int Port_IsWide(void) { return 0; }
-int Port_PageAspectMilli(void) { return sAspect; }
+int Port_IsWide(void) { return 0; } /* (BT3's native widening of the scene and its 2D: the mod does its own) */
+int Port_PageAspectMilli(void) { return Port_AspectMilli(); }
 
 /* ---- online (the BT3 engine's): none here */
 int Port_NetActive(void) { return 0; }

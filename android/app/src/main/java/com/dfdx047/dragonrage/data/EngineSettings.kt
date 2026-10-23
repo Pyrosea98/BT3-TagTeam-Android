@@ -67,6 +67,10 @@ class EngineSettings(private val file: File) {
         // Dragon Rage's own, read by the Android glue of the engine at start
         const val UNLOCK_ALL = "dr_unlock_all"    // 1: run Save_UnlockAll once on the next start, then 0
         const val FPS60 = "dr_fps60"              // reserved for the 60 fps mode
+        const val ADPF = "adpf"                   // the system's performance hints (Android 13+): 1 on (default), 0 off
+        const val SUSTAINED = "dr_sustained"      // Android's sustained performance mode for the game's window: 1 on
+        const val BT4_ASPECT = "bt4_aspect"       // Budokai Tenkaichi 4: 0 16:9 (the mod's own), 1 4:3, 2 the whole screen
+        const val BT4_FPS60 = "bt4_fps60"         // Budokai Tenkaichi 4: 60 fps fights (BT3-Recomp's mode)
         const val INTERP = "interp"               // smooth motion: 0 off, 1 60, 2 120, 3 240 pictures a second (the engine's)
         const val PRESENT = "present"             // present mode: 0 automatic, 1 vsync (FIFO), 2 mailbox, 3 immediate
         const val GPU_API = "gpu_api"             // the engine's renderer: 0 Vulkan, 1 OpenGL ES 3.2 (written from RENDERER)

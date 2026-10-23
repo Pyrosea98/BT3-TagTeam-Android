@@ -532,21 +532,118 @@ static void apply_masks(uint32_t wmask) {
 #define GL_MAP_WRITE_BIT 0x0002
 #define GL_MAP_INVALIDATE_RANGE_BIT 0x0004
 #define GL_MAP_UNSYNCHRONIZED_BIT 0x0020
+#define GL_MAP_PERSISTENT_BIT_EXT 0x0040
+#define GL_MAP_COHERENT_BIT_EXT 0x0080
+#define GL_SYNC_GPU_COMMANDS_COMPLETE 0x9117
+#define GL_SYNC_FLUSH_COMMANDS_BIT 0x00000001
+#define GL_WAIT_FAILED 0x911D
 #define GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT 0x8A34
 static GLint sUboAlign = 256;
 static GLintptr sUboOff[2];
+
+/* The same, on drivers whose unsynchronized maps are slow or broken (ARMSX2's GPU driver table: every Mali OpenGL ES
+   driver, "buffer streaming / unsynchronized mapping"): one buffer per block kind, mapped ONCE for good
+   (EXT_buffer_storage, persistent and coherent) and written in order like a ring. It is cut into UBO_SEGS pieces;
+   a fence goes in when the writing leaves a piece, and a piece is written again only after its fence has passed, so
+   the GPU never reads a byte that is being overwritten. No map, unmap or orphan per draw. Setting "gl_persist":
+   0 automatic (Mali with EXT_buffer_storage), 1 always where the extension is, 2 never; BT3_GL_PERSIST=0/1. */
+#define UBO_SEGS 8
+#define UBO_SEG (1 << 20)
+typedef struct __GLsync *GLsync_;
+static void (*glBufferStorageEXT_)(GLenum, GLsizeiptr, const void *, GLbitfield);
+static GLsync_ (*glFenceSync_)(GLenum, GLbitfield);
+static GLenum (*glClientWaitSync_)(GLsync_, GLbitfield, uint64_t);
+static void (*glDeleteSync_)(GLsync_);
+static struct { uint8_t *ptr; int seg; GLintptr off; GLsync_ fence[UBO_SEGS]; } sPer[2];
+static int sPersist;
+static unsigned sPersistWaits;
+
+static void ubo_persist_init(GLuint bufU, GLuint bufP) {
+    const char *r = (const char *)glGetString(GL_RENDERER);
+    const char *e = getenv("BT3_GL_PERSIST");
+    int want = Port_Setting("gl_persist", 0), mali = r != NULL && (strstr(r, "Mali") != NULL || strstr(r, "Immortalis") != NULL);
+    int on = e != NULL ? atoi(e) != 0 : want == 1 ? 1 : want == 2 ? 0 : mali;
+    GLuint bufs[2] = {bufU, bufP};
+    int k;
+    sPersist = 0;
+    if (!on || !SDL_GL_ExtensionSupported("GL_EXT_buffer_storage")) {
+        fprintf(stderr, "bt3: gl: uniform blocks: orphaned per frame%s\n", on ? " (no EXT_buffer_storage)" : "");
+        return;
+    }
+    glBufferStorageEXT_ = (void (*)(GLenum, GLsizeiptr, const void *, GLbitfield))SDL_GL_GetProcAddress("glBufferStorageEXT");
+    glFenceSync_ = (GLsync_ (*)(GLenum, GLbitfield))SDL_GL_GetProcAddress("glFenceSync");
+    glClientWaitSync_ = (GLenum (*)(GLsync_, GLbitfield, uint64_t))SDL_GL_GetProcAddress("glClientWaitSync");
+    glDeleteSync_ = (void (*)(GLsync_))SDL_GL_GetProcAddress("glDeleteSync");
+    if (glBufferStorageEXT_ == NULL || glFenceSync_ == NULL || glClientWaitSync_ == NULL || glDeleteSync_ == NULL) {
+        fprintf(stderr, "bt3: gl: uniform blocks: orphaned per frame (EXT_buffer_storage without its functions)\n");
+        return;
+    }
+    while (glGetError() != 0) {} /* (errors left from before are not this one's) */
+    for (k = 0; k < 2; k++) {
+        /* (a buffer given its storage this way can never be given another: these two are made fresh for it) */
+        glGenBuffers(1, &bufs[k]);
+        glBindBuffer(GL_UNIFORM_BUFFER, bufs[k]);
+        glBufferStorageEXT_(GL_UNIFORM_BUFFER, (GLsizeiptr)UBO_SEGS * UBO_SEG, NULL, GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT_EXT | GL_MAP_COHERENT_BIT_EXT);
+        sPer[k].ptr = (uint8_t *)glMapBufferRange(GL_UNIFORM_BUFFER, 0, (GLsizeiptr)UBO_SEGS * UBO_SEG,
+                                                  GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT_EXT | GL_MAP_COHERENT_BIT_EXT);
+        sPer[k].seg = 0;
+        sPer[k].off = 0;
+        memset(sPer[k].fence, 0, sizeof(sPer[k].fence));
+        if (sPer[k].ptr == NULL || glGetError() != 0) {
+            fprintf(stderr, "bt3: gl: uniform blocks: the persistent buffer could not be made: orphaned per frame\n");
+            sPer[0].ptr = sPer[1].ptr = NULL;
+            while (glGetError() != 0) {}
+            return;
+        }
+    }
+    sUboU = bufs[0];
+    sUboParams = bufs[1];
+    glBindBufferBase(GL_UNIFORM_BUFFER, 0, sUboU);
+    glBindBufferBase(GL_UNIFORM_BUFFER, 1, sUboParams);
+    sPersist = 1;
+    fprintf(stderr, "bt3: gl: uniform blocks: persistent ring (EXT_buffer_storage, %d x %d KB)\n", UBO_SEGS, UBO_SEG >> 10);
+}
+
 static void ubo_orphan(GLuint buf) {
     glBindBuffer(GL_UNIFORM_BUFFER, buf);
     glBufferData(GL_UNIFORM_BUFFER, UBO_RING, NULL, GL_STREAM_DRAW);
 }
 static void ubo_frame(void) {
+    if (sPersist) {
+        return; /* (the ring's fences keep what the GPU reads; nothing to do at a frame's start) */
+    }
     ubo_orphan(sUboU);
     ubo_orphan(sUboParams);
     sUboOff[0] = sUboOff[1] = 0;
 }
+static void ubo_put_persist(int which, GLuint buf, GLuint binding, const void *p, size_t n, size_t block) {
+    GLintptr off = (sPer[which].off + sUboAlign - 1) / sUboAlign * sUboAlign;
+    int s = sPer[which].seg;
+    if (off + (GLintptr)block > UBO_SEG) { /* this piece is full: fence it, go on to the next once the GPU is done with it */
+        sPer[which].fence[s] = glFenceSync_(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+        s = (s + 1) % UBO_SEGS;
+        if (sPer[which].fence[s] != NULL) {
+            if (glClientWaitSync_(sPer[which].fence[s], GL_SYNC_FLUSH_COMMANDS_BIT, 2000000000ull) == GL_WAIT_FAILED) {
+                fprintf(stderr, "bt3: gl: uniform ring: a fence failed\n");
+            }
+            glDeleteSync_(sPer[which].fence[s]);
+            sPer[which].fence[s] = NULL;
+            sPersistWaits++;
+        }
+        sPer[which].seg = s;
+        off = 0;
+    }
+    memcpy(sPer[which].ptr + (GLintptr)s * UBO_SEG + off, p, n);
+    glBindBufferRange(GL_UNIFORM_BUFFER, binding, buf, (GLintptr)s * UBO_SEG + off, (GLsizeiptr)block);
+    sPer[which].off = off + (GLintptr)block;
+}
 static void ubo_put(int which, GLuint buf, GLuint binding, const void *p, size_t n, size_t block) {
     GLintptr off = (sUboOff[which] + sUboAlign - 1) / sUboAlign * sUboAlign;
     void *m;
+    if (sPersist) {
+        ubo_put_persist(which, buf, binding, p, n, block);
+        return;
+    }
     if (off + (GLintptr)block > UBO_RING) {
         ubo_orphan(buf);
         off = 0;
@@ -882,6 +979,7 @@ static int gl_init(void) {
     glBufferData(GL_UNIFORM_BUFFER, 80, NULL, GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_UNIFORM_BUFFER, 1, sUboParams);
 #if GL_ES
+    ubo_persist_init(sUboU, sUboParams);
     ubo_frame();
 #endif
 

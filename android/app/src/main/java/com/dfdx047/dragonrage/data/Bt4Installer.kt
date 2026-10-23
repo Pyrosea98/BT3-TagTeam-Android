@@ -42,21 +42,35 @@ class Bt4Installer(
 
     suspend fun install(uri: Uri, report: (InstallState.Working) -> Unit): InstallState.Installed = withContext(Dispatchers.IO) {
         report(InstallState.Working(context.getString(R.string.step_checking), 0f, context.getString(R.string.detail_finding)))
+        // the right to open the image again is asked first: without it the game could not read the disc later, and a
+        // refusal after minutes of copying looked like the import had broken
+        val persisted = runCatching { resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        persisted.exceptionOrNull()?.let { ActivityLog.warn("iso", "bt4: no lasting permission for the image: $it") }
+        if (persisted.isFailure && resolver.persistedUriPermissions.none { it.uri == uri && it.isReadPermission }) {
+            throw GameDataInstaller.Stop(context.getString(R.string.bt4_err_permission))
+        }
         val pfd = resolver.openFileDescriptor(uri, "r") ?: throw GameDataInstaller.Stop(context.getString(R.string.err_open_file))
         var files = 0
         var bytes = 0L
         pfd.use {
             val channel = FileInputStream(pfd.fileDescriptor).channel
+            ActivityLog.info("iso", "bt4: image of ${runCatching { channel.size() }.getOrDefault(-1L) shr 20} MB")
             val iso = try {
                 IsoImage(channel)
             } catch (e: IOException) {
                 throw GameDataInstaller.Stop(GameDataInstaller.notIsoMessage(context, channel))
             }
             iso.use {
-                val elf = iso.find(ELF) ?: throw GameDataInstaller.Stop(context.getString(R.string.bt4_err_not_bt4))
+                val elf = iso.find(ELF)
+                if (elf == null) {
+                    ActivityLog.warn("iso", "bt4: no $ELF; top of the image: " + iso.files.map { it.path.substringBefore('/') }.distinct().take(20))
+                    throw GameDataInstaller.Stop(context.getString(R.string.bt4_err_not_bt4))
+                }
                 val data = iso.read(elf.offset, elf.size.toInt())
-                if (sha256(data) != ELF_SHA256) throw GameDataInstaller.Stop(context.getString(R.string.bt4_err_version))
-                report(InstallState.Working(context.getString(R.string.step_extracting), 0.5f, ELF))
+                val hash = sha256(data)
+                ActivityLog.info("iso", "bt4: $ELF ${data.size} bytes, SHA-256 $hash")
+                if (hash != ELF_SHA256) throw GameDataInstaller.Stop(context.getString(R.string.bt4_err_version))
+                report(InstallState.Working(context.getString(R.string.step_extracting), 0.1f, ELF))
                 paths.runtimeData.deleteRecursively()
                 paths.runtimeData.mkdirs()
                 // (the runner is started with SLUS_216.78, the name BT3-Recomp's tables know; both names, as on Windows)
@@ -64,25 +78,43 @@ class Bt4Installer(
                 File(paths.runtimeData, ELF).writeBytes(data)
                 files += 2
                 bytes += 2L * data.size
-                for (e in iso.files) {
+                val keep = iso.files.filter { e ->
                     val top = e.path.substringBefore('/')
-                    val keep = e.path.equals("SYSTEM.CNF", ignoreCase = true) ||
+                    e.path.equals("SYSTEM.CNF", ignoreCase = true) ||
                         ((top.equals("IRX", true) || top.equals("BIN", true)) && e.path.contains('/') && e.size < (64L shl 20))
-                    if (!keep) continue
+                }
+                val total = keep.sumOf { it.size }.coerceAtLeast(1L)
+                var done = 0L
+                val buf = java.nio.ByteBuffer.allocate(1 shl 20)
+                for (e in keep) {
+                    report(InstallState.Working(context.getString(R.string.step_extracting), 0.1f + 0.9f * done / total, e.path))
                     val out = File(paths.runtimeData, e.path)
                     out.parentFile?.mkdirs()
-                    out.writeBytes(iso.read(e.offset, e.size.toInt()))
+                    // in pieces of 1 MB: a whole 60 MB file in memory at once failed on phones with a small app heap
+                    java.io.FileOutputStream(out).use { os ->
+                        var at = 0L
+                        while (at < e.size) {
+                            buf.clear()
+                            buf.limit(minOf(buf.capacity().toLong(), e.size - at).toInt())
+                            iso.readInto(e.offset + at, buf)
+                            os.write(buf.array(), 0, buf.limit())
+                            at += buf.limit()
+                        }
+                    }
                     files++
                     bytes += e.size
+                    done += e.size
+                }
+                if (!File(paths.runtimeData, "BIN/DBZP.BIN").exists() && !File(paths.runtimeData, "bin/DBZP.BIN").exists()) {
+                    ActivityLog.warn("iso", "bt4: BIN/DBZP.BIN was not copied (" + keep.map { it.path } + ")")
                 }
             }
         }
-        // the image itself is read in place every time the game starts: keep the right to open it
-        runCatching { resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-            .onFailure { throw GameDataInstaller.Stop(context.getString(R.string.bt4_err_permission)) }
+        paths.isoUri.parentFile?.mkdirs()
         paths.isoUri.writeText(uri.toString() + "\n")
         paths.installedMarker.parentFile?.mkdirs()
         paths.installedMarker.writeText("files=$files\nbytes=$bytes\ngame=bt4\n")
+        ActivityLog.info("iso", "bt4: $files files copied, the image stays at $uri")
         InstallState.Installed(files, bytes)
     }
 

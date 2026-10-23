@@ -48,7 +48,17 @@ void GsGpu_PresentSet(int mode);
 extern int gGsFragDepth;                                       /* gs_draw.c */
 void Port_SettingSave(const char *name, int value);
 void Port_SettingsWrite(void);
+int Bt4_AspectMode(void);                                      /* bt4_shim.c: bt4_aspect, 0 16:9, 1 4:3, 2 the screen */
+void Bt4_AspectSet(int mode);
+void GsAdpf_Frame(uint64_t workNs, uint64_t targetNs);         /* gs_adpf.c: the system's performance hints */
 }
+void ps2Set60Fps(bool on, const char *sitesPath);              /* BT3-Recomp (ps2_stepcensus.cpp): 60 fps fights */
+
+// BT3-Recomp's pacing table of the 60 fps fights (games/bt3/fps60_sites.txt, which the mod keeps: it has the USA
+// layout), built into this library by CMakeLists.txt and written to the game folder for the runtime to load.
+static const char kFps60Sites[] =
+#include "fps60_sites.inc"
+    ;
 #include "../../src/gs/ui.h"                                   /* PortVideo, GsGpu_GetSettings / GsGpu_SetSettings */
 
 int ps2x_runtime_main(int argc, char *argv[]); // the runtime's main() (src/main.cpp, renamed by the build)
@@ -280,6 +290,32 @@ std::map<std::string, int> g_menuSnap;
 int g_menuGen = 0;
 std::string g_gpuName;
 int g_gl = 0;
+std::string g_fps60Path;
+
+// 60 fps in fights (bt4_fps60): BT3-Recomp's mode (the fight at step 1 with its pacing table), as the mod's Windows and
+// Mac builds offer it. The table is written next to the game's data on every start (it comes with this library).
+void fps60Prepare()
+{
+    g_fps60Path = g_root + "/runtime/fps60_sites.txt";
+    FILE *f = std::fopen(g_fps60Path.c_str(), "wb");
+    if (f)
+    {
+        std::fwrite(kFps60Sites, 1, sizeof(kFps60Sites) - 1, f);
+        std::fclose(f);
+    }
+    else
+        std::fprintf(stderr, "bt4: %s cannot be written: %s\n", g_fps60Path.c_str(), std::strerror(errno));
+    const bool on = Port_Setting("bt4_fps60", 0) != 0;
+    // on: the table is loaded at the runtime's start (PS2X_HALFSTEP names it) and the runtime's own start applies the
+    // mode (PS2X_FPS60, ps2_settings_overlay.cpp). Off: nothing loaded, the game exactly as before; the menu can still
+    // turn it on later (ps2Set60Fps with the table's path).
+    if (on)
+        setenv("PS2X_HALFSTEP", g_fps60Path.c_str(), 1);
+    else
+        unsetenv("PS2X_HALFSTEP");
+    setenv("PS2X_FPS60", on ? "1" : "0", 1);
+    std::fprintf(stderr, "bt4: fights at %d fps\n", on ? 60 : 30);
+}
 
 void menuSnapshot()
 {
@@ -298,6 +334,8 @@ void menuSnapshot()
     g_menuSnap["present"] = g_gl ? 0 : GsGpu_PresentGet();
     g_menuSnap["fx_off"] = v.fxOff;
     g_menuSnap["glow"] = v.glow;
+    g_menuSnap["bt4_aspect"] = Bt4_AspectMode();
+    g_menuSnap["bt4_fps60"] = Port_Setting("bt4_fps60", 0);
     g_menuGen++;
 }
 
@@ -323,6 +361,19 @@ void menuApply(const std::string &key, int value)
         gGsFragDepth = value != 0;
         Port_SettingSave("frag_depth", gGsFragDepth);
         Port_SettingsWrite();
+    }
+    else if (key == "bt4_aspect")
+    {
+        Port_SettingSave("bt4_aspect", value);
+        Port_SettingsWrite();
+        Bt4_AspectSet(value);
+    }
+    else if (key == "bt4_fps60")
+    {
+        Port_SettingSave("bt4_fps60", value ? 1 : 0);
+        Port_SettingsWrite();
+        ps2Set60Fps(value != 0, g_fps60Path.c_str()); // (the runtime switches at its next frame)
+        std::fprintf(stderr, "bt4: fights at %d fps (from the menu)\n", value ? 60 : 30);
     }
     else if (key == "present" && !g_gl)
     {
@@ -528,6 +579,8 @@ extern "C" __attribute__((visibility("default"))) int SDL_main(int argc, char *a
     static std::string settingsPath = g_root + "/bt3_settings.txt";
     setenv("BT3_SETTINGS", settingsPath.c_str(), 1);
 
+    fps60Prepare();
+
     // Dragon Rage's GS: its window and renderer (Vulkan or OpenGL ES, the launcher's choice), on this thread
     setenv("BT3_GS", "gpu", 1);
     Port_GsGifChannel(0, 0, 0);
@@ -551,6 +604,8 @@ extern "C" __attribute__((visibility("default"))) int SDL_main(int argc, char *a
     Reader r;
     auto lastPump = std::chrono::steady_clock::now();
     auto lastStat = lastPump;
+    auto lastFrame = lastPump;
+    uint64_t waitedNs = 0; // (this thread's waiting for the game's data since the last picture: not work)
     while (!g_quit)
     {
         ps2live::RingHeader *ring = g_ring.load();
@@ -586,6 +641,12 @@ extern "C" __attribute__((visibility("default"))) int SDL_main(int argc, char *a
             sendPad(ring);
             r.frames++;
             lastPump = std::chrono::steady_clock::now();
+            {   // the performance hints: this picture's work (the time since the last one, less the waiting)
+                const uint64_t span = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(lastPump - lastFrame).count());
+                GsAdpf_Frame(span > waitedNs ? span - waitedNs : 0, 16683350ull);
+                lastFrame = lastPump;
+                waitedNs = 0;
+            }
             if (lastPump - lastStat > std::chrono::seconds(10))
             {
                 std::fprintf(stderr, "bt4: %llu pictures, %llu transfers, %.1f MB of GS data in the last 10 s\n",
@@ -606,7 +667,11 @@ extern "C" __attribute__((visibility("default"))) int SDL_main(int argc, char *a
         ring->consumerWaiting = 1u;
         __atomic_thread_fence(__ATOMIC_SEQ_CST);
         if (r.available() == 0)
+        {
+            const auto w0 = std::chrono::steady_clock::now();
             ps2live::eventWait(&ps2live::ringEvents(ring)->data, 5);
+            waitedNs += static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - w0).count());
+        }
         ring->consumerWaiting = 0u;
     }
     std::fprintf(stderr, "bt4: leaving\n");

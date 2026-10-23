@@ -1323,6 +1323,10 @@ void Port_GsVif1Chain(uint32_t tadr, int tte) {
         uint64_t waited = (uint64_t)gPortSleptNs;
         uint64_t work = t - start > waited ? t - start - waited : 0; /* without the waiting for the vertical blank */
         gPortSleptNs = 0;
+        {   /* the system's performance hints (gs_adpf.c): this frame's work against the game's 30 a second */
+            extern void GsAdpf_Frame(uint64_t workNs, uint64_t targetNs);
+            GsAdpf_Frame(work, 33366700ull);
+        }
         {   /* a frame over budget: where the time went and what was created in it */
             extern unsigned gGpuNewTex, gGpuNewTexPixels, gGpuNewPipes;
             extern uint64_t gGpuTexNs, gGpuPipeNs, gGpuEndNs;
