@@ -310,6 +310,12 @@ __attribute__((visibility("default"))) void Bt4Gsx_SurfaceDestroyed(void)
 	});
 }
 
+// The memory page size this core was built for: it refuses to start on another (VMManager's hardware checks).
+__attribute__((visibility("default"))) int Bt4Gsx_PageSize(void)
+{
+	return static_cast<int>(__pagesize);
+}
+
 __attribute__((visibility("default"))) void Bt4Gsx_Hold(int hold)
 {
 	s_hold = hold != 0;

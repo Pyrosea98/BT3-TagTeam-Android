@@ -531,6 +531,16 @@ bool runArmsx2()
         std::fprintf(stderr, "bt4: libbt4gsx.so is not the expected one: Dragon Rage's renderer is used\n");
         return false;
     }
+    {   // the core is built for one memory page size and does not start on another
+        auto pageSize = reinterpret_cast<int (*)(void)>(dlsym(h, "Bt4Gsx_PageSize"));
+        const long here = sysconf(_SC_PAGESIZE);
+        if (!pageSize || pageSize() != here)
+        {
+            std::fprintf(stderr, "bt4: ARMSX2's renderer is built for %d-byte memory pages, this device has %ld: Dragon Rage's renderer is used\n",
+                         pageSize ? pageSize() : 0, here);
+            return false;
+        }
+    }
     const std::string root = g_root + "/gsx";
     if (access((root + "/resources/shaders").c_str(), R_OK) != 0)
     {
@@ -627,6 +637,12 @@ bool runArmsx2()
     g.stop();
     if (gs.joinable())
         gs.join();
+    if (ended && !g_quit)
+    {
+        std::fprintf(stderr, "bt4: ARMSX2's renderer stopped (see the lines above): choose Dragon Rage's in the settings\n");
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Budokai Tenkaichi 4",
+                                 "ARMSX2's renderer stopped (the log says why). Choose the Dragon Rage renderer in the settings.", nullptr);
+    }
     return true;
 }
 } // namespace

@@ -198,6 +198,8 @@ def armsx2():
     # The core's Android build, configured as a Linux aarch64 build with this toolchain, then told it is Android
     # (CMAKE_PROJECT_INCLUDE: after every project(), LINUX off and ANDROID on) - the NDK's own CMake files are not
     # in the toolchain android.py makes. libwebp wants the NDK's cpu-features: a small one is in gsx/ndk.
+    # The core is built for one memory page size and refuses to start on another ("Page size mismatch"): 4 KB, what
+    # phones use (ARMSX2 ships a 4 KB and a 16 KB core); on a 16 KB device the game keeps Dragon Rage's renderer.
     out = WORK / "armsx2-build"
     out.mkdir(parents=True, exist_ok=True)
     after = out / "after_project.cmake"
@@ -211,7 +213,7 @@ set(ANDROID_PLATFORM android-{API})
 set(CMAKE_PROJECT_INCLUDE "{after}")
 """)
     run(["cmake", "-S", cpp, "-B", out, "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release", f"-DCMAKE_TOOLCHAIN_FILE={tcf}",
-         "-DANDROID=true", "-DANDROID_STL=c++_static", "-DARMSX2_ANDROID_HOST_PAGE_SIZE=16384",
+         "-DANDROID=true", "-DANDROID_STL=c++_static", "-DARMSX2_ANDROID_HOST_PAGE_SIZE=0x1000",
          "-DARMSX2_EMUCORE_LIBRARY_NAME=emucore", "-DHAVE_WL_VERSION_SCRIPT=1", "-DCMAKE_HAVE_LIBC_PTHREAD=1", f"-DANDROID_NDK={GSX / 'ndk'}",
          f"-DARMSX2_EXTRA_CMAKE={GSX / 'bt4gsx.cmake'}", f"-DBT4GSX_DIR={GSX}",
          f"-DBT4GSX_RING_DIR={BT3R / 'ps2xRuntime/src/lib'}"])
@@ -227,7 +229,7 @@ set(CMAKE_PROJECT_INCLUDE "{after}")
         shutil.copytree(res / part, assets / "resources" / part)
     shutil.copyfile(res / "GameIndex.yaml", assets / "resources/GameIndex.yaml")
     (assets / "version.txt").write_text(ARMSX2_REV + " " + sha256(dst / "libbt4gsx.so")[:16] + "\n")
-    print(f"== libbt4gsx.so ({(dst / 'libbt4gsx.so').stat().st_size >> 20} MB) and its resources installed")
+    print(f"== libbt4gsx.so ({(dst / 'libbt4gsx.so').stat().st_size >> 20} MB, for 4 KB memory pages) and its resources installed")
 
 
 def main():
