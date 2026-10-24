@@ -53,7 +53,8 @@ class GameDataInstaller(
         return InstallState.Installed(files, bytes, modified)
     }
 
-    suspend fun install(uri: Uri, report: (InstallState.Working) -> Unit): InstallState.Installed = withContext(Dispatchers.IO) {
+    /** [only]: the game the image must be (the BT2 tab takes only a BT2 image); null: whichever it is. */
+    suspend fun install(uri: Uri, only: Game? = null, report: (InstallState.Working) -> Unit): InstallState.Installed = withContext(Dispatchers.IO) {
         val pfd = resolver.openFileDescriptor(uri, "r") ?: throw Stop(context.getString(R.string.err_open_file))
         pfd.use {
             val channel = FileInputStream(pfd.fileDescriptor).channel
@@ -65,6 +66,7 @@ class GameDataInstaller(
             iso.use {
                 report(InstallState.Working(context.getString(R.string.step_checking), 0f, context.getString(R.string.detail_finding)))
                 if (iso.find(BT2_ELF) != null) return@withContext installBt2(iso, report)
+                if (only == Game.BT2) throw Stop(context.getString(R.string.err_not_bt2))
                 val original = verify(iso, report)
                 if (!original) compatible(iso)
                 extract(iso, report, modified = !original)

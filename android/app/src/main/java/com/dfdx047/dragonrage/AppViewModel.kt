@@ -83,11 +83,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val _install = MutableStateFlow(installer.currentState())
     val install: StateFlow<InstallState> = _install.asStateFlow()
 
-    // Budokai Tenkaichi 2 (libbt2.so): its image is picked with the same button, told apart by its serial
-    val engineBt2Available = EngineBridge.isAvailable(app, Game.BT2)
-    private val _installBt2 = MutableStateFlow(installer.currentStateBt2())
-    val installBt2: StateFlow<InstallState> = _installBt2.asStateFlow()
-
     private val _packs = MutableStateFlow<List<TexturePack>>(emptyList())
     val texturePacks: StateFlow<List<TexturePack>> = _packs.asStateFlow()
 
@@ -410,9 +405,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                         ActivityLog.info("iso", "step: ${it.step} (${it.detail})")
                     }
                 }
-                if (done.game == Game.BT2) {
-                    _installBt2.value = done
+                if (done.game == Game.BT2) { // a BT2 image picked here goes to the BT2 tab (Bt2ViewModel)
                     _install.value = installer.currentState()
+                    say(str(R.string.msg_bt2_installed_tab))
                 } else {
                     _install.value = done
                 }
@@ -447,12 +442,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         ActivityLog.info("iso", "game data removed by the player")
         installer.uninstall()
         _install.value = InstallState.NotInstalled
-    }
-
-    fun removeBt2Data() = viewModelScope.launch(Dispatchers.IO) {
-        ActivityLog.info("iso", "BT2 image removed by the player")
-        installer.uninstallBt2()
-        _installBt2.value = InstallState.NotInstalled
     }
 
     fun dismissInstallError() {
@@ -711,20 +700,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 android.content.Intent(getApplication(), com.dfdx047.dragonrage.engine.GameActivity::class.java)
                     .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
             ) }
-        }
-    }
-
-    fun playBt2() {
-        when {
-            _installBt2.value !is InstallState.Installed -> say(str(R.string.msg_install_bt2_first))
-            !engineBt2Available -> say(str(R.string.msg_no_engine_bt2))
-            else -> {
-                ActivityLog.info("game", "BT2 started")
-                getApplication<Application>().startActivity(
-                    android.content.Intent(getApplication(), com.dfdx047.dragonrage.engine.Bt2GameActivity::class.java)
-                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
-                )
-            }
         }
     }
 

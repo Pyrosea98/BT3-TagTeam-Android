@@ -1,5 +1,17 @@
 package com.dfdx047.dragonrage
 
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import com.dfdx047.dragonrage.data.Game
+import com.dfdx047.dragonrage.ui.screens.bt2.Bt2HomeScreen
+import com.dfdx047.dragonrage.ui.screens.bt2.Bt2TexturesScreen
+import com.dfdx047.dragonrage.ui.screens.bt2.Bt2ModsScreen
+import com.dfdx047.dragonrage.ui.screens.bt2.Bt2ControlsScreen
+import com.dfdx047.dragonrage.ui.screens.bt2.Bt2CheatsScreen
+import com.dfdx047.dragonrage.ui.screens.bt2.Bt2DriversScreen
+import com.dfdx047.dragonrage.ui.screens.bt2.Bt2DebugScreen
+import com.dfdx047.dragonrage.ui.screens.bt2.Bt2SettingsScreen
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -84,6 +96,7 @@ import com.dfdx047.dragonrage.ui.theme.DragonRageTheme
 
 class MainActivity : ComponentActivity() {
     private val vm: AppViewModel by viewModels()
+    private val bt2: Bt2ViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -91,7 +104,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val ui by vm.uiState.collectAsStateWithLifecycle()
             DragonRageTheme(mode = ui.theme, dynamicColor = ui.dynamicColor) {
-                DragonRageApp(vm)
+                DragonRageApp(vm, bt2)
             }
         }
     }
@@ -109,7 +122,7 @@ private enum class Dest(val route: String, val label: Int, val icon: ImageVector
 }
 
 @Composable
-private fun DragonRageApp(vm: AppViewModel) {
+private fun DragonRageApp(vm: AppViewModel, bt2: Bt2ViewModel) {
     val nav = rememberNavController()
     val entry by nav.currentBackStackEntryAsState()
     val current = entry?.destination?.route
@@ -118,8 +131,11 @@ private fun DragonRageApp(vm: AppViewModel) {
     val wide = LocalConfiguration.current.screenWidthDp >= 600
 
     LaunchedEffect(Unit) { vm.messages.collect { snackbar.showSnackbar(it) } }
+    LaunchedEffect(Unit) { bt2.messages.collect { snackbar.showSnackbar(it) } }
+    // Which game's pages are shown (the switch at the top): BT3's are the app's own pages, as they always were.
+    var game by rememberSaveable { mutableStateOf(Game.BT3) }
     // files may have been changed from outside (file manager, adb) while the app was in the background
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshAll(); vm.resumeUpdate(); vm.checkLastRun() }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshAll(); vm.resumeUpdate(); vm.checkLastRun(); bt2.refresh() }
     UpdateDialog(vm)
     GpuOfferDialog(vm)
     LastRunDialog(vm)
@@ -164,21 +180,45 @@ private fun DragonRageApp(vm: AppViewModel) {
                 }
             },
         ) { pad ->
-            Box(Modifier.fillMaxSize().padding(pad), contentAlignment = Alignment.TopCenter) {
+            Column(Modifier.fillMaxSize().padding(pad), horizontalAlignment = Alignment.CenterHorizontally) {
+                GameSwitch(game) { game = it }
                 NavHost(
                     nav, startDestination = Dest.HOME.route,
                     modifier = Modifier.widthIn(max = 760.dp).fillMaxSize(),
                 ) {
-                    composable(Dest.HOME.route) { HomeScreen(vm) }
-                    composable(Dest.TEXTURES.route) { TexturesScreen(vm) }
-                    composable(Dest.MODS.route) { ModsScreen(vm) }
-                    composable(Dest.CONTROLS.route) { ControlsScreen(vm) }
-                    composable(Dest.CHEATS.route) { CheatsScreen(vm) }
-                    composable(Dest.DRIVERS.route) { DriversScreen(vm) }
-                    composable(Dest.DEBUG.route) { DebugScreen(vm) }
-                    composable(Dest.SETTINGS.route) { SettingsScreen(vm) }
+                    // BT3: the app's pages as they were. BT2: its own (ui/screens/bt2); what is set there is BT2's alone.
+                    composable(Dest.HOME.route) { if (game == Game.BT3) HomeScreen(vm) else Bt2HomeScreen(bt2) }
+                    composable(Dest.TEXTURES.route) { if (game == Game.BT3) TexturesScreen(vm) else Bt2TexturesScreen(bt2) }
+                    composable(Dest.MODS.route) { if (game == Game.BT3) ModsScreen(vm) else Bt2ModsScreen() }
+                    composable(Dest.CONTROLS.route) { if (game == Game.BT3) ControlsScreen(vm) else Bt2ControlsScreen(bt2) }
+                    composable(Dest.CHEATS.route) { if (game == Game.BT3) CheatsScreen(vm) else Bt2CheatsScreen(bt2) }
+                    composable(Dest.DRIVERS.route) { if (game == Game.BT3) DriversScreen(vm) else Bt2DriversScreen(bt2) }
+                    composable(Dest.DEBUG.route) { if (game == Game.BT3) DebugScreen(vm) else Bt2DebugScreen(bt2) }
+                    composable(Dest.SETTINGS.route) { if (game == Game.BT3) SettingsScreen(vm) else Bt2SettingsScreen(bt2) }
                 }
             }
+        }
+    }
+}
+
+/** The game whose pages are shown: BT3 (the app's own pages) or BT2 (ui/screens/bt2). */
+@Composable
+private fun GameSwitch(game: Game, onChange: (Game) -> Unit) {
+    Row(
+        Modifier.padding(top = 6.dp, bottom = 2.dp).clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.9f)).padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        listOf(Game.BT3 to R.string.game_tab_bt3, Game.BT2 to R.string.game_tab_bt2).forEach { (g, label) ->
+            val selected = g == game
+            Text(
+                stringResource(label),
+                style = MaterialTheme.typography.labelLarge,
+                color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.clip(RoundedCornerShape(16.dp))
+                    .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent)
+                    .clickable { onChange(g) }.padding(horizontal = 22.dp, vertical = 8.dp),
+            )
         }
     }
 }

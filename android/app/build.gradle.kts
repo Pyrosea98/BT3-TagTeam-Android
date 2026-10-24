@@ -58,6 +58,14 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
+        // A test build installed beside Dragon Rage instead of over it (./gradlew assembleDebug -PsideBySide): its
+        // own package and the name "Dragon Rage (teste)" (src/sideBySide), so the player's app and its data stay.
+        if (project.hasProperty("sideBySide")) {
+            getByName("debug") { applicationIdSuffix = ".teste" }
+        }
+    }
+    if (project.hasProperty("sideBySide")) {
+        sourceSets.getByName("debug").res.srcDir("src/sideBySide/res")
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

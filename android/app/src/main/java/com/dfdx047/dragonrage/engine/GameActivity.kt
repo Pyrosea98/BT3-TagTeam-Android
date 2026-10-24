@@ -20,6 +20,7 @@ import com.dfdx047.dragonrage.R
 import com.dfdx047.dragonrage.data.EngineSettings
 import com.dfdx047.dragonrage.data.GamePaths
 import com.dfdx047.dragonrage.data.Renderer
+import com.dfdx047.dragonrage.data.GpuDriver
 import com.dfdx047.dragonrage.data.GpuDrivers
 import com.dfdx047.dragonrage.touch.PadSkin
 import com.dfdx047.dragonrage.touch.TouchConfig
@@ -58,10 +59,16 @@ open class GameActivity : SDLActivity() {
         paths = GamePaths(this).also { it.ensure() }
         prepareEngine()
         requestedOrientation = orientationFlag()
-        store = TouchStore(paths.root)
+        store = TouchStore(touchFolder())
         super.onCreate(savedInstanceState)
         addTouchPad()
     }
+
+    /** Where the on-screen controller's layout is kept (Bt2GameActivity keeps BT2's apart). */
+    protected open fun touchFolder(): File = paths.root
+
+    /** The custom GPU driver chosen for this game, or null for the system's (Bt2GameActivity has BT2's own choice). */
+    protected open fun gpuDriver(): GpuDriver? = runCatching { GpuDrivers(this, contentResolver).selected() }.getOrNull()
 
     /** What the engine needs in place before it starts (Bt2GameActivity has its own). */
     protected open fun prepareEngine() {
@@ -327,7 +334,7 @@ open class GameActivity : SDLActivity() {
 
     /** The game folder, the app's native libraries (the engine, adrenotools' hooks) and the chosen GPU driver, if any. */
     override fun getArguments(): Array<String> {
-        val driver = runCatching { GpuDrivers(this, contentResolver).selected() }.getOrNull()
+        val driver = gpuDriver()
         return arrayOf(paths.root.path, applicationInfo.nativeLibraryDir, driver?.dir?.path ?: "", driver?.library ?: "")
     }
 }

@@ -73,7 +73,6 @@ import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.LocalCafe
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.SmartDisplay
-import androidx.compose.material.icons.rounded.SportsEsports
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -94,7 +93,6 @@ import androidx.compose.material.icons.rounded.Refresh
 @Composable
 fun HomeScreen(vm: AppViewModel) {
     val install by vm.install.collectAsStateWithLifecycle()
-    val installBt2 by vm.installBt2.collectAsStateWithLifecycle()
     val packs by vm.texturePacks.collectAsStateWithLifecycle()
     val mods by vm.fileMods.collectAsStateWithLifecycle()
     val stages by vm.stages.collectAsStateWithLifecycle()
@@ -103,7 +101,6 @@ fun HomeScreen(vm: AppViewModel) {
         if (uri != null) vm.installFromIso(uri)
     }
     var confirmRemove by remember { mutableStateOf(false) }
-    var confirmRemoveBt2 by remember { mutableStateOf(false) }
 
     Column(
         Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp),
@@ -193,44 +190,6 @@ fun HomeScreen(vm: AppViewModel) {
             }
         }
 
-        // Budokai Tenkaichi 2: its image goes through the same picker (told apart by its serial), its game is its own
-        SectionCard(stringResource(R.string.bt2_title), Icons.Rounded.SportsEsports, accent = MaterialTheme.colorScheme.tertiary) {
-            when (val s = installBt2) {
-                is InstallState.Installed -> {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.CheckCircle, null, tint = Dbz.ShenronGreen)
-                        Spacer(Modifier.size(8.dp))
-                        Text(stringResource(R.string.bt2_ready, formatBytes(s.bytes)), style = MaterialTheme.typography.bodyMedium)
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Button(onClick = vm::playBt2, enabled = vm.engineBt2Available) {
-                            Icon(Icons.Rounded.PlayArrow, null, Modifier.size(20.dp))
-                            Spacer(Modifier.size(6.dp))
-                            Text(stringResource(R.string.bt2_play))
-                        }
-                        TextButton(onClick = { confirmRemoveBt2 = true }) { Text(stringResource(R.string.remove_game_data)) }
-                    }
-                }
-                else -> {
-                    Text(
-                        stringResource(R.string.bt2_intro),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    FilledTonalButton(onClick = { pickIso.launch(arrayOf("*/*")) }, enabled = install !is InstallState.Working) {
-                        Text(stringResource(R.string.pick_iso))
-                    }
-                }
-            }
-            if (!vm.engineBt2Available) {
-                Text(
-                    stringResource(R.string.bt2_engine_missing),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-
         Links()
 
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
@@ -248,16 +207,6 @@ fun HomeScreen(vm: AppViewModel) {
             text = { Text(stringResource(R.string.remove_game_data_text)) },
             confirmButton = { TextButton(onClick = { confirmRemove = false; vm.removeGameData() }) { Text(stringResource(R.string.remove)) } },
             dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text(stringResource(R.string.cancel)) } },
-        )
-    }
-
-    if (confirmRemoveBt2) {
-        AlertDialog(
-            onDismissRequest = { confirmRemoveBt2 = false },
-            title = { Text(stringResource(R.string.bt2_remove_q)) },
-            text = { Text(stringResource(R.string.bt2_remove_text)) },
-            confirmButton = { TextButton(onClick = { confirmRemoveBt2 = false; vm.removeBt2Data() }) { Text(stringResource(R.string.remove)) } },
-            dismissButton = { TextButton(onClick = { confirmRemoveBt2 = false }) { Text(stringResource(R.string.cancel)) } },
         )
     }
 }

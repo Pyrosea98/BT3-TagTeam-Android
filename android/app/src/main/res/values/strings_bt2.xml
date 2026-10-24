@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Budokai Tenkaichi 2 tab (ui/screens/bt2, Bt2ViewModel). -->
+<resources>
+    <string name="game_tab_bt3" translatable="false">BT3</string>
+    <string name="game_tab_bt2" translatable="false">BT2</string>
+    <string name="err_not_bt2">This image is not Budokai Tenkaichi 2 (USA, SLUS-21441). Budokai Tenkaichi 3 is installed on the BT3 tab.</string>
+    <string name="msg_bt2_installed_tab">That was a Budokai Tenkaichi 2 image: it is ready on the BT2 tab.</string>
+    <string name="bt2_tagline">Budokai Tenkaichi 2 · Android</string>
+    <string name="bt2_back_hint">In the game, press back twice to return to the app.</string>
+    <string name="bt2_engine_title">BT2 engine</string>
+    <string name="bt2_engine_included">Included: BT2 Recomp, the game\'s code recompiled for Android.</string>
+    <string name="bt2_gpu_note">BT2 draws with Vulkan 1.3 (paraLLEl-GS): Adreno 600 and newer, Mali G57 and newer. On Adreno a custom driver (Drivers page) can help.</string>
+    <string name="bt2_tex_title">HD textures</string>
+    <string name="bt2_tex_sub">Packs in PCSX2\'s format for SLUS-21441</string>
+    <string name="bt2_tex_hd">Use the HD texture pack</string>
+    <string name="bt2_tex_none">No pack found yet.</string>
+    <string name="bt2_tex_found">Pack in use: %1$s</string>
+    <string name="bt2_tex_where">Where to put a pack</string>
+    <string name="bt2_tex_how">Copy the pack\'s folder (the one that holds \"replacements\") into this folder with a file manager or adb:</string>
+    <string name="bt2_next_start">Changes apply from the next game start.</string>
+    <string name="bt2_mods_title">Mods in BT2</string>
+    <string name="bt2_mods_text">BT2\'s engine reads the disc image itself, so it has no file-override mods like BT3\'s yet. Images with mods that only change data (textures, models, sounds) and keep the original SLUS_214.41 work: pick them on the Home page. Mods that change the game\'s program do not, because the engine runs code recompiled from the original program.</string>
+    <string name="bt2_cheats_title">Patches</string>
+    <string name="bt2_patch_widescreen">Widescreen (16:9)</string>
+    <string name="bt2_patch_widescreen_text">The game\'s own picture in 16:9 instead of 4:3.</string>
+    <string name="bt2_patch_60">60 fps fights</string>
+    <string name="bt2_patch_60_text">Pictures between the fights\' 30 frames. Heavy: for strong GPUs.</string>
+    <string name="bt2_cheats_none">Cheat codes are not supported by BT2\'s engine yet.</string>
+    <string name="bt2_set_picture">Picture</string>
+    <string name="bt2_set_ss">Quality (super-sampling)</string>
+    <string name="bt2_ss_1">Native (1x)</string>
+    <string name="bt2_ss_2">Smoothed (2x)</string>
+    <string name="bt2_ss_4">High (2x resolution)</string>
+    <string name="bt2_ss_8">Max (8x)</string>
+    <string name="bt2_ss_16">Max (16x)</string>
+    <string name="bt2_set_ss_text">Native is the lightest. Smoothed keeps the resolution and softens edges; High and above draw at twice the resolution and need a strong GPU.</string>
+    <string name="bt2_set_integer">Whole-multiple scaling</string>
+    <string name="bt2_set_integer_text">Sharp pixels; off: the picture fills more of the screen.</string>
+    <string name="bt2_set_fps">Frame rate in the log</string>
+    <string name="bt2_set_fps_text">Written every few seconds (Debug page); not on the picture yet.</string>
+    <string name="bt2_set_speed">Speed</string>
+    <string name="bt2_set_light">Light blending</string>
+    <string name="bt2_set_light_text">Simpler drawing of heavy see-through effects (fog, glows). Faster on weak GPUs; may change some effects slightly.</string>
+    <string name="bt2_set_nomip">No mipmaps</string>
+    <string name="bt2_set_nomip_text">Textures always at full detail, without their smaller copies. Can be faster; distant surfaces may shimmer.</string>
+    <string name="bt2_set_sound">Sound</string>
+    <string name="bt2_set_master">Master</string>
+    <string name="bt2_set_music">Music and voices</string>
+    <string name="bt2_set_effects">Effects</string>
+    <string name="bt2_debug_sub">Every BT2 run is logged: the device, the GPU and the settings when it starts, the engine\'s messages when it ends.</string>
+    <string name="bt2_debug_save">Save the BT2 report to Downloads</string>
+    <string name="bt2_debug_saved">Saved to Downloads: %1$s</string>
+    <string name="bt2_debug_last_run">Last run</string>
+    <string name="bt2_debug_no_run">No BT2 run yet.</string>
+    <string name="bt2_debug_runs">Kept runs (%1$d)</string>
+    <string name="bt2_debug_runs_where">The last ten runs\' logs are kept in bt2/user/runs, in the app\'s folder.</string>
+    <string name="bt2_drivers_note">The driver chosen here is used by BT2 only; BT3 keeps its own.</string>
+    <string name="bt2_drivers_title">BT2\'s GPU driver</string>
+    <string name="bt2_drivers_system">The system\'s driver</string>
+    <string name="bt2_drivers_import">Add a driver (.zip) for BT2</string>
+</resources>
