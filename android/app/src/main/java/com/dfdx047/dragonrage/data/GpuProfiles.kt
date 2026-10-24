@@ -8,7 +8,9 @@ package com.dfdx047.dragonrage.data
  *
  * The tiers come from the GPUs' known performance and from the logs players sent: Mali-G52 MC2 at about 65 % speed at
  * 2x, Mali-G68 MC4 (Exynos 1380) 25-30 % at 2x, Xclipse 530 40-60 % at 2x, Mali-G720 MC7, Adreno 825 and 830 at
- * 100 % at 2x and more.
+ * 100 % at 2x and more. Measured on devices (docs/device-lab-2026-10.md): Mali-G57 MC4 (RG Cube) 100 % at 1.5x on
+ * Vulkan, worst frame 25 ms; Adreno 650 (Retroid Pocket 5) 100 % at 2x with precise depth (worst 16 ms) and 56-63
+ * pictures a second with smooth motion (worst 30 ms of the 33 a game frame has).
  */
 object GpuProfiles {
     /** 0 very weak, 1 weak, 2 mid-range, 3 strong, 4 flagship. */
@@ -47,6 +49,12 @@ object GpuProfiles {
         Rule("maleoon", 0, 0, 2),
     )
 
+    /** Models measured on a device that hold a higher resolution than their tier's (its other settings kept):
+     *  the lower-case name to the resolution in quarters. */
+    private val measured = listOf(
+        "mali-g57 mc4" to 6, // RG Cube: Vulkan 1.5x 100 %, worst frame 25 ms (2x: 87 %); OpenGL 2x 100 % but worst 30 ms
+    )
+
     /** A Mali model with few cores (MC1, MC2) is one tier lower than its family; one with many is one higher. */
     private fun maliCores(name: String): Int = Regex("""MC(\d+)|MP(\d+)""", RegexOption.IGNORE_CASE).find(name)
         ?.groupValues?.drop(1)?.firstOrNull { it.isNotEmpty() }?.toIntOrNull() ?: 0
@@ -76,9 +84,12 @@ object GpuProfiles {
             0 -> Profile(gpu, 0, scale4 = 4, interp = 0, fragDepth = 0, frameSkip = 1, fxOffAdd = 16 or 32, filter = 0)
             1 -> Profile(gpu, 1, scale4 = 4, interp = 0, fragDepth = 0, frameSkip = 1, fxOffAdd = 32, filter = 0)
             2 -> Profile(gpu, 2, scale4 = 6, interp = 0, fragDepth = 0, frameSkip = 1, fxOffAdd = 0, filter = 0)
-            3 -> Profile(gpu, 3, scale4 = 8, interp = 0, fragDepth = 1, frameSkip = 1, fxOffAdd = 0, filter = 0)
+            3 -> Profile(gpu, 3, scale4 = 8, interp = 1, fragDepth = 1, frameSkip = 1, fxOffAdd = 0, filter = 0)
             4 -> Profile(gpu, 4, scale4 = 8, interp = 1, fragDepth = 1, frameSkip = 1, fxOffAdd = 0, filter = 0)
             else -> null
+        }?.let { p ->
+            val n = gpu.lowercase().replace(Regex("\\s+"), " ")
+            measured.firstOrNull { n.contains(it.first) }?.let { p.copy(scale4 = it.second) } ?: p
         }
     }
 
