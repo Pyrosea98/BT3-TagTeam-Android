@@ -42,6 +42,7 @@ void Port_TouchPad(unsigned buttons, int lx, int ly, int rx, int ry);
 int Port_Setting(const char *name, int def);
 extern int gGsMainFbp;
 extern unsigned gPortVBlanks;
+extern unsigned gGsFrame;                                       /* gs_core.c: the pictures (the texture cache ages by it) */
 void Bt4_Quit(void);
 int GsGpu_PauseFrame(void);                                    /* gs_gpu.c: the last picture again (and the events) */
 int GsGpu_PresentGet(void);
@@ -898,6 +899,7 @@ extern "C" __attribute__((visibility("default"))) int SDL_main(int argc, char *a
         {
             gPortVBlanks++;
             GsGpu_FrameEnd(); // the picture: drawn and shown (events polled there too)
+            gGsFrame++;       // (BT3's GS counts its frames itself; without it the texture cache never let go: white squares)
             sendPad(ring);
             r.frames++;
             lastPump = std::chrono::steady_clock::now();
