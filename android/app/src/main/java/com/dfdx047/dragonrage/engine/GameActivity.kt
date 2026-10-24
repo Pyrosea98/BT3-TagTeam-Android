@@ -2,6 +2,7 @@ package com.dfdx047.dragonrage.engine
 
 import android.app.AlertDialog
 import android.content.Intent
+import android.hardware.input.InputManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -117,6 +118,7 @@ open class GameActivity : SDLActivity() {
         }
         layout.addView(view.view, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         pad = view
+        if (stickPadConnected()) padUsed() // (a handheld's own controller, or one paired before the game: no touch pad to start with)
         menu = GameMenu(this, game, { EngineSettings(paths.settings) }, object : GameMenu.Actions {
             override fun resumed() {
                 pad?.suppressed = TouchBridge.menuOpen()
@@ -168,9 +170,11 @@ open class GameActivity : SDLActivity() {
         super.onResume()
         pad?.let { it.config = store.load() }
         handler.post(watchMenu)
+        runCatching { (getSystemService(INPUT_SERVICE) as InputManager).registerInputDeviceListener(devices, handler) }
     }
 
     override fun onPause() {
+        runCatching { (getSystemService(INPUT_SERVICE) as InputManager).unregisterInputDeviceListener(devices) }
         handler.removeCallbacks(watchMenu)
         TouchBridge.setPad(0, 128, 128, 128, 128)
         super.onPause()
@@ -246,6 +250,25 @@ open class GameActivity : SDLActivity() {
     private fun realDevice(d: InputDevice?): Boolean =
         d != null && !d.isVirtual && (d.sources and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD ||
             d.sources and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK)
+
+    /** A real controller with sticks is connected (not only keys that call themselves a gamepad). */
+    private fun stickPadConnected(): Boolean = InputDevice.getDeviceIds().any { id ->
+        val d = InputDevice.getDevice(id)
+        realDevice(d) && d!!.getMotionRange(MotionEvent.AXIS_X) != null && d.getMotionRange(MotionEvent.AXIS_Y) != null
+    }
+
+    /** A controller connected while the game runs hides the touch pad; the last one gone brings it back. */
+    private val devices = object : InputManager.InputDeviceListener {
+        override fun onInputDeviceAdded(id: Int) {
+            if (stickPadConnected()) padUsed()
+        }
+
+        override fun onInputDeviceRemoved(id: Int) {
+            if (!stickPadConnected()) pad?.hiddenForPad = false
+        }
+
+        override fun onInputDeviceChanged(id: Int) {}
+    }
 
     private fun fromController(source: Int): Boolean =
         source and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD ||
