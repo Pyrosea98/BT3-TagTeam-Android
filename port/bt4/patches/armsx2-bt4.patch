@@ -116,7 +116,7 @@ index 695b76741f..3c65852b49 100644
  // No X11/Wayland on this build (handheld kmsdrm target). Vulkan VK_KHR_display
  // owns the screen; VulkanDirect is reported with the requested resolution and
 diff --git a/pcsx2/GSDumpReplayer.cpp b/pcsx2/GSDumpReplayer.cpp
-index 2431077dee..b021364826 100644
+index 2431077dee..e38bf6d953 100644
 --- a/pcsx2/GSDumpReplayer.cpp
 +++ b/pcsx2/GSDumpReplayer.cpp
 @@ -48,6 +48,8 @@ static u64 s_next_frame_time = 0;
@@ -219,7 +219,17 @@ index 2431077dee..b021364826 100644
  		}
  		break;
  
-@@ -447,7 +488,10 @@ void GSDumpReplayer::RenderUI()
+@@ -419,6 +460,9 @@ void GSDumpReplayerCpuClear(u32 addr, u32 size)
+ 
+ void GSDumpReplayer::RenderUI()
+ {
++	if (s_live_next) // live: the game's own picture, no dump counters over it
++		return;
++
+ 	const float scale = ImGuiManager::GetGlobalScale();
+ 	const float shadow_offset = std::ceil(1.0f * scale);
+ 	const float margin = std::ceil(GSConfig.OsdMargin * scale);
+@@ -447,7 +491,10 @@ void GSDumpReplayer::RenderUI()
  	DRAW_LINE(font, font_size, text.c_str(), IM_COL32(255, 255, 255, 255));
  
  	text.clear();

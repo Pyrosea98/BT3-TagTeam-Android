@@ -353,6 +353,7 @@ __attribute__((visibility("default"))) int Bt4Gsx_Run(const Bt4GsxArgs* a)
 		return 1;
 	}
 	GSDumpReplayer::SetLive(live_next, live_readback);
+	__atomic_or_fetch(&s_ring->consumerFlags, 2u, __ATOMIC_RELEASE); // (bit 1: ReadFIFO2 answered, the game waits for it)
 
 	char upscale[32];
 	std::snprintf(upscale, sizeof(upscale), "%g", static_cast<double>(a->upscale));

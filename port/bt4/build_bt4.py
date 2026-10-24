@@ -80,6 +80,7 @@ def sources():
     # (clean, but keep the generated game code and the VU1 programs: they come from the ELF, not from git)
     run(["git", "-C", BT3R, "clean", "--quiet", "-fdx", "-e", "ps2xRuntime/src/runner", "-e", "ps2xRuntime/src/runner_overlay",
          "-e", "ps2xRuntime/include/ps2_recompiled_functions.h", "-e", "ps2xRuntime/include/ps2_recompiled_stubs.h",
+         "-e", "ps2xRuntime/include/ps2_overlay_functions.h",
          "-e", "games/bt3/work", "-e", "ps2xRuntime/src/lib/vu1_jit_gen.inc"])
     run(["git", "-C", BT3R, "apply", "--whitespace=nowarn", "--exclude=ps2xRuntime/third_party/parallel-gs",
          BT4R / "patches/bt3recomp-bt4mod-full.patch"])

@@ -196,7 +196,7 @@ void applyPriv(const std::vector<uint8_t> &priv)
 void sendPad(ps2live::RingHeader *ring)
 {
     unsigned char d[18];
-    if (!GsGpu_Enabled() || Port_PadRead(0, d) <= 0)
+    if ((!GsGpu_Enabled() && !gPortPadAlways) || Port_PadRead(0, d) <= 0) // (ARMSX2's renderer: gPortPadAlways)
         return;
     const unsigned buttons = static_cast<unsigned>(~(d[0] | (d[1] << 8))) & 0xFFFFu; // active high, libpad order
     ring->padButtons = buttons;
@@ -802,6 +802,22 @@ extern "C" __attribute__((visibility("default"))) int SDL_main(int argc, char *a
     }
     redirectOutput(g_root);
     std::fprintf(stderr, "bt4: Dragon Rage, Budokai Tenkaichi 4 engine\n");
+    if (FILE *fp = std::fopen("bt3_env.txt", "r"))
+    {   // NAME=value lines, the switches for testing (BT3_GS_VERBOSE=1, PS2X_...): as libbt3's loader does for BT3
+        char line[512];
+        while (std::fgets(line, sizeof(line), fp))
+        {
+            line[std::strcspn(line, "\r\n")] = '\0';
+            char *eq = std::strchr(line, '=');
+            if (line[0] != '#' && eq)
+            {
+                *eq = '\0';
+                setenv(line, eq + 1, 1);
+                std::fprintf(stderr, "bt4: env %s=%s\n", line, eq + 1);
+            }
+        }
+        std::fclose(fp);
+    }
     if (g_image.empty() || access(g_image.c_str(), R_OK) != 0)
     {
         std::fprintf(stderr, "bt4: the disc image cannot be read (%s): set it up again in the launcher\n", g_image.c_str());
