@@ -16,6 +16,14 @@ import java.io.File
  *   <root>/bt3_settings.txt     the engine's settings (name=number)
  *   <root>/modlib/<mod>/        the app's library of file-override mods, each one switchable
  *
+ * Budokai Tenkaichi 2 (BT2-Recomp, libbt2.so) has a folder of its own under the root, in the layout its PC program
+ * expects next to itself (runtime/host/game_folders.h). BT3's files stay where they always were:
+ *
+ *   <root>/bt2/data/BT2.iso     the disc image, whole (the BT2 runtime reads the image itself)
+ *   <root>/bt2/data/textures/   its texture packs
+ *   <root>/bt2/saves/           its memory cards
+ *   <root>/bt2/.installed       written once the image is in place
+ *
  * The root is the app's folder on shared storage (Android/data/<package>/files), so a file manager or adb can
  * reach it too.
  */
@@ -33,7 +41,19 @@ class GamePaths(context: Context) {
     val modLibrary = File(root, "modlib")
     val temp = File(context.cacheDir, "import")
 
+    val bt2Root = File(root, "bt2")
+    val bt2Data = File(bt2Root, "data")
+    val bt2Iso = File(bt2Data, "BT2.iso")
+    val bt2Saves = File(bt2Root, "saves")
+    val bt2InstalledMarker = File(bt2Root, ".installed")
+
     fun ensure() {
-        listOf(gameData, textures, texturesOff, stages, songs, saves, modLibrary, temp).forEach { it.mkdirs() }
+        listOf(gameData, textures, texturesOff, stages, songs, saves, modLibrary, temp, bt2Data, bt2Saves).forEach { it.mkdirs() }
     }
+}
+
+/** The games the app can start, each from its own disc image and with its own engine library. */
+enum class Game(val serial: String, val library: String) {
+    BT3("SLUS-21678", "bt3"),
+    BT2("SLUS-21441", "bt2"),
 }

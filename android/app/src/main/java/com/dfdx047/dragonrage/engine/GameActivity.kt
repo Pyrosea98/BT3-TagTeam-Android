@@ -41,8 +41,8 @@ import org.libsdl.app.SDLActivity
  * Over the game's surface: the on-screen controller ([TouchSurface]: the game-specific layout or the classic one), which feeds player 1's pad through
  * [TouchBridge] and steps aside while the engine's own window (settings, online) is open.
  */
-class GameActivity : SDLActivity() {
-    private lateinit var paths: GamePaths
+open class GameActivity : SDLActivity() {
+    protected lateinit var paths: GamePaths
     private lateinit var store: TouchStore
     private var pad: TouchSurface? = null
     private val handler = Handler(Looper.getMainLooper())
@@ -56,6 +56,15 @@ class GameActivity : SDLActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         paths = GamePaths(this).also { it.ensure() }
+        prepareEngine()
+        requestedOrientation = orientationFlag()
+        store = TouchStore(paths.root)
+        super.onCreate(savedInstanceState)
+        addTouchPad()
+    }
+
+    /** What the engine needs in place before it starts (Bt2GameActivity has its own). */
+    protected open fun prepareEngine() {
         // the renderer for this start (Vulkan, or OpenGL ES for Mali when automatic): written before the engine reads it
         runCatching {
             val es = EngineSettings(paths.settings)
@@ -65,15 +74,11 @@ class GameActivity : SDLActivity() {
             if (es.get(EngineSettings.LANG, -1) != lang) es.set(EngineSettings.LANG, lang)
             orientation = es.get(EngineSettings.ORIENTATION, 0)
         }
-        requestedOrientation = orientationFlag()
-        store = TouchStore(paths.root)
         installDataList()
-        super.onCreate(savedInstanceState)
-        addTouchPad()
     }
 
     /** The player's choice (launcher, Settings): 0 landscape, 1 portrait, 2 as the device is held. */
-    private var orientation = 0
+    protected var orientation = 0
 
     private fun orientationFlag(): Int = when (orientation) {
         1 -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT

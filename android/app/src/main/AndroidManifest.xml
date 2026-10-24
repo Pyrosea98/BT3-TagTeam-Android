@@ -69,5 +69,17 @@
             android:launchMode="singleTask"
             android:configChanges="layoutDirection|locale|grammaticalGender|fontScale|fontWeightAdjustment|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation"
             android:preferMinimalPostProcessing="true" />
+
+        <!-- Budokai Tenkaichi 2 (libbt2.so): a process of its own, apart from BT3's (see Bt2GameActivity). -->
+        <activity
+            android:name=".engine.Bt2GameActivity"
+            android:process=":game_bt2"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.DragonRage.Game"
+            android:screenOrientation="sensorLandscape"
+            android:launchMode="singleTask"
+            android:configChanges="layoutDirection|locale|grammaticalGender|fontScale|fontWeightAdjustment|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation"
+            android:preferMinimalPostProcessing="true" />
     </application>
 </manifest>

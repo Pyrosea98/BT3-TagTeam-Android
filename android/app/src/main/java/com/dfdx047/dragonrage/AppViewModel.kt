@@ -24,6 +24,7 @@ import com.dfdx047.dragonrage.data.formatBytes
 import com.dfdx047.dragonrage.data.ExtraItem
 import com.dfdx047.dragonrage.data.ExtraKind
 import com.dfdx047.dragonrage.data.FileMod
+import com.dfdx047.dragonrage.data.Game
 import com.dfdx047.dragonrage.data.GameDataInstaller
 import com.dfdx047.dragonrage.data.GamePaths
 import com.dfdx047.dragonrage.data.GpuDriver
@@ -81,6 +82,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _install = MutableStateFlow(installer.currentState())
     val install: StateFlow<InstallState> = _install.asStateFlow()
+
+    // Budokai Tenkaichi 2 (libbt2.so): its image is picked with the same button, told apart by its serial
+    val engineBt2Available = EngineBridge.isAvailable(app, Game.BT2)
+    private val _installBt2 = MutableStateFlow(installer.currentStateBt2())
+    val installBt2: StateFlow<InstallState> = _installBt2.asStateFlow()
 
     private val _packs = MutableStateFlow<List<TexturePack>>(emptyList())
     val texturePacks: StateFlow<List<TexturePack>> = _packs.asStateFlow()
@@ -404,14 +410,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                         ActivityLog.info("iso", "step: ${it.step} (${it.detail})")
                     }
                 }
-                _install.value = done
-                ActivityLog.info("iso", "installed: ${done.files} files, ${done.bytes} bytes, modified image: ${done.modified}, " +
+                if (done.game == Game.BT2) {
+                    _installBt2.value = done
+                    _install.value = installer.currentState()
+                } else {
+                    _install.value = done
+                }
+                ActivityLog.info("iso", "installed ${done.game}: ${done.files} files, ${done.bytes} bytes, modified image: ${done.modified}, " +
                     "${(System.currentTimeMillis() - started) / 1000} s")
                 say(str(R.string.msg_data_ready))
             } catch (e: CancellationException) {
                 ActivityLog.warn("iso", "cancelled at: $step")
-                withContext(Dispatchers.IO) { installer.uninstall() }
-                _install.value = InstallState.NotInstalled
+                // (BT3's data is only cleared when its own unpacking had begun: a cancelled BT2 copy leaves it as it was)
+                withContext(Dispatchers.IO) { if (!paths.installedMarker.exists()) installer.uninstall() }
+                _install.value = installer.currentState()
                 throw e
             } catch (e: GameDataInstaller.Stop) {
                 val why = e.message ?: str(R.string.msg_error)
@@ -435,6 +447,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         ActivityLog.info("iso", "game data removed by the player")
         installer.uninstall()
         _install.value = InstallState.NotInstalled
+    }
+
+    fun removeBt2Data() = viewModelScope.launch(Dispatchers.IO) {
+        ActivityLog.info("iso", "BT2 image removed by the player")
+        installer.uninstallBt2()
+        _installBt2.value = InstallState.NotInstalled
     }
 
     fun dismissInstallError() {
@@ -693,6 +711,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 android.content.Intent(getApplication(), com.dfdx047.dragonrage.engine.GameActivity::class.java)
                     .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
             ) }
+        }
+    }
+
+    fun playBt2() {
+        when {
+            _installBt2.value !is InstallState.Installed -> say(str(R.string.msg_install_bt2_first))
+            !engineBt2Available -> say(str(R.string.msg_no_engine_bt2))
+            else -> {
+                ActivityLog.info("game", "BT2 started")
+                getApplication<Application>().startActivity(
+                    android.content.Intent(getApplication(), com.dfdx047.dragonrage.engine.Bt2GameActivity::class.java)
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }
         }
     }
 

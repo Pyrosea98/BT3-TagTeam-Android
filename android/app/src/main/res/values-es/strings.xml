@@ -395,4 +395,17 @@
     <string name="online_chat">• Chat general: desactivado por ahora (vuelve en una próxima versión).\n• Jugadores en línea: un recuento aproximado de quién tiene la pantalla online abierta ahora, en Android y Switch.</string>
     <string name="online_log_title">¿Sigue fallando? Envía el log</string>
     <string name="online_log">Justo después del problema, vuelve a la app y pulsa Enviar log: guarda un informe en Descargas (el dispositivo, las tres últimas ejecuciones del juego y todo lo que hizo la app) y abre el menú para compartir. Envíalo en nuestro Discord con una línea sobre qué intentaste y contra quién.</string>
+
+    <!-- Budokai Tenkaichi 2 -->
+    <string name="bt2_title">Budokai Tenkaichi 2</string>
+    <string name="bt2_intro">Elige tu ISO de Budokai Tenkaichi 2 (versión USA, SLUS-21441). La imagen se copia entera a la carpeta de la app; los datos de BT3 quedan como están.</string>
+    <string name="bt2_ready">Imagen del disco en su lugar (%1$s).</string>
+    <string name="bt2_play">Jugar BT2</string>
+    <string name="bt2_engine_missing">El motor de Budokai Tenkaichi 2 no está incluido en esta versión.</string>
+    <string name="bt2_remove_q">¿Quitar la imagen de BT2?</string>
+    <string name="bt2_remove_text">Se borra la imagen copiada. Las tarjetas de memoria se conservan.</string>
+    <string name="step_copying_bt2">Copiando la imagen de BT2</string>
+    <string name="err_bt2_program">Esta es una imagen de Budokai Tenkaichi 2, pero su programa no es el de la versión USA original (SLUS-21441), a partir de la cual se construyó el motor. Las imágenes modificadas y otras versiones no funcionan.</string>
+    <string name="msg_install_bt2_first">Primero elige tu ISO de Budokai Tenkaichi 2.</string>
+    <string name="msg_no_engine_bt2">El motor de Budokai Tenkaichi 2 no está incluido en esta versión.</string>
 </resources>

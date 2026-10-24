@@ -396,4 +396,17 @@
     <string name="online_chat">• General chat: switched off for now (it comes back in a later version).\n• Players online: an approximate count of who has the online screen open now, on Android and Switch.</string>
     <string name="online_log_title">Still failing? Send the log</string>
     <string name="online_log">Right after the problem, come back to the app and press Send log: it saves a report in Downloads (the device, the game\'s last three runs and everything the app did) and opens the share sheet. Send it on our Discord with a line about what you tried and against whom.</string>
+
+    <!-- Budokai Tenkaichi 2 -->
+    <string name="bt2_title">Budokai Tenkaichi 2</string>
+    <string name="bt2_intro">Pick your Budokai Tenkaichi 2 ISO (USA release, SLUS-21441). The image is copied whole into the app\'s folder; BT3\'s data stays as it is.</string>
+    <string name="bt2_ready">Disc image in place (%1$s).</string>
+    <string name="bt2_play">Play BT2</string>
+    <string name="bt2_engine_missing">The Budokai Tenkaichi 2 engine is not included in this build.</string>
+    <string name="bt2_remove_q">Remove the BT2 image?</string>
+    <string name="bt2_remove_text">The copied disc image is deleted. Its memory cards are kept.</string>
+    <string name="step_copying_bt2">Copying the BT2 image</string>
+    <string name="err_bt2_program">This is a Budokai Tenkaichi 2 image, but its program is not the one of the original USA release (SLUS-21441) the engine is built from. Modified images and other releases cannot run.</string>
+    <string name="msg_install_bt2_first">Pick your Budokai Tenkaichi 2 ISO first.</string>
+    <string name="msg_no_engine_bt2">The Budokai Tenkaichi 2 engine is not included in this build.</string>
 </resources>
