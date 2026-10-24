@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CloudDownload
@@ -27,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -96,13 +99,13 @@ fun DriversScreen(vm: AppViewModel) {
         }
 
         SectionCard(stringResource(R.string.drivers_installed), Icons.Rounded.DeveloperBoard, accent = Dbz.KiBlue) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                RadioButton(selected = chosen == null, onClick = { vm.selectDriver(null) })
+            Row(Modifier.selectable(chosen == null, role = Role.RadioButton) { vm.selectDriver(null) }, verticalAlignment = Alignment.CenterVertically) {
+                RadioButton(selected = chosen == null, onClick = null, modifier = Modifier.minimumInteractiveComponentSize())
                 Text(stringResource(R.string.gpu_driver_system), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
             }
             list.forEach { d ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(selected = chosen == d.id, onClick = { vm.selectDriver(d.id) })
+                Row(Modifier.selectable(chosen == d.id, role = Role.RadioButton) { vm.selectDriver(d.id) }, verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(selected = chosen == d.id, onClick = null, modifier = Modifier.minimumInteractiveComponentSize())
                     Column(Modifier.weight(1f)) {
                         Text(d.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         if (d.version.isNotEmpty()) {
