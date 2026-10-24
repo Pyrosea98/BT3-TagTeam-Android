@@ -23,6 +23,7 @@ def main():
     parser.add_argument("--discover-blocker", action="store_true", help="Discover only the latest observed missing handler/target")
     parser.add_argument("--discover-prologues", action="store_true", help="Create every function that opens a stack frame right after a completed function and is not part of one (pointer-only targets), in one pass")
     parser.add_argument("--program", choices=sorted(overlay_programs.PROGRAMS), help="Analyze a wrapped runtime-loaded overlay instead of the executable")
+    parser.add_argument("--analysis-timeout", type=int, default=600, help="Seconds Ghidra's auto-analysis may take per file (a slower machine needs more)")
     args = parser.parse_args()
     blocker = None
     if args.discover_blocker:
@@ -75,7 +76,7 @@ def main():
                f"-Djava.io.tmpdir={folder / 'temp'}", "-cp", str(utility), "ghidra.Ghidra",
                "ghidra.app.util.headless.AnalyzeHeadless", str(folder / "projects"), project,
                *program_options, "-processor", "r5900:LE:32:default", "-cspec", "default",
-               "-analysisTimeoutPerFile", "600", "-max-cpu", "4",
+               "-analysisTimeoutPerFile", str(args.analysis_timeout), "-max-cpu", "4",
                "-scriptPath", str(ROOT / "tools" / "ghidra"), *discovery, "-postScript", "ExportBT2Candidates.java", str(exports), hex(entry),
                "-log", str(folder / "analysis.log"), "-scriptlog", str(folder / "scripts.log")]
     started = time.time()

@@ -109,6 +109,18 @@ if(EXISTS "${BT2_SOURCE_ROOT}/game/generated/ee-interpreter/ee_interpreter.cmake
 else()
     target_sources(bt2-entry-probe PRIVATE "${BT2_SOURCE_ROOT}/runtime/probe/interpreter_handlers_none.cpp")
 endif()
+# The kernel code the game copies into kernel memory (tools/ps2recomp/generate_kernel.py), when generated:
+# the Windows build's BT2_BUILD_KERNEL_PAYLOAD and BT2_BUILD_STARTUP_KERNEL_PAYLOAD.
+if(EXISTS "${BT2_SOURCE_ROOT}/game/generated/bt2-kernel-runtime/FUN_80076000_0x80076000.cpp")
+    target_sources(bt2-entry-probe PRIVATE "${BT2_SOURCE_ROOT}/game/generated/bt2-kernel-runtime/FUN_80076000_0x80076000.cpp")
+    target_include_directories(bt2-entry-probe PRIVATE "${BT2_SOURCE_ROOT}/game/generated/bt2-kernel-runtime")
+    target_compile_definitions(bt2-entry-probe PRIVATE BT2_KERNEL_PAYLOAD=1)
+    if(EXISTS "${BT2_SOURCE_ROOT}/game/generated/bt2-kernel-runtime-startup/FUN_80075000_0x80075000.cpp")
+        target_sources(bt2-entry-probe PRIVATE "${BT2_SOURCE_ROOT}/game/generated/bt2-kernel-runtime-startup/FUN_80075000_0x80075000.cpp")
+        target_include_directories(bt2-entry-probe PRIVATE "${BT2_SOURCE_ROOT}/game/generated/bt2-kernel-runtime-startup")
+        target_compile_definitions(bt2-entry-probe PRIVATE BT2_STARTUP_KERNEL_PAYLOAD=1)
+    endif()
+endif()
 if(EXISTS "${BT2_GENERATION_DIR}/extra-startup.cmake")
     include("${BT2_GENERATION_DIR}/extra-startup.cmake")
     target_compile_definitions(bt2-entry-probe PRIVATE BT2_EXTRA_STARTUP_BINDINGS=1)

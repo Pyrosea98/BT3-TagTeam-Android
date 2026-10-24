@@ -273,7 +273,8 @@ def main():
     args = parser.parse_args()
     verify_generated()
     addresses = verify_extra()
-    stop = json.loads(args.report.read_text(encoding='utf-8'))
+    # --all needs no run: the stop report is read only to bind what a run reached.
+    stop = {} if args.all else json.loads(args.report.read_text(encoding='utf-8'))
     program = None if args.all else overlay_programs.program_for(stop.get('target'))
     if program:
         select_overlay(program, stop['target'])

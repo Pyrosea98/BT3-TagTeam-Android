@@ -16,6 +16,7 @@
 #include "gs/gpu/gpu_gs_backend.h"
 #include "host/game_folders.h"
 #include "host/player_session.h"
+#include "host/sdl/android_performance.h"
 #include "host/sdl/touch_pad.h"
 #include <SDL3/SDL.h>
 #include <adrenotools/driver.h>
@@ -174,12 +175,20 @@ extern "C" __attribute__((visibility("default"))) int SDL_main(int argc,char* ar
         setEnv("BT2_SIXTY_FPS",settings.sixty_fps?"1":"");
         setEnv("BT2_CARD_FOLDER",folders.card(settings).string());
         for(const char* name:{"BT2_FRAME_LIMIT","BT2_PAD_SCRIPT","BT2_PAD_RECORD","BT2_VIEWER_SCALE","BT2_GPU_GS_SNAPSHOT"})unsetenv(name);
+        // Android-only options the app writes beside the engine's settings (Dragon Rage's Bt2Settings.kt), which
+        // the settings file cannot hold: "gs_hacks = <list>", paraLLEl-GS's speed-for-accuracy options.
+        {
+            std::ifstream in(user/"android");std::string line,hacks;
+            while(std::getline(in,line))if(line.rfind("gs_hacks = ",0)==0)hacks=line.substr(11);
+            setEnv("BT2_GS_HACKS",hacks);
+        }
 
         PlayerSession::quit_to_launcher=quitToApp;
         std::vector<char*> pointers;
         for(auto& arg:args)pointers.push_back(arg.data());
         pointers.push_back(nullptr);
         std::fprintf(stderr,"Starting Budokai Tenkaichi 2 from %s\n",root.c_str());
+        pinToFastCores(); // The game runs on this thread (host/sdl/android_performance.h).
         const int code=bt2_entry_main(int(args.size()),pointers.data());
         std::fprintf(stderr,"The game ended (%d).\n",code);
         if(code)return stop("The game stopped. The messages are in "+utf8(user/"last-run.log")+".");

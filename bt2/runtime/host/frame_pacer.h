@@ -75,12 +75,14 @@ private:
     HANDLE timer_=nullptr;Clock::time_point deadline_{},last_picture_{};bool started_=false,waited_=false;
 };
 #else
+#include "host/sdl/android_performance.h"
 #include <algorithm>
 #include <chrono>
 #include <thread>
 
 // The same clock elsewhere (Android, Linux): the system's sleep is already fine-grained, so the wait
-// sleeps to within a millisecond of the deadline and yields for the rest.
+// sleeps to within a millisecond of the deadline and yields for the rest. On Android each field's work
+// (its length less the wait) is reported to the system's performance hints (host/sdl/android_performance.h).
 class FramePacer {
 public:
     using Clock=std::chrono::steady_clock;
@@ -92,6 +94,10 @@ public:
     void fieldStarted(double factor=1.0) {
         const auto period=std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(field_seconds*std::clamp(factor,0.99,1.01)));
         const auto now=Clock::now();
+        hint_.start(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(field_seconds)).count());
+        if(field_start_!=Clock::time_point{})
+            hint_.report(std::chrono::duration_cast<std::chrono::nanoseconds>(now-field_start_-field_waited_).count());
+        field_start_=now;field_waited_={};
         if(!started_ || now-deadline_>4*period) {deadline_=now;started_=true;}
         deadline_+=period;waited_=false;
     }
@@ -103,7 +109,9 @@ public:
         if(begin>=deadline_) {++late_fields;return;}
         if(deadline_-begin>std::chrono::milliseconds(1))std::this_thread::sleep_until(deadline_-std::chrono::milliseconds(1));
         while(Clock::now()<deadline_)std::this_thread::yield();
-        waited_seconds+=std::chrono::duration<double>(Clock::now()-begin).count();
+        const auto end=Clock::now();
+        field_waited_+=end-begin;
+        waited_seconds+=std::chrono::duration<double>(end-begin).count();
     }
     bool pictureDue() {
         if(!free_run)return true;
@@ -114,5 +122,6 @@ public:
 
 private:
     Clock::time_point deadline_{},last_picture_{};bool started_=false,waited_=false;
+    PerformanceHint hint_;Clock::time_point field_start_{};Clock::duration field_waited_{};
 };
 #endif

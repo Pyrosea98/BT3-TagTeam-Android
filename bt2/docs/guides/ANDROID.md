@@ -18,6 +18,21 @@ Each game has its own process: BT3's loader reserves fixed low addresses as soon
 keeps its state in statics. Both use the app's SDL3, its on-screen controller (`TouchBridge`) and its
 "quit to launcher".
 
+## The app: a BT3 | BT2 switch
+
+A switch at the top of Dragon Rage's pages chooses the game. BT3's pages are the app's own, unchanged; BT2's
+are in `android/app/.../ui/screens/bt2` with their own view model (`Bt2ViewModel`): home (its disc image,
+playing), HD textures, mods (what works: data-only mods of an image with the original program), its own
+on-screen controller layout (`bt2/touch_controls.json`), patches (widescreen, 60 fps fights), its own GPU driver
+choice (`bt2/user/driver`), its own logs and settings. Nothing set on the BT2 tab reaches BT3: BT2's settings
+are `bt2/user/settings` (the engine's file) and `bt2/user/android` (Android-only options such as
+`gs_hacks`), its log is `bt2/user/activity.log` with each run's engine log kept in `bt2/user/runs`.
+`./gradlew assembleDebug -PsideBySide` builds a test app ("Dragon Rage (teste)") that installs beside the
+player's own.
+
+On Android the game thread reports each field's work to the system's performance hints (ADPF, Android 13 and
+later) and is kept off the efficiency cores (`runtime/host/sdl/android_performance.h`).
+
 ## What changed for Android
 
 - **x86 intrinsics on NEON:** `runtime/platform/sse` stands in for `immintrin.h` and the other x86 headers
