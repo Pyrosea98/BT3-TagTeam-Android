@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.verticalScroll
 import androidx.lifecycle.ViewModelProvider
 import com.dfdx047.dragonrage.data.Game
 import com.dfdx047.dragonrage.data.UiPrefs
@@ -155,16 +156,19 @@ private fun DragonRageApp(vm: AppViewModel, onSwitchGame: () -> Unit) {
     Row(Modifier.fillMaxSize().background(colors.background).kiBackground(colors.primary, colors.secondary)) {
         if (wide) {
             NavigationRail(containerColor = Color.Transparent, modifier = Modifier.windowInsetsPadding(WindowInsets.safeDrawing)) {
-                pages.forEach { d ->
+                // nine pages (BT3) are taller than a 1080-pixel landscape screen: the rail scrolls
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    pages.forEach { d ->
+                        NavigationRailItem(
+                            selected = current == d.route, onClick = { go(d) },
+                            icon = { Icon(d.icon, null) }, label = { Text(stringResource(d.label)) },
+                        )
+                    }
                     NavigationRailItem(
-                        selected = current == d.route, onClick = { go(d) },
-                        icon = { Icon(d.icon, null) }, label = { Text(stringResource(d.label)) },
+                        selected = false, onClick = onSwitchGame,
+                        icon = { Icon(Icons.Rounded.SwapHoriz, null) }, label = { Text(stringResource(R.string.nav_switch_game)) },
                     )
                 }
-                NavigationRailItem(
-                    selected = false, onClick = onSwitchGame,
-                    icon = { Icon(Icons.Rounded.SwapHoriz, null) }, label = { Text(stringResource(R.string.nav_switch_game)) },
-                )
             }
         }
         Scaffold(
