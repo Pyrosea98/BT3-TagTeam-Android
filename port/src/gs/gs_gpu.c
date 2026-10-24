@@ -43,6 +43,11 @@ static SDL_GPUDevice *sDev;
    full 1024 x 1024, as before. */
 static int sTW = 512, sTH = 512;
 static unsigned sPassN, sCopyN; /* render passes and copies of the frames since the last report (BT3_GS_VERBOSE) */
+/* (BT3_GS_VERBOSE) why the frame's ordinary passes began: 0 the frame's first, 1 another target, 2 a shadow batch,
+   3 after a DATE copy, 4 after the ids' copy, 5 after a table pass, 6 after a native effect, 7 after a movie picture */
+static unsigned sPassWhy[8];
+/* (BT3_GS_VERBOSE) passes whose draws, up to the next native step, never use the depth buffer / never write alpha */
+static unsigned sPassNoDepth, sPassNoAlpha, sPassNoBoth;
 static SDL_GPUShader *sVs, *sFs, *sFsNd, *sFsNz, *sFsNzNd; /* Nd: gs.frag without its discards (key bit 25); Nz: without its depth output (bit 23) */
 static SDL_GPUTextureFormat sDepthFormat = SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
 static int sShadowStencil;
@@ -254,7 +259,7 @@ static void blend_from_key(uint32_t bkey, SDL_GPUColorTargetBlendState *b) {
 /* Creates the pipeline of a key (everything a pipeline depends on is in the key):
    bits 0..9 blend, 10..11 depth test, 12 depth write, 13..14 topology, 16..19 colour write mask,
    20..21 vertices: 0 GS vertices, 1 program 0, 2 program 4, 3 program 6, 23 gs.frag without its depth output,
-   24 the flat-shadow stencil test. */
+   24 the flat-shadow stencil test, 26 for a render pass without the depth buffer (vk_frame_end: pipe_depthless). */
 static int pipeline_create(uint32_t key, int remember) {
     int ztst = (int)((key >> 10) & 3), zwrite = (int)((key >> 12) & 1), topo = (int)((key >> 13) & 3), vu = (int)((key >> 20) & 3);
     int fx = (int)((key >> 22) & 1); /* a full-screen table pass (dclut.frag): no vertices, no depth attachment */
@@ -311,8 +316,10 @@ static int pipeline_create(uint32_t key, int remember) {
         SDL_zero(op);
         op.fail_op = SDL_GPU_STENCILOP_KEEP;
         op.depth_fail_op = SDL_GPU_STENCILOP_KEEP;
-        op.pass_op = SDL_GPU_STENCILOP_INCREMENT_AND_CLAMP;
-        op.compare_op = SDL_GPU_COMPAREOP_EQUAL;
+        /* each run of flat shadows has a reference of its own (vk_frame_end): a pixel takes it the first time and
+           blocks the run's later triangles, and the run after it needs no cleared stencil (no new render pass) */
+        op.pass_op = SDL_GPU_STENCILOP_REPLACE;
+        op.compare_op = SDL_GPU_COMPAREOP_NOT_EQUAL;
         ci.depth_stencil_state.front_stencil_state = op;
         ci.depth_stencil_state.back_stencil_state = op;
         ci.depth_stencil_state.compare_mask = 0xff;
@@ -327,6 +334,12 @@ static int pipeline_create(uint32_t key, int remember) {
     ci.target_info.num_color_targets = 2;
     ci.target_info.depth_stencil_format = sDepthFormat;
     ci.target_info.has_depth_stencil_target = true;
+    if (key & (1u << 26)) {
+        ci.depth_stencil_state.enable_depth_test = false;
+        ci.depth_stencil_state.enable_depth_write = false;
+        ci.depth_stencil_state.enable_stencil_test = false;
+        ci.target_info.has_depth_stencil_target = false;
+    }
     if (fx) {
         ci.vertex_shader = sFxVs;
         ci.fragment_shader = sDclutFs;
@@ -389,6 +402,20 @@ static int pipe_get(uint32_t key) {
         }
     }
     return pipeline_create(key, 1);
+}
+
+/* The same pipeline for a render pass without the depth buffer (bit 26): the passes whose draws neither test nor
+   write depth (most of a fight's passes: the effects' work buffers and the 2D) then neither load nor store it. */
+static int sDepthlessOf[1024]; /* pipeline index + 1 of the variant, 0 not made yet */
+static int pipe_depthless(int i) {
+    if (sDepthlessOf[i] == 0) {
+        uint32_t want = sPipes[i].key | (1u << 26);
+        int v = pipe_get(want);
+        /* (none made, the table full: index 0 comes back, another pipeline; the depth's own one is still wrong for
+           the pass, so this is only a guard against binding an unrelated one) */
+        sDepthlessOf[i] = v >= 0 && sPipes[v].key == want && sPipes[v].p != NULL ? v + 1 : i + 1;
+    }
+    return sDepthlessOf[i] - 1;
 }
 
 /* How a finished picture reaches the display. on = 0: without waiting for it (MAILBOX: no tearing, no wait; else
@@ -544,12 +571,27 @@ static int vk_init(void) {
         }
         SDL_DestroyProperties(props);
     }
-    sShadowStencil = sDev != NULL && SDL_GPUTextureSupportsFormat(sDev, SDL_GPU_TEXTUREFORMAT_D32_FLOAT_S8_UINT,
-        SDL_GPU_TEXTURETYPE_2D, SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER);
-    sDepthFormat = sShadowStencil ? SDL_GPU_TEXTUREFORMAT_D32_FLOAT_S8_UINT : SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
-    if (sDev != NULL && !sShadowStencil) {
-        fprintf(stderr, "bt3: shadow stencil unavailable; flat shadows may show overlapping model parts\n");
+    {   /* The flat shadows' stencil (depth D32S8 instead of D32, since 0.6.0). Setting "shadow_stencil": 0 automatic,
+           1 on, 2 off (depth alone, as before 0.6.0: overlapping parts of a flat shadow may show darker);
+           BT3_GPU_NO_STENCIL=1 off. Automatic is off on Adreno: measured on an Adreno 650 at 4x in a fight, 70.8 %
+           speed with it and 76.0 % without (the Mali-G57 MC4: no difference, 73 % either way). */
+        int want = Port_Setting("shadow_stencil", 0), adreno = 0;
+#if SDL_VERSION_ATLEAST(3, 4, 0)
+        if (sDev != NULL) {
+            const char *nm = SDL_GetStringProperty(SDL_GetGPUDeviceProperties(sDev), SDL_PROP_GPU_DEVICE_NAME_STRING, "");
+            adreno = nm != NULL && strstr(nm, "Adreno") != NULL;
+        }
+#endif
+        sShadowStencil = sDev != NULL && getenv("BT3_GPU_NO_STENCIL") == NULL && (want == 1 || (want == 0 && !adreno)) &&
+            SDL_GPUTextureSupportsFormat(sDev, SDL_GPU_TEXTUREFORMAT_D32_FLOAT_S8_UINT, SDL_GPU_TEXTURETYPE_2D,
+                                         SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER);
+        if (sDev != NULL && !sShadowStencil && (want == 2 || (want == 0 && adreno))) {
+            fprintf(stderr, "bt3: shadow stencil off (%s): depth alone\n", want == 2 ? "setting shadow_stencil" : "automatic on Adreno");
+        } else if (sDev != NULL && !sShadowStencil) {
+            fprintf(stderr, "bt3: shadow stencil unavailable; flat shadows may show overlapping model parts\n");
+        }
     }
+    sDepthFormat = sShadowStencil ? SDL_GPU_TEXTUREFORMAT_D32_FLOAT_S8_UINT : SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
     sWindow = GsDraw_WindowCreate(0); /* the shared window: shape, display and full screen decided there */    if (sWindow == NULL || !SDL_ClaimWindowForGPUDevice(sDev, sWindow)) {
         fprintf(stderr, "bt3: no GPU window: %s\n", SDL_GetError());
         return 0;
@@ -1048,6 +1090,12 @@ static void vk_frame_end(void) {
     bool acquired;
     uint64_t sEndT[6];
     int lastPipe = -1, lastUni = -1, lastSampler = -1, haveFu = 0, haveScissor = 0; /* what the pass has set (the replay loop) */
+    int broke = 0; /* what ended the last pass (sPassWhy) */
+    int shadowRef = 1; /* the stencil reference of the flat-shadow run being drawn */
+    int passStencil = 0; /* the pass began with its stencil cleared */
+    int passNoDepth = 0; /* the pass has no depth buffer (its draws take pipe_depthless) */
+    static int depthless = -1; /* BT3_GPU_DEPTHLESS=0/1, setting "depthless_passes" (0 automatic: on, 1 on, 2 off) */
+    static int shadowBreak = -1; /* BT3_GPU_SHADOW_BREAK=1: a new render pass for every run of shadows (as before) */
     SDL_GPUTexture *lastTex = NULL;
     struct { int32_t mode[4]; float misc[4]; float rect[4]; float orig[4]; float extra[4]; } lastFu;
     int lastScissor[4];
@@ -1055,9 +1103,19 @@ static void vk_frame_end(void) {
     uint32_t n;
 
     (void)ev;
+    if (shadowBreak < 0) {
+        shadowBreak = getenv("BT3_GPU_SHADOW_BREAK") != NULL;
+    }
+    if (depthless < 0) {
+        const char *e = getenv("BT3_GPU_DEPTHLESS");
+        depthless = e != NULL ? atoi(e) != 0 : Port_Setting("depthless_passes", 0) != 2;
+        fprintf(stderr, "bt3: render passes without the depth buffer where it is not used: %s\n", depthless ? "on" : "off");
+    }
     poll_events();
 #ifdef __ANDROID__
-    if (gGsFrame % 300 == 0 && Port_Setting("perf_log", 1) != 0) { /* a heartbeat in the log (adb logcat -s bt3): is the game running, and drawing? (the launcher's Debug page: perf_log) */
+    static unsigned hbFrame = ~0u; /* (smooth motion shows a frame twice: one heartbeat for it) */
+    if (gGsFrame % 300 == 0 && gGsFrame != hbFrame && Port_Setting("perf_log", 1) != 0) {
+        hbFrame = gGsFrame; /* a heartbeat in the log (adb logcat -s bt3): is the game running, and drawing? (the launcher's Debug page: perf_log) */
         extern unsigned gPortVBlanks;
         extern int gPortInMenus; /* headless.c */
         static uint64_t lastNs;
@@ -1259,6 +1317,7 @@ static void vk_frame_end(void) {
                 pass = NULL;
             }
             cur = -1;
+            broke = 7;
             SDL_zero(bl);
             bl.source.texture = sFbTex[d->native - 100];
             bl.source.w = sTW;
@@ -1278,24 +1337,42 @@ static void vk_frame_end(void) {
         if (d->native == 5) { /* the alpha bytes as they are now, for the draws that test them (TEST.DATE) */
             SDL_GPUCopyPass *cp;
             SDL_GPUTextureLocation from, to;
-            int rx, ry, rw, rh;
+            int rx, ry, rw, rh, copy;
+            static int always = -1; /* BT3_GPU_DATE_BREAK=1: the pass ends here even with nothing to copy (as before) */
+            if (always < 0) {
+                always = getenv("BT3_GPU_DATE_BREAK") != NULL;
+            }
+            /* Only what the draws that follow read (gs_draw.c). With nothing to copy the pass goes on: ending it
+               cost a store and a load of every attachment for nothing (a tiled GPU's whole cost of a pass). */
+            copy = gsTargets[d->target].cleared && GsDraw_DateRegion(n, &rx, &ry, &rw, &rh);
+            {   /* BT3_GPU_NO_DATE_COPY=1: no copy at all (a wrong picture where DATE is tested: only for measuring what
+                   the copies cost) */
+                static int none = -1;
+                if (none < 0) {
+                    none = getenv("BT3_GPU_NO_DATE_COPY") != NULL;
+                }
+                if (none) {
+                    continue;
+                }
+            }
+            if (copy) {
+                if (rx + rw > (int)(sTW * SCALE)) { rw = (int)(sTW * SCALE) - rx; } /* (the targets may be 512 x 512: sTW) */
+                if (ry + rh > (int)(sTH * SCALE)) { rh = (int)(sTH * SCALE) - ry; }
+                copy = rw > 0 && rh > 0;
+            }
+            if (!copy && !always && !passNoDepth) { /* (a pass without depth ends: what follows may need it) */
+                continue;
+            }
             if (pass != NULL) {
                 SDL_EndGPURenderPass(pass);
                 pass = NULL;
             }
             cur = -1;
-            if (!gsTargets[d->target].cleared) {
+            broke = 3;
+            if (!copy) {
                 continue;
             }
             sCopyN++;
-            if (!GsDraw_DateRegion(n, &rx, &ry, &rw, &rh)) { /* only what the draws that follow read (gs_draw.c) */
-                continue;
-            }
-            if (rx + rw > (int)(sTW * SCALE)) { rw = (int)(sTW * SCALE) - rx; } /* (the targets may be 512 x 512: sTW) */
-            if (ry + rh > (int)(sTH * SCALE)) { rh = (int)(sTH * SCALE) - ry; }
-            if (rw <= 0 || rh <= 0) {
-                continue;
-            }
             cp = SDL_BeginGPUCopyPass(cmd);
             SDL_zero(from);
             SDL_zero(to);
@@ -1315,6 +1392,7 @@ static void vk_frame_end(void) {
                 pass = NULL;
             }
             cur = -1;
+            broke = 4;
             if (!gsTargets[d->target].cleared) {
                 continue;
             }
@@ -1339,6 +1417,7 @@ static void vk_frame_end(void) {
                 pass = NULL;
             }
             cur = -1;
+            broke = 5;
             if (!gsTargets[d->target].cleared) {
                 continue;
             }
@@ -1378,6 +1457,7 @@ static void vk_frame_end(void) {
                 pass = NULL;
             }
             cur = -1;
+            broke = 6;
             if (!gsTargets[d->target].cleared) {
                 continue;
             }
@@ -1407,6 +1487,10 @@ static void vk_frame_end(void) {
         shadowStart = (sPipes[d->pipeline].key & (1u << 24)) != 0 &&
             (n == 0 || gsDraws[n - 1].native || gsDraws[n - 1].target != d->target ||
              (sPipes[gsDraws[n - 1].pipeline].key & (1u << 24)) == 0);
+        if (shadowStart && pass != NULL && d->target == cur && passStencil && !shadowBreak && shadowRef < 255) {
+            SDL_SetGPUStencilReference(pass, (Uint8)++shadowRef); /* (the pass goes on: see pipeline_create) */
+            shadowStart = 0;
+        }
         if (shadowStart && pass != NULL) {
             SDL_EndGPURenderPass(pass);
             pass = NULL;
@@ -1431,17 +1515,52 @@ static void vk_frame_end(void) {
             dt.store_op = SDL_GPU_STOREOP_STORE;
             /* Shadow batches stay in this pass. The mask has no use after it, so avoid
                loading or storing stencil on all the other render passes. */
-            dt.stencil_load_op = shadowStart ? SDL_GPU_LOADOP_CLEAR : SDL_GPU_LOADOP_DONT_CARE;
+            /* cleared only where this pass draws flat shadows (the draws up to the next native step on this target):
+               a stencil clear on every pass cost the Adreno 650 a third of its speed at 4x */
+            passStencil = shadowStart;
+            if (sShadowStencil && !shadowBreak && !passStencil) {
+                uint32_t j;
+                for (j = n; j < gsDrawCount && !gsDraws[j].native && gsDraws[j].target == d->target; j++) {
+                    if (gsDraws[j].pipeline >= 0 && (sPipes[gsDraws[j].pipeline].key & (1u << 24)) != 0) {
+                        passStencil = 1;
+                        break;
+                    }
+                }
+            }
+            dt.stencil_load_op = passStencil ? SDL_GPU_LOADOP_CLEAR : SDL_GPU_LOADOP_DONT_CARE;
+            {   /* what the pass's draws use, up to the next native step on this target */
+                uint32_t j;
+                int useDepth = 0, useAlpha = 0;
+                for (j = n; j < gsDrawCount && !gsDraws[j].native && gsDraws[j].target == d->target; j++) {
+                    uint32_t k = sPipes[gsDraws[j].pipeline].key;
+                    useDepth |= ((k >> 10) & 3) != 1 || ((k >> 12) & 1) != 0 || (k & (1u << 24)) != 0;
+                    useAlpha |= ((k >> 16) & SDL_GPU_COLORCOMPONENT_A) != 0;
+                    if (useDepth && useAlpha) {
+                        break;
+                    }
+                }
+                /* (a target's first pass clears its depth: that one keeps it) */
+                passNoDepth = depthless && !useDepth && !passStencil && gsTargets[d->target].cleared;
+                for (j = n; passNoDepth && j < gsDrawCount && !gsDraws[j].native && gsDraws[j].target == d->target; j++) {
+                    passNoDepth = pipe_depthless(gsDraws[j].pipeline) != gsDraws[j].pipeline; /* (made before the pass) */
+                }
+                sPassNoDepth += !useDepth;
+                sPassNoAlpha += !useAlpha;
+                sPassNoBoth += !useDepth && !useAlpha;
+            }
             dt.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
             gsTargets[d->target].cleared = 1;
             cts[0] = ct;
             sPassN++;
-            pass = SDL_BeginGPURenderPass(cmd, cts, 2, &dt);
+            sPassWhy[shadowStart ? 2 : broke ? broke : cur >= 0 ? 1 : 0]++;
+            broke = 0;
+            pass = SDL_BeginGPURenderPass(cmd, cts, 2, passNoDepth ? NULL : &dt);
             {   /* the draws' 1024 x 1024 page (see sTW): larger than the target, which holds its top-left part */
                 SDL_GPUViewport vp = {0.0f, 0.0f, 1024.0f * SCALE, 1024.0f * SCALE, 0.0f, 1.0f};
                 SDL_SetGPUViewport(pass, &vp);
             }
-            if (sShadowStencil) { SDL_SetGPUStencilReference(pass, 0); }
+            shadowRef = 1; /* (the stencil starts cleared to 0) */
+            if (sShadowStencil && !passNoDepth) { SDL_SetGPUStencilReference(pass, (Uint8)shadowRef); }
             cur = d->target;
             bound = -1;
             lastPipe = lastUni = lastSampler = -1; /* a new pass: everything is set again */
@@ -1469,7 +1588,7 @@ static void vk_frame_end(void) {
             lastUni = (int)d->uniform;
         }
         if ((int)d->pipeline != lastPipe) {
-            SDL_BindGPUGraphicsPipeline(pass, sPipes[d->pipeline].p);
+            SDL_BindGPUGraphicsPipeline(pass, sPipes[passNoDepth ? pipe_depthless((int)d->pipeline) : (int)d->pipeline].p);
             lastPipe = (int)d->pipeline;
         }
         if ((SDL_GPUTexture *)(uintptr_t)d->tex != lastTex || (int)d->sampler != lastSampler) {
@@ -1665,8 +1784,16 @@ static void vk_frame_end(void) {
                         (double)sum[0] / 60e6, (double)sum[1] / 60e6, (double)sum[5] / 60e6, (double)sum[2] / 60e6, (double)sum[3] / 60e6,
                         (double)sum[4] / 60e6);
                 fprintf(stderr, "time:   per frame: %.1f render passes, %.1f copies\n", (double)sPassN / 60.0, (double)sCopyN / 60.0);
+                fprintf(stderr, "time:   passes per frame by cause: first %.1f, another target %.1f, shadow %.1f, after a DATE copy %.1f, "
+                                "after the ids' copy %.1f, after a table pass %.1f, after a native effect %.1f, after a movie picture %.1f\n",
+                        sPassWhy[0] / 60.0, sPassWhy[1] / 60.0, sPassWhy[2] / 60.0, sPassWhy[3] / 60.0, sPassWhy[4] / 60.0, sPassWhy[5] / 60.0,
+                        sPassWhy[6] / 60.0, sPassWhy[7] / 60.0);
+                fprintf(stderr, "time:   passes per frame whose draws never use depth %.1f, never write alpha %.1f, neither %.1f\n",
+                        sPassNoDepth / 60.0, sPassNoAlpha / 60.0, sPassNoBoth / 60.0);
             }
             sPassN = sCopyN = 0;
+            memset(sPassWhy, 0, sizeof(sPassWhy));
+            sPassNoDepth = sPassNoAlpha = sPassNoBoth = 0;
             count = 0;
             memset(sum, 0, sizeof(sum));
         }
