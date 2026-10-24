@@ -777,9 +777,12 @@ static void transfer_data(const uint8_t *p, uint32_t bytes) {
         }
         vram_rw(dbp, dbw, dpsm, x, y, 1, c);
     }
-    /* which pages changed: every page the rectangle can touch (pages are 8 KB = 32 blocks) */
+    /* which pages changed: every page the rectangle can touch (pages are 8 KB = 32 blocks). In memory a 24-bit
+       pixel takes 32 bits, and the 8H / 4HL / 4HH formats are bytes or nibbles of 32-bit pixels: counted with their
+       own sizes the last pages of the rectangle were missed, and a texture there could keep its old content. */
     {
-        uint32_t rowbytes = (dbw ? dbw : 1) * 64 * bits / 8, first = dbp / 32 + (gs.ty * rowbytes) / 8192;
+        uint32_t mbits = bits == 24 || dpsm == 0x1B || dpsm == 0x24 || dpsm == 0x2C ? 32 : bits;
+        uint32_t rowbytes = (dbw ? dbw : 1) * 64 * mbits / 8, first = dbp / 32 + (gs.ty * rowbytes) / 8192;
         uint32_t last = dbp / 32 + ((gs.ty + gs.th) * rowbytes + 8191) / 8192;
         for (i = first; i <= last; i++) {
             gGsPageGen[i & 511]++;
