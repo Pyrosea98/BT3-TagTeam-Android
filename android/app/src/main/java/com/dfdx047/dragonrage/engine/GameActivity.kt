@@ -48,9 +48,12 @@ open class GameActivity : SDLActivity() {
     private var pad: TouchSurface? = null
     private val handler = Handler(Looper.getMainLooper())
 
+    /** A menu of the activity's own is over the game (Bt2GameActivity's): the controller steps aside as for the engine's. */
+    protected var overlayOpen = false
+
     private val watchMenu = object : Runnable {
         override fun run() {
-            pad?.suppressed = TouchBridge.menuOpen()
+            pad?.suppressed = overlayOpen || TouchBridge.menuOpen()
             handler.postDelayed(this, 100)
         }
     }
@@ -104,10 +107,7 @@ open class GameActivity : SDLActivity() {
         view.listener = object : TouchListener {
             override fun onPad(buttons: Int, lx: Int, ly: Int, rx: Int, ry: Int) = TouchBridge.setPad(buttons, lx, ly, rx, ry)
 
-            override fun onMenu() {
-                SDLActivity.onNativeKeyDown(KeyEvent.KEYCODE_BACK)
-                SDLActivity.onNativeKeyUp(KeyEvent.KEYCODE_BACK)
-            }
+            override fun onMenu() = onPadMenu()
 
             override fun onOptions() = showOptions()
 
@@ -120,6 +120,15 @@ open class GameActivity : SDLActivity() {
         layout.addView(view.view, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         pad = view
     }
+
+    /** The controller's menu button: the engine's own menu, as the back key opens it (Bt2GameActivity has its own). */
+    protected open fun onPadMenu() {
+        SDLActivity.onNativeKeyDown(KeyEvent.KEYCODE_BACK)
+        SDLActivity.onNativeKeyUp(KeyEvent.KEYCODE_BACK)
+    }
+
+    /** The back key, before it goes to the engine: true when it was handled here (Bt2GameActivity's menu). */
+    protected open fun onBackKey(event: KeyEvent): Boolean = false
 
     override fun onResume() {
         super.onResume()
@@ -134,7 +143,7 @@ open class GameActivity : SDLActivity() {
     }
 
     /** The controller's own quick menu: look, opacity, layout editing, shown or not. */
-    private fun showOptions() {
+    protected fun showOptions() {
         val view = pad ?: return
         var c = view.config
         val dp = resources.displayMetrics.density
@@ -320,6 +329,7 @@ open class GameActivity : SDLActivity() {
                 if (event.action == KeyEvent.ACTION_UP) pad?.editing = false
                 return true
             }
+            if (onBackKey(event)) return true
             when (event.action) {
                 KeyEvent.ACTION_DOWN -> if (event.repeatCount == 0) SDLActivity.onNativeKeyDown(KeyEvent.KEYCODE_BACK)
                 KeyEvent.ACTION_UP -> SDLActivity.onNativeKeyUp(KeyEvent.KEYCODE_BACK)

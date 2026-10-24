@@ -65,7 +65,11 @@ public:
     }
     void pump() {
         SDL_Event event;
-        while(SDL_PollEvent(&event)) {
+        while(SDL_PollEvent(&event))handle(event);
+    }
+    // One event: the window's state (also given the events the BT3 renderer reads itself, gs/hw/hw_gs_mirror.cpp).
+    void handle(const SDL_Event& event) {
+        {
             switch(event.type) {
             case SDL_EVENT_QUIT:case SDL_EVENT_WINDOW_CLOSE_REQUESTED:closed_=true;break;
             case SDL_EVENT_WINDOW_FOCUS_GAINED:focused_=true;break;
@@ -90,6 +94,7 @@ public:
     bool focused() const {return window_ && focused_ && !background_;} // Input is taken only then.
     bool opened() const {return window_!=nullptr;}
     SDL_Window* handle() const {return window_;}
+    SDL_Window* ensureWindow() {if(!window_)create();return window_;} // (the BT3 renderer draws into it)
     // Whether the back key was pressed since the last call.
     bool backPressed() {const bool pressed=back_;back_=false;return pressed;}
 

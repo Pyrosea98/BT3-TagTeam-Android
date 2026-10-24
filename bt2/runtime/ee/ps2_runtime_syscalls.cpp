@@ -1,4 +1,5 @@
 #include "ee_runtime.h"
+#include <cstdlib>
 
 // EeRuntime EE syscall and SIF RPC dispatch (handleSyscall): admits each reached kernel call and
 // routes RPC requests to the owned service handlers.
@@ -354,7 +355,14 @@ void EeRuntime::handleSyscall(std::uint8_t* rdram, R5900Context* context, std::u
             timer3_interrupt_handler = address;
             timer3_interrupt_enable_requested = true;
             ++extended_registrations;
-        } else syscall_handlers[number] = address;
+        } else {
+            syscall_handlers[number] = address;
+            // BT2_SELF_STARTUP (no BIOS kernel): the BIOS keeps the handler in its syscall table at 0x80014D00,
+            // where FUN_00338410 searches for its handlers of 0x83 and 0x5A to find the table. The entry goes
+            // to the kernel overlay; the baseline stays as it was.
+            static const bool self_startup = std::getenv("BT2_SELF_STARTUP") != nullptr;
+            if (self_startup && !kernel_snapshot_.empty()) kernel_patch_words_[0x14D00 + number * 4] = address;
+        }
         ++syscall_registrations;
         // PS2SDK declares void; preserve v0 rather than inventing a result.
         return;

@@ -13,7 +13,9 @@
 #include "host/sdl/sdl_viewer_window.h"
 #include "host/sdl/touch_pad.h"
 #include "services/audio_mixer.h"
+#include <atomic>
 #include <chrono>
+#include <thread>
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
@@ -25,6 +27,10 @@ public:
     // brings its launcher forward instead (runtime/android/android_main.cpp).
     inline static std::function<void()> quit_to_launcher=[]{std::exit(launcher_exit_code);};
     Settings settings;
+    // The Android app's in-game menu (Bt2GameActivity): while `paused` the game stands still at its next field;
+    // a new `reload` reads the settings file again (volumes, scaling) from that field on. Any thread.
+    inline static std::atomic<bool> paused{false};
+    inline static std::atomic<unsigned> reload{0};
 
     PlayerSession(std::string path,ViewerWindow& window,HostInput& input,AudioMixer& mixer,FramePacer* pacer)
         :path_(std::move(path)),window_(window),input_(input),mixer_(mixer),pacer_(pacer) {
@@ -36,6 +42,15 @@ public:
 
     // Once per field: the controller state for the game.
     PadInput padInput() {
+        if(paused) {
+            std::fprintf(stderr,"Paused by the menu.\n");
+            while(paused) {SDL_PumpEvents();std::this_thread::sleep_for(std::chrono::milliseconds(10));}
+            std::fprintf(stderr,"Resumed.\n");
+        }
+        if(const unsigned wanted=reload;wanted!=reloaded_) {
+            reloaded_=wanted;
+            if(auto loaded=Settings::load(path_)) {settings=*loaded;apply();}
+        }
         const auto pad=input_.gamepad();
         if(window_.backPressed() | trigger_.update(pad,false,settings.overlay_start_select))leaveRequested();
         if(!window_.focused()) {fast_switch_.stop();setFast(false);return {};}
@@ -61,6 +76,7 @@ private:
     OverlayTrigger trigger_;FastForward fast_switch_;bool fast_=false;
     Clock::time_point last_leave_{};bool leave_armed_=false;
     unsigned pictures_=0;Clock::time_point window_start_=Clock::now();
+    unsigned reloaded_=0;
 
     // A first press arms leaving; a second one within two seconds leaves.
     void leaveRequested() {

@@ -45,6 +45,13 @@ public:
         deadline_+=period;waited_=false;
     }
     // Waits for the current field's deadline, once per field (a second call in the same field returns at once).
+    // How far past the current field's deadline the run is now (0 when it is not due yet): BT3's renderer leaves
+    // a picture out when this is over a field (gs/hw/hw_gs_mirror.h).
+    double lateSeconds() const {
+        if(!started_)return 0;
+        const auto now=Clock::now();
+        return now>deadline_?std::chrono::duration<double>(now-deadline_).count():0;
+    }
     void wait() {
         if(free_run) {started_=false;return;}
         if(!started_ || waited_)return;
@@ -100,6 +107,13 @@ public:
         field_start_=now;field_waited_={};
         if(!started_ || now-deadline_>4*period) {deadline_=now;started_=true;}
         deadline_+=period;waited_=false;
+    }
+    // How far past the current field's deadline the run is now (0 when it is not due yet): BT3's renderer leaves
+    // a picture out when this is over a field (gs/hw/hw_gs_mirror.h).
+    double lateSeconds() const {
+        if(!started_)return 0;
+        const auto now=Clock::now();
+        return now>deadline_?std::chrono::duration<double>(now-deadline_).count():0;
     }
     void wait() {
         if(free_run) {started_=false;return;}

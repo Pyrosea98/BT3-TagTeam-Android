@@ -21,6 +21,7 @@ public:
     void submit() {gpu_.submit();} // The work so far, without ending the frame (gpu_gs_backend.h).
     void readFifo(std::span<std::uint8_t> out) {gpu_.readFifo(out);} // Local->host data, GPU-only mode.
     void enableTimestamps() {gpu_.enableTimestamps();}
+    std::string timestamps() const {return gpu_.timestampSummary();} // Empty without enableTimestamps.
     void enableHdTextures(const std::filesystem::path& pack,std::uint64_t budget_bytes,GsTextureNames& names) {gpu_.enableHdTextures(pack,budget_bytes,names);}
     // The GPU image of the displayed circuits, from the privileged registers the game last wrote and
     // the video mode of its SetGsCrt request (2 NTSC, 3 PAL), which sets SMODE1 on hardware.

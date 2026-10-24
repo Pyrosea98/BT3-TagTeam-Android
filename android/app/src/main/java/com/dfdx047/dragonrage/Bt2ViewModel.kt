@@ -11,7 +11,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.dfdx047.dragonrage.data.ActivityLog
 import com.dfdx047.dragonrage.data.Bt2Drivers
+import com.dfdx047.dragonrage.data.Bt2Renderer
 import com.dfdx047.dragonrage.data.Bt2Settings
+import com.dfdx047.dragonrage.data.Bt2Unlock
 import com.dfdx047.dragonrage.data.Game
 import com.dfdx047.dragonrage.data.GameDataInstaller
 import com.dfdx047.dragonrage.data.GamePaths
@@ -90,6 +92,12 @@ class Bt2ViewModel(app: Application) : AndroidViewModel(app) {
     private val _driver = MutableStateFlow(Bt2Drivers.selectedId(paths))
     val gpuDriver: StateFlow<String?> = _driver.asStateFlow()
 
+    /** The unlock-everything save is in this APK (assets/bt2/unlock: a 100% save as a card folder). */
+    val unlockAvailable: Boolean = Bt2Unlock.available(app)
+    /** BT2 plays from the unlock-everything card. */
+    private val _unlocked = MutableStateFlow(Bt2Unlock.isOn(paths))
+    val unlocked: StateFlow<Boolean> = _unlocked.asStateFlow()
+
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val messages: SharedFlow<String> = _messages.asSharedFlow()
 
@@ -115,6 +123,7 @@ class Bt2ViewModel(app: Application) : AndroidViewModel(app) {
         _touch.value = touchStore.load() // (the game's quick menu may have changed it)
         _drivers.value = drivers.list()
         _driver.value = Bt2Drivers.selectedId(paths)
+        _unlocked.value = Bt2Unlock.isOn(paths)
         keepFinishedRun()
         _lastRun.value = runCatching { runLog.readLines().takeLast(40) }.getOrDefault(emptyList())
         _runs.value = runs.listFiles()?.sortedByDescending { it.name }.orEmpty()
@@ -162,6 +171,8 @@ class Bt2ViewModel(app: Application) : AndroidViewModel(app) {
             !engineAvailable -> say(str(R.string.msg_no_engine_bt2))
             else -> viewModelScope.launch {
                 withContext(Dispatchers.IO) {
+                    settingsFile.applyPhoneDefaults()
+                    Bt2Renderer(paths).applyPhoneDefaults()
                     val s = _settings.value
                     note("I", "run started: ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE}, GPU ${Renderer.gpuName(paths)}")
                     note("I", "settings: super-sampling ${s.superSampling}x, widescreen ${s.widescreen}, 60 fps ${s.sixtyFps}, " +
@@ -196,6 +207,23 @@ class Bt2ViewModel(app: Application) : AndroidViewModel(app) {
         Bt2Drivers.select(paths, d.id)
         _driver.value = d.id
         say(str(R.string.driver_imported, d.name))
+    }
+
+    // ---- unlock everything
+
+    /**
+     * On: BT2 plays from a card of its own holding a 100% save (<root>/bt2/saves/"Tudo desbloqueado", made from the
+     * APK's assets/bt2/unlock once and kept); the card in use before is remembered. Off: back to that card. The
+     * player's own cards are never changed or deleted.
+     */
+    fun setUnlock(on: Boolean) = viewModelScope.launch(Dispatchers.IO) {
+        val before = settingsFile.memoryCard()
+        if (!Bt2Unlock.set(getApplication(), paths, on)) {
+            note("E", "unlock card not made"); say(str(R.string.msg_error)); return@launch
+        }
+        note("I", if (on) "unlock everything: on (card \"${Bt2Unlock.CARD}\", previous card ${before ?: "(none)"})"
+            else "unlock everything: off (back to ${settingsFile.memoryCard() ?: "the engine's choice"})")
+        _unlocked.value = on
     }
 
     // ---- settings and textures

@@ -6,6 +6,7 @@
 #include <memory>
 #include <span>
 #include <vector>
+#include <atomic>
 #include <string>
 #include <utility>
 
@@ -72,6 +73,12 @@ public:
     // GPU time by the renderer's stages (paraLLEl-GS timestamps), switched on before the first transfer;
     // the summary gives milliseconds per frame (per flush).
     void enableTimestamps();
+    // paraLLEl-GS's speed-for-accuracy options (BT2_GS_HACKS's list) for every renderer from its next frame:
+    // Android's in-game menu changes them while the game runs. Any thread.
+    static void requestHacks(const std::string& list);
+    // Set by the run before each flip: the frame that ends took longer than its fields on the display (frame
+    // skipping, "frame_skip", then does not draw the next one).
+    inline static std::atomic<bool> frame_late{false};
     std::string timestampSummary() const;
 private:
     void copyDrawnPalettes(); // After a flush: the drawn palettes back to the texture names.

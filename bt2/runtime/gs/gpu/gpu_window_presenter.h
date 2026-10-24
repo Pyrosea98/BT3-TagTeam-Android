@@ -3,6 +3,7 @@
 // by the processor, is copied scaled (docs/plans/ee/PERFORMANCE_PLAN.md, presenting without readback).
 // Built only with BT2_GPU_GS; used by gpu_gs_backend.cpp.
 #pragma once
+#include <atomic>
 #include "host/window_presenter.h"
 #include "context.hpp"
 #include "device.hpp"
@@ -21,6 +22,10 @@ public:
     void lost() override;
     // The instance extensions a swapchain on the window needs (the backend creates its instance with them).
     static std::vector<const char*> instanceExtensions();
+    // How pictures reach the display: 0 automatic (mailbox or immediate, as the driver has), 1 FIFO (waits for
+    // the display's refresh), 2 mailbox, 3 immediate. The Android in-game menu changes it while the game runs;
+    // it applies from the next picture. Any thread.
+    inline static std::atomic<int> present_mode{0};
 private:
     struct State;
     std::unique_ptr<State> state_;

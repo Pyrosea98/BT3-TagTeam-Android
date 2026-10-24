@@ -3,6 +3,9 @@ package com.dfdx047.dragonrage.ui.screens.bt2
 // BT2's on-screen controller page: BT3's ControlsScreen for BT2's own layout (Bt2ViewModel.touch,
 // <root>/bt2/touch_controls.json), without BT3's engine options. Changes here never reach BT3.
 
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import com.dfdx047.dragonrage.touch.Ctl
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -72,6 +75,7 @@ import com.dfdx047.dragonrage.touch.TouchSurface
 import com.dfdx047.dragonrage.touch.createTouchSurface
 import com.dfdx047.dragonrage.touch.view
 import com.dfdx047.dragonrage.ui.components.ScreenTitle
+import com.dfdx047.dragonrage.ui.components.SkinLegend
 import com.dfdx047.dragonrage.ui.components.SectionCard
 import com.dfdx047.dragonrage.ui.theme.Dbz
 import kotlin.math.roundToInt
@@ -96,12 +100,14 @@ fun Bt2ControlsScreen(vm: Bt2ViewModel) {
         ) {
             key(c.layout) { // (the other layout is another view)
                 AndroidView(
-                    factory = { ctx -> createTouchSurface(ctx, c.copy(mode = TouchMode.ALWAYS)).view },
+                    // (a preview inside a scrolling page: no display-cutout safe area, TouchPadView.ignoreCutout)
+                    factory = { ctx -> createTouchSurface(ctx, c.copy(mode = TouchMode.ALWAYS)).also { (it as? TouchPadView)?.ignoreCutout = true }.view },
                     update = { (it as TouchSurface).config = c.copy(mode = TouchMode.ALWAYS) },
                     modifier = Modifier.fillMaxSize(),
                 )
             }
         }
+        SkinLegend(c.skin)
         FilledTonalButton(onClick = { editing = true }, modifier = Modifier.fillMaxWidth()) {
             Icon(Icons.Rounded.Edit, null, Modifier.size(18.dp)); Spacer(Modifier.size(8.dp)); Text(stringResource(R.string.touch_edit_layout))
         }

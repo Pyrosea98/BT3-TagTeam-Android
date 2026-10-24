@@ -20,7 +20,16 @@ def main():
     lock = json.loads((ROOT / "config" / "parallel_gs.lock.json").read_text(encoding="utf-8"))
     record = lock["parallel-gs"]
     patches = [ROOT / p for p in lock.get("patches", [])]
+    # Patches to the Granite submodule, applied inside it ("granite_patches": Vulkan 1.1 drivers' extensions).
+    granite_patches = [ROOT / p for p in lock.get("granite_patches", [])]
     destination = ROOT / "work" / "dependencies" / f"parallel-gs-{record['revision'][:12]}"
+    granite = destination / "Granite"
+    if granite.is_dir() and (granite / ".git").exists() and dirty(granite):
+        for patch in reversed(granite_patches):
+            run("git", "-C", granite, "apply", "-R", patch)
+    if destination.exists():
+        # slangmosh.hpp is made by rebuild_gs_shaders.py, not by a patch: back to the revision's own first.
+        run("git", "-C", destination, "checkout", "--", "gs/shaders/slangmosh.hpp")
     if destination.exists() and dirty(destination):
         # Only the project's own patches may be there: take them off in reverse order.
         for patch in reversed(patches):
@@ -34,6 +43,10 @@ def main():
     checkout("parallel-gs", record)  # Verifies the pinned, clean checkout.
     for patch in patches:
         run("git", "-C", destination, "apply", patch)
+    for patch in granite_patches:
+        run("git", "-C", granite, "apply", patch)
+    # The shaders the patches change, compiled again into slangmosh.hpp.
+    run(sys.executable, ROOT / "tools" / "graphics" / "gpu" / "rebuild_gs_shaders.py")
     print(destination.relative_to(ROOT).as_posix())
 
 

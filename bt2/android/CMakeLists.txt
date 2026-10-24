@@ -54,6 +54,7 @@ add_library(SDL3 SHARED IMPORTED)
 set_target_properties(SDL3 PROPERTIES IMPORTED_LOCATION "${BT2_SDL3_DIR}/lib/libSDL3.so" INTERFACE_INCLUDE_DIRECTORIES "${BT2_SDL3_DIR}/include")
 
 set(BT2_ANDROID_SOURCES
+    "${BT2_SOURCE_ROOT}/runtime/gs/hw/hw_gs_mirror.cpp"
     "${BT2_SOURCE_ROOT}/runtime/gs/gpu/gpu_gs_backend.cpp"
     "${BT2_SOURCE_ROOT}/runtime/gs/gpu/gpu_gs_mirror.cpp"
     "${BT2_SOURCE_ROOT}/runtime/gs/gpu/hd_texture_pack.cpp"
@@ -63,6 +64,23 @@ set(BT2_ANDROID_SOURCES
     "${BT2_SOURCE_ROOT}/runtime/android/android_main.cpp")
 
 # What every unit of the engine is built with.
+# BT3's renderer (runtime/gs/hw/bt3: a copy of Tenkaichi3DecompAndroid's port/src/gs, BT2_RENDERER=bt3), in C as BT3
+# builds it, with its shaders made the same way (tools/graphics/hw/make_bt3_shaders.py) and bt3_host.c for what it
+# asks of the BT3 port around it.
+set(BT2_HW_GS_DIR "${BT2_SOURCE_ROOT}/runtime/gs/hw")
+file(GLOB BT2_HW_GS_SHADERS "${BT2_HW_GS_DIR}/bt3/shaders/*.vert" "${BT2_HW_GS_DIR}/bt3/shaders/*.frag")
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/hw_gs/shaders.h"
+    COMMAND "${Python3_EXECUTABLE}" "${BT2_SOURCE_ROOT}/tools/graphics/hw/make_bt3_shaders.py" "${CMAKE_CURRENT_BINARY_DIR}/hw_gs"
+    DEPENDS ${BT2_HW_GS_SHADERS} "${BT2_SOURCE_ROOT}/tools/graphics/hw/make_bt3_shaders.py")
+add_library(bt2-hw-gs STATIC
+    "${BT2_HW_GS_DIR}/bt3/gs_core.c" "${BT2_HW_GS_DIR}/bt3/gs_draw.c" "${BT2_HW_GS_DIR}/bt3/gs_gpu.c" "${BT2_HW_GS_DIR}/bt3/gs_gl.c"
+    "${BT2_HW_GS_DIR}/bt3_host.c" "${CMAKE_CURRENT_BINARY_DIR}/hw_gs/shaders.h")
+target_include_directories(bt2-hw-gs PRIVATE "${BT2_HW_GS_DIR}/bt3" "${CMAKE_CURRENT_BINARY_DIR}/hw_gs")
+target_compile_definitions(bt2-hw-gs PRIVATE BT3_ANDROID=1)
+target_compile_options(bt2-hw-gs PRIVATE -O2 -fPIC -fvisibility=hidden -fno-strict-aliasing -w)
+target_link_libraries(bt2-hw-gs PRIVATE SDL3)
+
 function(bt2_android_target target)
     set_target_properties(${target} PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
     # The x86 intrinsic headers stand in for the compiler's (runtime/platform/sse): first on the path.
@@ -73,10 +91,11 @@ function(bt2_android_target target)
     # The PS2's float results are compared bit for bit: no contraction into fused multiply-adds (x86 has
     # none in SSE either), no fast math.
     target_compile_options(${target} PRIVATE -O2 -ffp-contract=off -fno-fast-math -fvisibility=hidden -w)
-    target_link_libraries(${target} PRIVATE parallel-gs SDL3 adrenotools)
+    target_link_libraries(${target} PRIVATE parallel-gs SDL3 adrenotools bt2-hw-gs)
 endfunction()
 # The runtime's main is called by android_main.cpp.
-set_source_files_properties("${BT2_SOURCE_ROOT}/runtime/probe/entry_probe.cpp" PROPERTIES COMPILE_DEFINITIONS "main=bt2_entry_main")
+# (and BT3's renderer, gs/hw: only this build has it)
+set_source_files_properties("${BT2_SOURCE_ROOT}/runtime/probe/entry_probe.cpp" PROPERTIES COMPILE_DEFINITIONS "main=bt2_entry_main;BT2_HW_GS=1")
 
 if(BT2_RUNTIME_CHECK)
     # The handwritten units only: generated functions, and the bindings that include their declarations, left out.

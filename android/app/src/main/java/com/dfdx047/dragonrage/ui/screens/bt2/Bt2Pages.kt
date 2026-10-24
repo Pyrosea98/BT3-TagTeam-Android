@@ -1,5 +1,10 @@
 package com.dfdx047.dragonrage.ui.screens.bt2
 
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -104,12 +109,33 @@ fun Bt2ModsScreen() {
 @Composable
 fun Bt2CheatsScreen(vm: Bt2ViewModel) {
     val s by vm.settings.collectAsStateWithLifecycle()
+    val unlocked by vm.unlocked.collectAsStateWithLifecycle()
+    var confirm by remember { mutableStateOf(false) }
     Bt2Page(stringResource(R.string.bt2_cheats_title), stringResource(R.string.bt2_next_start)) {
+        // Unlock everything: a 100% save on a card of its own (Bt2ViewModel.setUnlock), as BT3's page offers it.
+        SectionCard(stringResource(R.string.bt2_unlock_title), Icons.Rounded.LockOpen) {
+            if (vm.unlockAvailable) {
+                SwitchRow(stringResource(R.string.bt2_unlock_title), stringResource(R.string.bt2_unlock_text), unlocked) { on ->
+                    if (on) confirm = true else vm.setUnlock(false)
+                }
+            } else {
+                Text(stringResource(R.string.bt2_unlock_missing), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
         SectionCard(stringResource(R.string.bt2_cheats_title), Icons.Rounded.LockOpen) {
             SwitchRow(stringResource(R.string.bt2_patch_widescreen), stringResource(R.string.bt2_patch_widescreen_text), s.widescreen) { on -> vm.update { it.copy(widescreen = on) } }
             SwitchRow(stringResource(R.string.bt2_patch_60), stringResource(R.string.bt2_patch_60_text), s.sixtyFps) { on -> vm.update { it.copy(sixtyFps = on) } }
             Text(stringResource(R.string.bt2_cheats_none), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+    }
+    if (confirm) {
+        AlertDialog(
+            onDismissRequest = { confirm = false },
+            title = { Text(stringResource(R.string.bt2_unlock_q)) },
+            text = { Text(stringResource(R.string.bt2_unlock_q_text)) },
+            confirmButton = { TextButton(onClick = { confirm = false; vm.setUnlock(true) }) { Text(stringResource(R.string.unlock)) } },
+            dismissButton = { TextButton(onClick = { confirm = false }) { Text(stringResource(R.string.cancel)) } },
+        )
     }
 }
 

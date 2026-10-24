@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.HighQuality
@@ -29,6 +30,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dfdx047.dragonrage.Bt2ViewModel
 import com.dfdx047.dragonrage.R
+import com.dfdx047.dragonrage.data.Bt2Settings
 import com.dfdx047.dragonrage.ui.components.SectionCard
 
 /** BT2's settings (Bt2Settings): picture, sound and the GPU's speed-for-accuracy options. */
@@ -46,14 +48,37 @@ fun Bt2SettingsScreen(vm: Bt2ViewModel) {
                 }
             }
             Text(stringResource(R.string.bt2_set_ss_text), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.bt2_set_output), style = MaterialTheme.typography.bodyLarge)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Bt2Settings.OUTPUT_SCALES.forEach { n ->
+                    FilterChip(selected = s.outputScale == n, onClick = { vm.update { it.copy(outputScale = n) } }, label = { Text("$n%") })
+                }
+            }
+            Text(stringResource(R.string.bt2_set_output_text), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             SwitchRow(stringResource(R.string.bt2_patch_widescreen), null, s.widescreen) { on -> vm.update { it.copy(widescreen = on) } }
             SwitchRow(stringResource(R.string.bt2_set_integer), stringResource(R.string.bt2_set_integer_text), s.integerScaling) { on -> vm.update { it.copy(integerScaling = on) } }
             SwitchRow(stringResource(R.string.bt2_set_fps), stringResource(R.string.bt2_set_fps_text), s.showFrameRate) { on -> vm.update { it.copy(showFrameRate = on) } }
         }
         SectionCard(stringResource(R.string.bt2_set_speed), Icons.Rounded.Speed, accent = MaterialTheme.colorScheme.tertiary) {
+            SwitchRow(stringResource(R.string.bt2_set_frameskip), stringResource(R.string.bt2_set_frameskip_text), s.frameSkip) { on -> vm.update { it.copy(frameSkip = on) } }
+            Text(stringResource(R.string.bt2_set_present), style = MaterialTheme.typography.bodyLarge)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(stringResource(R.string.bt2_present_auto), "FIFO (VSync)", "Mailbox", "Immediate").forEachIndexed { n, label ->
+                    FilterChip(selected = s.presentMode == n, onClick = { vm.update { it.copy(presentMode = n) } }, label = { Text(label) })
+                }
+            }
+            Text(stringResource(R.string.bt2_set_present_text), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             SwitchRow(stringResource(R.string.bt2_set_light), stringResource(R.string.bt2_set_light_text), s.blendDemote) { on -> vm.update { it.copy(blendDemote = on) } }
             SwitchRow(stringResource(R.string.bt2_set_nomip), stringResource(R.string.bt2_set_nomip_text), s.noMipmaps) { on -> vm.update { it.copy(noMipmaps = on) } }
+            SwitchRow(stringResource(R.string.bt2_set_unsynced), stringResource(R.string.bt2_set_unsynced_text), s.unsyncedReadbacks) { on -> vm.update { it.copy(unsyncedReadbacks = on) } }
+            SwitchRow(stringResource(R.string.bt2_set_promote), stringResource(R.string.bt2_set_promote_text), s.backbufferPromotion) { on -> vm.update { it.copy(backbufferPromotion = on) } }
+            Text(stringResource(R.string.bt2_set_live), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             SwitchRow(stringResource(R.string.bt2_patch_60), stringResource(R.string.bt2_patch_60_text), s.sixtyFps) { on -> vm.update { it.copy(sixtyFps = on) } }
+        }
+        SectionCard(stringResource(R.string.bt2_fx_title), Icons.Rounded.AutoAwesome, accent = MaterialTheme.colorScheme.primary) {
+            SwitchRow(stringResource(R.string.bt2_fx_screen), stringResource(R.string.bt2_fx_screen_text), s.screenEffects) { on -> vm.update { it.copy(screenEffects = on) } }
+            SwitchRow(stringResource(R.string.bt2_fx_fog), stringResource(R.string.bt2_fx_fog_text), s.fog) { on -> vm.update { it.copy(fog = on) } }
+            Text(stringResource(R.string.bt2_fx_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         SectionCard(stringResource(R.string.bt2_set_sound), Icons.Rounded.VolumeUp, accent = MaterialTheme.colorScheme.secondary) {
             Volume(stringResource(R.string.bt2_set_master), s.masterVolume) { v -> vm.update { it.copy(masterVolume = v) } }

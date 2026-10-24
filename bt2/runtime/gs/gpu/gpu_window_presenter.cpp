@@ -115,6 +115,7 @@ struct GpuWindowPresenter::State {
     std::unique_ptr<WindowPlatform> platform;
     std::unique_ptr<Vulkan::WSI> wsi;
     Vulkan::ImageHandle enlarged; // The picture at whole multiples of its size, kept while the size stays.
+    int mode=0; // The present_mode the swapchain has.
     ~State() {enlarged.reset();wsi.reset();} // The swapchain goes before its platform.
 };
 
@@ -124,6 +125,17 @@ GpuWindowPresenter::GpuWindowPresenter(Vulkan::ContextHandle context,Vulkan::Dev
 GpuWindowPresenter::~GpuWindowPresenter() {
     if(device_)device_->wait_idle();
     state_.reset();
+}
+
+namespace {
+Vulkan::PresentMode presentMode(int mode) {
+    switch(mode) {
+    case 1:return Vulkan::PresentMode::SyncToVBlank;
+    case 2:return Vulkan::PresentMode::UnlockedNoTearing;
+    case 3:return Vulkan::PresentMode::UnlockedForceTearing;
+    default:return Vulkan::PresentMode::UnlockedMaybeTear; // Our pacer decides when a picture appears.
+    }
+}
 }
 
 void GpuWindowPresenter::show(void* window,const DisplayFrame* frame,Rect at,unsigned client_width,unsigned client_height,bool smooth,
@@ -136,14 +148,15 @@ void GpuWindowPresenter::show(void* window,const DisplayFrame* frame,Rect at,uns
         s.platform->size(client_width,client_height);
         s.wsi=std::make_unique<Vulkan::WSI>();
         s.wsi->set_platform(s.platform.get());
-        // Our pacer decides when a picture appears: no waiting for the display's refresh here.
-        s.wsi->set_present_mode(Vulkan::PresentMode::UnlockedMaybeTear);
+        // The chosen presentation (present_mode); automatic leaves when a picture appears to our pacer.
+        s.wsi->set_present_mode(presentMode(present_mode));s.mode=present_mode;
         s.wsi->set_backbuffer_format(Vulkan::BackbufferFormat::UNORM); // The picture's values as they are.
         s.wsi->set_extra_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT);   // Pictures are copied in.
         if(!s.wsi->init_from_existing_context(context_) || !s.wsi->init_device(device_) || !s.wsi->init_surface_swapchain())
             throw std::runtime_error("GPU presenter: no swapchain for the window");
     }
     s.platform->size(client_width,client_height);
+    if(const int mode=present_mode;mode!=s.mode) {s.wsi->set_present_mode(presentMode(mode));s.mode=mode;}
     auto& device=*device_;
     if(!s.wsi->begin_frame()) {
 #ifndef _WIN32

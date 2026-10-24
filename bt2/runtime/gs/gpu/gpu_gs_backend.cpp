@@ -8,6 +8,9 @@
 #include "gs_interface.hpp"
 #include "thread_id.hpp"
 #include <array>
+#include <atomic>
+#include <mutex>
+#include <vector>
 #include <string>
 #include <cstdlib>
 #include <algorithm>
@@ -32,11 +35,65 @@ struct GpuGsBackend::State {
     struct PaletteCopy {Vulkan::BufferHandle buffer;Vulkan::Fence fence;std::vector<unsigned> pages;bool pending=false;};
     std::array<PaletteCopy,3> palette_copies;unsigned next_palette_copy=0;
     GsTextureNames* names=nullptr;std::vector<GsTextureNames*> palette_targets;
-    ~State() {presenter.reset();picture.reset();}
+    unsigned hacks_seen=0; // The requestHacks generation this renderer has.
+    // Frame skipping ("frame_skip"): a frame is not drawn when the GPU has not finished the one before it.
+    bool frame_skip=false,skipped_last=false,frame_not_drawn=false;std::uint64_t previous_frame_timeline=0;unsigned frames_skipped=0;
+    bool saves_shader_cache=false; // The primary renderer keeps the device's compiled pipelines (BT2_SHADER_CACHE).
+    ~State();
 };
 
 namespace {
 PFN_vkGetInstanceProcAddr vulkan_loader=nullptr;
+
+// BT2_SHADER_CACHE (Android: <root>/bt2/user/shader-cache.bin): the driver's compiled pipelines, kept between
+// runs so the renderer's shaders are compiled once per driver rather than on every start, which takes seconds of
+// all the CPU's cores on a phone. One file per GPU and driver version (shader-cache-<device>-<driver>.bin), so
+// switching between the system's driver and a custom one keeps both.
+std::string shaderCachePath(Vulkan::Device& device) {
+    const char* base=std::getenv("BT2_SHADER_CACHE");
+    if(!base)return {};
+    std::string path=base;
+    const auto& gpu=device.get_gpu_properties();
+    char tag[48];std::snprintf(tag,sizeof tag,"-%08x-%08x",gpu.deviceID,gpu.driverVersion);
+    const auto dot=path.rfind('.');
+    return dot==std::string::npos?path+tag:path.substr(0,dot)+tag+path.substr(dot);
+}
+
+void loadShaderCache(Vulkan::Device& device) {
+    const auto file_path=shaderCachePath(device);
+    if(file_path.empty())return;
+    // (the one file of earlier builds, for the driver it was made with: Granite refuses another's)
+    const char* path=file_path.c_str();
+    std::FILE* file=std::fopen(path,"rb");
+    if(!file)file=std::fopen(std::getenv("BT2_SHADER_CACHE"),"rb");
+    std::vector<std::uint8_t> data;
+    if(file) {
+        std::fseek(file,0,SEEK_END);const long size=std::ftell(file);std::fseek(file,0,SEEK_SET);
+        if(size>0) {data.resize(std::size_t(size));if(std::fread(data.data(),1,data.size(),file)!=data.size())data.clear();}
+        std::fclose(file);
+    }
+    if(!device.init_pipeline_cache(data.empty()?nullptr:data.data(),data.size()))std::fprintf(stderr,"GPU GS: no pipeline cache\n");
+    else std::fprintf(stderr,"GPU GS: pipeline cache %s (%zu bytes): %s\n",data.empty()?"started":"loaded",data.size(),path);
+}
+
+void saveShaderCache(Vulkan::Device& device) {
+    const auto file_path=shaderCachePath(device);
+    if(file_path.empty())return;
+    const char* path=file_path.c_str();
+    // The cache can grow between its size and its copy (pipelines compiled on other threads): asked again then.
+    std::vector<std::uint8_t> data;
+    for(unsigned attempt=0;attempt<3;++attempt) {
+        data.resize(device.get_pipeline_cache_size()); // Exactly: the file's hash covers all of it.
+        if(!data.empty() && device.get_pipeline_cache_data(data.data(),data.size()))break;
+        data.clear();
+    }
+    if(data.empty())return;
+    const std::string temporary=std::string(path)+".new"; // Written whole, then put in place: never half a file.
+    std::FILE* file=std::fopen(temporary.c_str(),"wb");
+    if(!file)return;
+    const bool written=std::fwrite(data.data(),1,data.size(),file)==data.size();
+    if(std::fclose(file)==0 && written)std::rename(temporary.c_str(),path);
+}
 
 // paraLLEl-GS's minimum (gs_renderer.cpp, GSRenderer::init), checked first so the player learns what the
 // GPU's driver lacks instead of a bare failure; empty when everything is there.
@@ -49,7 +106,6 @@ std::string missingRequirements(Vulkan::Device& device) {
     need(ext.vk12_features.descriptorIndexing,"descriptor indexing");
     need(ext.vk12_features.timelineSemaphore,"timeline semaphores");
     need(ext.vk12_features.bufferDeviceAddress,"buffer device address");
-    need(ext.vk12_features.storageBuffer8BitAccess,"8-bit storage");
     need(ext.vk11_features.storageBuffer16BitAccess,"16-bit storage");
     need(ext.enabled_features.shaderInt16,"16-bit integers in shaders");
     need(ext.vk12_features.scalarBlockLayout,"scalar block layout");
@@ -59,11 +115,8 @@ std::string missingRequirements(Vulkan::Device& device) {
     return missing;
 }
 
-ParallelGS::Hacks hacksFromEnvironment() {
+ParallelGS::Hacks parseHacks(const std::string& text) {
     ParallelGS::Hacks hacks;
-    const char* list=std::getenv("BT2_GS_HACKS");
-    if(!list)return hacks;
-    const std::string text=list;
     for(std::size_t at=0;at<=text.size();) {
         const auto end=std::min(text.find(',',at),text.size());
         const auto name=text.substr(at,end-at);
@@ -71,18 +124,45 @@ ParallelGS::Hacks hacksFromEnvironment() {
         else if(name=="unsynced_readbacks")hacks.unsynced_readbacks=true;
         else if(name=="backbuffer_promotion")hacks.backbuffer_promotion=true;
         else if(name=="no_mipmaps")hacks.disable_mipmaps=true;
+        else if(name=="late_readbacks")hacks.late_readbacks=true;
+        else if(name=="skip_feedback")hacks.skip_feedback_effects=true;
+        else if(name=="no_fog")hacks.disable_fog=true;
+        else if(name=="frame_skip");      // Not paraLLEl-GS's: GpuGsBackend::flush (frameSkip).
         else if(!name.empty())throw std::runtime_error("BT2_GS_HACKS: unknown option "+name);
         at=end+1;
     }
-    std::fprintf(stderr,"GPU GS: speed-for-accuracy options %s\n",list);
     return hacks;
 }
+
+// Whether `text` (BT2_GS_HACKS's list) asks for frame skipping.
+bool frameSkip(const std::string& text) {return (","+text+",").find(",frame_skip,")!=std::string::npos;}
+
+ParallelGS::Hacks hacksFromEnvironment() {
+    const char* list=std::getenv("BT2_GS_HACKS");
+    if(!list)return {};
+    std::fprintf(stderr,"GPU GS: speed-for-accuracy options %s\n",list);
+    return parseHacks(list);
+}
+
+// requestHacks: the list and its generation; each renderer takes a newer one at its next frame.
+std::mutex requested_lock;std::string requested_hacks;std::atomic<unsigned> hacks_generation{0};
 }
 
 void GpuGsBackend::setVulkanLoader(void* get_instance_proc_addr) {vulkan_loader=reinterpret_cast<PFN_vkGetInstanceProcAddr>(get_instance_proc_addr);}
 
+void GpuGsBackend::requestHacks(const std::string& list) {
+    parseHacks(list); // An unknown name throws here, on the caller's thread, rather than in the game's.
+    {std::lock_guard hold(requested_lock);requested_hacks=list;}
+    ++hacks_generation;
+}
+
 GpuGsBackend::GpuGsBackend()=default;
 GpuGsBackend::~GpuGsBackend()=default;
+
+GpuGsBackend::State::~State() {
+    if(saves_shader_cache && device)saveShaderCache(*device);
+    presenter.reset();picture.reset();
+}
 
 void GpuGsBackend::init(unsigned super_sampling) {
     if(super_sampling!=1 && super_sampling!=2 && super_sampling!=4 && super_sampling!=8 && super_sampling!=16)
@@ -105,11 +185,13 @@ void GpuGsBackend::init(unsigned super_sampling) {
         if(!missing.empty())throw std::runtime_error(std::string("This GPU's Vulkan driver (")+gpu.deviceName+") lacks what the renderer needs: "+missing+
             ". Mali GPUs before Valhall (G52, G72, G76) and Adreno before the 600 series do not have it; on Adreno a newer driver (such as Turnip) may.");
     }
+    loadShaderCache(*state->device);state->saves_shader_cache=true; // Before paraLLEl-GS starts compiling.
     state->device->init_frame_contexts(8);
     ParallelGS::GSOptions options;options.super_sampling=ParallelGS::SuperSampling(super_sampling);
     state->high_resolution=super_sampling>=4;
     if(!state->gs.init(state->device.get(),options))throw std::runtime_error("GPU GS: paraLLEl-GS initialization failed");
     state->gs.set_hacks(hacksFromEnvironment());
+    if(const char* list=std::getenv("BT2_GS_HACKS"))state->frame_skip=frameSkip(list);
     state_=std::move(state);
 }
 
@@ -184,7 +266,28 @@ void GpuGsBackend::readFifo(std::span<std::uint8_t> out) {
 }
 
 void GpuGsBackend::flush() {
+    if(const unsigned generation=hacks_generation;generation!=state_->hacks_seen) {
+        std::string list;{std::lock_guard hold(requested_lock);list=requested_hacks;}
+        state_->gs.set_hacks(parseHacks(list));state_->hacks_seen=generation;
+        state_->frame_skip=frameSkip(list);
+        if(!state_->frame_skip) {state_->gs.set_skip_draws(false);state_->skipped_last=false;}
+        std::fprintf(stderr,"GPU GS: speed-for-accuracy options now %s\n",list.empty()?"none":list.c_str());
+    }
     state_->gs.flush();++state_->scanouts;
+    state_->frame_not_drawn=state_->frame_skip && state_->skipped_last; // This frame's draws were dropped.
+    if(state_->frame_skip) {
+        // Behind: this frame took longer than its time on the display (frame_late), or the one before it is not
+        // done on the GPU yet. Then the next one is not drawn (its transfers still are), never two in a row, so
+        // the game keeps its speed and shows every other frame at worst.
+        const bool behind=frame_late || (state_->previous_frame_timeline && state_->gs.completed_timeline_value()<state_->previous_frame_timeline);
+        const bool skip=behind && !state_->skipped_last;
+        state_->gs.set_skip_draws(skip);state_->skipped_last=skip;
+        if(skip && ++state_->frames_skipped%600==0)std::fprintf(stderr,"GPU GS: %u frames skipped so far\n",state_->frames_skipped);
+        state_->previous_frame_timeline=state_->gs.submitted_timeline_value();
+    }
+    // Kept once the start's shaders are in (about ten seconds), then every minute or so: Android may end the
+    // process without a shutdown.
+    if(state_->saves_shader_cache && (state_->scanouts==600 || state_->scanouts%3600==0))saveShaderCache(*state_->device);
     if(state_->pack) {
         state_->pack->loadPending(); // Between frames, after the renderer's work is submitted.
         copyDrawnPalettes();
@@ -248,6 +351,9 @@ std::pair<unsigned,unsigned> GpuGsBackend::vsync(unsigned field) {
     info.dst_stage=VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
     info.dst_access=VK_ACCESS_2_TRANSFER_READ_BIT;
     info.force_progressive=true;info.anti_blur=true;info.high_resolution_scanout=state_->high_resolution;
+    // A frame that frame skipping did not draw: its buffer holds the picture from two frames back (the game
+    // alternates two), so the last picture is shown again instead.
+    if(state_->frame_not_drawn && state_->picture)return {state_->picture->get_width(),state_->picture->get_height()};
     const auto result=state_->gs.vsync(info);
     state_->picture=result.image;
     if(!result.image)return {0,0};

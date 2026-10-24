@@ -134,6 +134,8 @@ private fun DragonRageApp(vm: AppViewModel, bt2: Bt2ViewModel) {
     LaunchedEffect(Unit) { bt2.messages.collect { snackbar.showSnackbar(it) } }
     // Which game's pages are shown (the switch at the top): BT3's are the app's own pages, as they always were.
     var game by rememberSaveable { mutableStateOf(Game.BT3) }
+    // without BT2's engine in the APK (the public CI's builds) the app is BT3's alone, as before: no switch
+    if (!bt2.engineAvailable) game = Game.BT3
     // files may have been changed from outside (file manager, adb) while the app was in the background
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshAll(); vm.resumeUpdate(); vm.checkLastRun(); bt2.refresh() }
     UpdateDialog(vm)
@@ -181,7 +183,7 @@ private fun DragonRageApp(vm: AppViewModel, bt2: Bt2ViewModel) {
             },
         ) { pad ->
             Column(Modifier.fillMaxSize().padding(pad), horizontalAlignment = Alignment.CenterHorizontally) {
-                GameSwitch(game) { game = it }
+                if (bt2.engineAvailable) GameSwitch(game) { game = it }
                 NavHost(
                     nav, startDestination = Dest.HOME.route,
                     modifier = Modifier.widthIn(max = 760.dp).fillMaxSize(),

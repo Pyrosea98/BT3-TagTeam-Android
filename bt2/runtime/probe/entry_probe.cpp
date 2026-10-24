@@ -21,6 +21,9 @@
 #include "ee/game_patches.h"
 #include "ee/ps2_runtime_macros.h"
 #include "ee/state_hash.h"
+#ifdef BT2_HW_GS
+#include "gs/hw/hw_gs_mirror.h" // (the Android build: BT3's renderer)
+#endif
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -62,12 +65,10 @@ int main(int argc, char** argv) {
             throw std::runtime_error("Could not read guest image");
         EeRuntime runtime;
         // BT2_SELF_STARTUP: the startup inputs were made from the disc alone (game/startup_inputs.h): the GS
-        // packets they leave as zeros are taken from the game, and the kernel words read from the BIOS-less
-        // baseline are named.
-        if (std::getenv("BT2_SELF_STARTUP")) {
-            runtime.gif_dma.take_game_packets = runtime.texture_gif.take_game_packets = true;
-            runtime.log_kernel_reads = true;
-        }
+        // packets they leave as zeros are taken from the game. BT2_KERNEL_READ_LOG: the kernel words read from
+        // the BIOS-less baseline are named (diagnostic: over twenty thousand lines at each start).
+        if (std::getenv("BT2_SELF_STARTUP")) runtime.gif_dma.take_game_packets = runtime.texture_gif.take_game_packets = true;
+        if (std::getenv("BT2_KERNEL_READ_LOG")) runtime.log_kernel_reads = true;
         runtime.ee_sound_dispatch_probe = std::getenv("BT2_EE_SOUND_DISPATCH_PROBE") != nullptr;
         runtime.ee_queued_sound_rpc = !runtime.ee_sound_dispatch_probe;
         // Frame budget: stop after this many display flips (default 1000, none in viewer mode;
@@ -355,6 +356,32 @@ int main(int argc, char** argv) {
         static GpuGsMirror gpu_mirror;
         if (const char* gpu_mode = std::getenv("BT2_GPU_GS"); gpu_mode && std::string_view(gpu_mode) != "on")
             throw std::runtime_error("BT2_GPU_GS must be on: the GPU renderer is the only renderer");
+        // BT2_RENDERER=bt3: the GS drawn by BT3's renderer, with the GPU's rasteriser (gs/hw/hw_gs_mirror.h), in
+        // place of paraLLEl-GS. It shows each frame itself and leaves frames out when the game is behind.
+#ifdef BT2_HW_GS
+        if (viewer_mode && HwGs::wanted() && HwGs::attach(runtime.gif_dma.gs, viewer)) {
+            runtime.gs_download_source = [](std::span<std::uint8_t> out) { HwGs::readFifo(out); };
+            auto field_end = runtime.on_field_end;
+            runtime.on_field_end = [field_end] { HwGs::field(); if (field_end) field_end(); };
+            runtime.on_display_flip = [&runtime] {
+                HwGs::setLate(pacer ? pacer->lateSeconds() : 0); // (before the wait: how late the game itself is)
+                if (pacer) pacer->wait(); // The picture appears at the field's deadline.
+                if (player) player->shown(nullptr);
+                HwGs::flip(runtime.gs_privileged);
+                // BT2_VIEWER_STATS: every 120 flips, the rate of flips and fields.
+                static const bool stats = std::getenv("BT2_VIEWER_STATS") != nullptr;
+                using Clock = std::chrono::steady_clock;
+                static Clock::time_point start = Clock::now();static unsigned fields_at_start = 0;
+                if (stats && runtime.gs_display_flips % 120 == 0) {
+                    const auto now = Clock::now();const double wall = std::chrono::duration<double>(now - start).count();
+                    std::cerr << std::dec << "Viewer stats at flip " << runtime.gs_display_flips << " (BT3 renderer): " << 120 / wall << " flips/s, "
+                        << (runtime.vblank_deliveries - fields_at_start) / wall << " fields/s" << std::endl;
+                    start = now;fields_at_start = runtime.vblank_deliveries;
+                }
+                if (viewer.closed()) {std::cerr << "Viewer closed; ending the run." << std::endl; std::exit(0);}
+            };
+        } else
+#endif
         {
             // BT2_SUPER_SAMPLING=<1|2|4|8|16>: samples per pixel; 4 or more scan out at twice the resolution.
             const unsigned super_sampling = std::getenv("BT2_SUPER_SAMPLING") ? static_cast<unsigned>(std::stoul(std::getenv("BT2_SUPER_SAMPLING"))) : 1u;
@@ -436,6 +463,16 @@ int main(int argc, char** argv) {
             }
             runtime.on_display_flip = [&runtime, viewer_mode] {
                 const auto flip = runtime.gs_display_flips;
+                {   // Frame skipping (gs/gpu/gpu_gs_backend.h): late when the frame took a quarter field longer than
+                    // its fields (16.7 ms each), the pace the game set by flipping every one, two or more of them.
+                    using Clock = std::chrono::steady_clock;
+                    static Clock::time_point last = Clock::now();static std::uint64_t last_fields = 0;
+                    const auto now = Clock::now();const auto fields = runtime.vblank_deliveries;
+                    const double taken = std::chrono::duration<double>(now - last).count();
+                    const double allowed = (fields > last_fields ? double(fields - last_fields) : 1.0) * (1001.0 / 60000.0) * 1.25;
+                    GpuGsBackend::frame_late = taken > allowed;
+                    last = now;last_fields = fields;
+                }
                 // BT2_SAMPLE_PROFILE=<path>: sample where this thread executes, from flip
                 // BT2_SAMPLE_FROM (default 1) to the end of the run (host/sample_profiler.h).
                 static std::unique_ptr<SampleProfiler> profiler;
@@ -525,6 +562,7 @@ int main(int argc, char** argv) {
                             << " fields/s; per flip " << wall / 120 * 1000 << " ms (slowest " << slowest_s * 1000 << " ms, " << late << " over 20.9 ms), work " << (wall - ((pacer ? pacer->waited_seconds : 0) - waited_at_window)) / 120 * 1000 << " ms, of it scanout " << scanout_s / 120 * 1000 << " ms, show " << present_s / 120 * 1000
                             << " ms, VIF1 " << (frame_profile.vif1 - frame_profile.vu1) / 120 * 1000 << " ms, VU1 with its GS packets " << frame_profile.vu1 / 120 * 1000 << " ms, GS packets (all) " << frame_profile.gs / 120 * 1000 << " ms, of it in the GPU renderer " << frame_profile.renderer / 120 * 1000
                             << " ms, GPU flush " << frame_profile.flush / 120 * 1000 << " ms" << std::endl;
+                        if (const auto times = gpu_mirror.timestamps(); !times.empty()) std::cerr << times << std::endl; // BT2_GPU_TIMESTAMPS
                         window_start = t2;scanout_s = present_s = slowest_s = 0;late = 0;waited_at_window = pacer ? pacer->waited_seconds : 0;(void)waited_before;window_fields = runtime.vblank_deliveries;frame_profile = {};frame_profile.enabled = true;
                     }
                 }

@@ -1,9 +1,16 @@
 package com.dfdx047.dragonrage.engine
 
+import android.view.KeyEvent
+import android.view.ViewGroup
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.dfdx047.dragonrage.data.Bt2Drivers
+import com.dfdx047.dragonrage.data.Bt2Settings
 import com.dfdx047.dragonrage.data.Game
 import com.dfdx047.dragonrage.data.GpuDriver
 import java.io.File
+import org.libsdl.app.SDLActivity
 
 /**
  * Budokai Tenkaichi 2: BT2-Recomp's runtime built for arm64 as libbt2.so, started by SDL's activity like BT3 is, with
@@ -13,6 +20,9 @@ import java.io.File
  * the low addresses BT3's engine needs as soon as it is loaded, and SDL keeps its state in statics. BT2's runtime
  * keeps the PS2's memory in an array of its own, so libbt2.so is an ordinary shared library that SDL loads itself
  * and whose SDL_main it calls.
+ *
+ * Its menu (the controller's menu button and the back key, [showMenu]) is the activity's own: the screen's
+ * resolution and the renderer's speed options, applied while the game runs, the controller's options and leaving.
  *
  * What libbt2.so provides (bt2/runtime/android/android_main.cpp, built by bt2/android/build.py):
  *   SDL_main(argc, argv)    argv[1] the game's folder (<root>/bt2: data/BT2.iso, saves/, startup/, user/), argv[2]
@@ -35,6 +45,46 @@ class Bt2GameActivity : GameActivity() {
 
     /** BT2's own GPU driver choice (Bt2ViewModel: <root>/bt2/user/driver), apart from BT3's. */
     override fun gpuDriver(): GpuDriver? = Bt2Drivers.selected(this, paths)
+
+    override fun onResume() {
+        super.onResume()
+        applyOutputScale(Bt2Settings(paths).load().outputScale)
+        // The whole screen for the game: the status and navigation bars come back with a swipe.
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            hide(WindowInsetsCompat.Type.systemBars())
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
+    }
+
+    override fun onPadMenu() = showMenu()
+
+    override fun onBackKey(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_UP) showMenu()
+        return true
+    }
+
+    /** The screen's picture at [percent] of the surface's size: the engine draws into a smaller swapchain, which the
+     *  display enlarges (its swapchain follows the window's size). */
+    fun applyOutputScale(percent: Int) {
+        val surface = mSurface ?: return
+        surface.post {
+            val w = surface.width
+            val h = surface.height
+            if (percent >= 100 || w <= 0 || h <= 0) surface.holder.setSizeFromLayout()
+            else surface.holder.setFixedSize(w * percent / 100, h * percent / 100)
+        }
+    }
+
+    /** BT2's menu over the game (Bt2Menu, laid out as BT3's), which stands still meanwhile. */
+    private val menu by lazy { Bt2Menu(this, paths, onControls = { showOptions() }, onClose = { overlayOpen = false }) }
+
+    private fun showMenu() {
+        val layout = SDLActivity.getContentView() as? ViewGroup ?: return
+        if (menu.isShown) { menu.close(); return }
+        overlayOpen = true
+        TouchBridge.setPad(0, 128, 128, 128, 128)
+        menu.show(layout)
+    }
 
     override fun getArguments(): Array<String> {
         val driver = gpuDriver()
