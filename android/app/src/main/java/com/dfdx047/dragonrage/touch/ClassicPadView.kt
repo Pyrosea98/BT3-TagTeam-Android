@@ -139,11 +139,27 @@ class ClassicPadView(context: Context, initial: TouchConfig, editing: Boolean = 
         val h = height.toFloat()
         if (w <= 0f || h <= 0f) return
         val all = config.scale
+        // On a narrow screen (the RG Cube's 720 x 720) the defaults would run the shoulder pills into each other and the
+        // face diamond and the d-pad past the edges: the outer pills keep to the edges, the inner ones beside them, the
+        // diamond and the d-pad come in until they fit. On a 16:9 screen none of this moves anything.
+        val pill = baseSize(CtlKind.SHOULDER, 84f).first * dp * all
+        val l2 = maxOf(ClassicCtl.L2.x * w, pill / 2)
+        val r2 = minOf(ClassicCtl.R2.x * w, w - pill / 2)
+        val faceX = minOf(ClassicCtl.CIRCLE.x * w, w - (62f + 66f / 2 + 6f) * dp * all)
+        fun defaultX(c: ClassicCtl): Float = when (c) {
+            ClassicCtl.L2 -> l2
+            ClassicCtl.L1 -> maxOf(c.x * w, l2 + pill)
+            ClassicCtl.R2 -> r2
+            ClassicCtl.R1 -> minOf(c.x * w, r2 - pill)
+            ClassicCtl.CROSS, ClassicCtl.CIRCLE, ClassicCtl.SQUARE, ClassicCtl.TRIANGLE -> faceX
+            ClassicCtl.DPAD -> maxOf(c.x * w, c.size / 2 * dp * all)
+            else -> c.x * w
+        } + c.dx * dp * all
         for (c in ClassicCtl.entries) {
             val p = config.classicPlaces[c.name]
             val s = p?.scale ?: 1f
             val (bw, bh) = baseSize(c.kind, c.size)
-            val cx = p?.x?.times(w) ?: (c.x * w + c.dx * dp * all)
+            val cx = p?.x?.times(w) ?: defaultX(c)
             val cy = p?.y?.times(h) ?: (c.y * h + c.dy * dp * all)
             els += El(c.name, c, null, c.kind, cx, cy, bw * dp * all * s, bh * dp * all * s, s, c == ClassicCtl.OPTIONS || (p?.visible ?: c.shownByDefault))
         }
