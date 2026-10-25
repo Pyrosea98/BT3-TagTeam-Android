@@ -336,12 +336,12 @@ static GLuint make_present_program(void) {
 /* ---- state -------------------------------------------------------------------------------------- */
 static SDL_Window *sWindow;
 static SDL_GLContext sCtx;
-static GLuint sMainProg[8]; /* gs.vert / vu0 / vu4 / vu6 + gs.frag; 4..7: the same with gsnz.frag (key bit 23) */
+static GLuint sMainProg[9]; /* gs.vert / vu0 / vu4 / vu6 + gs.frag; 4..7: the same with gsnz.frag (key bit 23); 8: gs.vert + gswb.frag (bit 25) */
 extern int Port_Setting(const char *name, int def); /* plat_settings.c */
 static GLuint sMainProgFetch[8]; /* the same for the draws that test the destination alpha, reading it from the frame buffer (sHasFetch) */
 static int sHasFetch;     /* EXT_shader_framebuffer_fetch: no copy of the alpha bytes for TEST.DATE (tile-based GPUs keep their pass) */
 static int sWantFetch;    /* the draw being set up tests the destination alpha */
-static GLuint sMainProgNd[8]; /* the same with the fragment shader without its discards (pipeline key bit 25, as the Vulkan back end) */
+static GLuint sMainProgNd[8]; /* the same with the fragment shader without its discards (pipeline key bit 27, as the Vulkan back end) */
 static GLuint sOutlineProg, sKeyProg, sDclutProg, sPresentProg;
 static GLuint sVaoGs, sVaoVu, sVboGs, sVboVu, sIboVu;
 static GLuint sSamplers[16];
@@ -359,7 +359,7 @@ static const char *sGsSamplers[2] = {"tex", "dateTex"};
 static const char *sOneSampler[1] = {"aux"};
 static const char *sDclutSamplers[3] = {"depthTex", "auxTex", "clutTex"};
 
-typedef struct Pipe { uint32_t key, bkey, wmask; int ztst, zwrite, topo, vu, fx, nd, nz, shadow; } Pipe;
+typedef struct Pipe { uint32_t key, bkey, wmask; int ztst, zwrite, topo, vu, fx, nd, nz, wb, shadow; } Pipe;
 static Pipe sPipes[1024];
 static int sPipeCount;
 
@@ -480,10 +480,11 @@ static void pipe_decode(Pipe *p, uint32_t key) {
     p->topo = (int)((key >> 13) & 3);
     p->vu = (int)((key >> 20) & 3);
     p->nz = (int)((key >> 23) & 1);
+    p->wb = (int)((key >> 25) & 1);
     p->shadow = (int)((key >> 24) & 1);
     p->fx = (int)((key >> 22) & 1);
     p->wmask = (key >> 16) & 15;
-    p->nd = (int)((key >> 25) & 1);
+    p->nd = (int)((key >> 27) & 1);
 }
 
 static int pipe_get(uint32_t key) {
@@ -702,7 +703,7 @@ static void set_pipe(int pipe) {
     p = &sPipes[pipe];
     {
         int pi = p->vu + (p->nz ? 4 : 0);
-        GLuint prog = p->fx ? sDclutProg : sWantFetch && sMainProgFetch[pi] != 0 ? sMainProgFetch[pi] :
+        GLuint prog = p->fx ? sDclutProg : p->wb ? sMainProg[8] : sWantFetch && sMainProgFetch[pi] != 0 ? sMainProgFetch[pi] :
                       p->nd && sMainProgNd[pi] != 0 ? sMainProgNd[pi] : sMainProg[pi];
         if (sCurProgram != prog) { sCurProgram = prog; glUseProgram(prog); }
     }
@@ -918,6 +919,7 @@ static int gl_init(void) {
     sMainProg[5] = make_program(kVu0VertGlsl, kGsnzFragGlsl, "vu0 nz", sGsSamplers, 2, 0);
     sMainProg[6] = make_program(kVu4VertGlsl, kGsnzFragGlsl, "vu4 nz", sGsSamplers, 2, 0);
     sMainProg[7] = make_program(kVu6VertGlsl, kGsnzFragGlsl, "vu6 nz", sGsSamplers, 2, 0);
+    sMainProg[8] = make_program(kGsVertGlsl, kGswbFragGlsl, "gs wb", sGsSamplers, 2, 0);
     sOutlineProg = make_program(kFxVertGlsl, kOutlineFragGlsl, "outline", sOneSampler, 1, 0);
     sKeyProg = make_program(kFxVertGlsl, kAlphakeyFragGlsl, "alphakey", sOneSampler, 1, 0);
     sDclutProg = make_program(kFxVertGlsl, kDclutFragGlsl, "dclut", sDclutSamplers, 3, 0);
@@ -1339,7 +1341,8 @@ static void frame_end(void) {
             if (cur != d->target) { bind_target(d->target, 0, 0); cur = d->target; }
             set_native(d->native);
             set_textures(sAuxCopy, 6, 0, 6, 0, 6);
-            params[0] = 1.0f / (float)GS_W;
+            extern int Port_PageAspectMilli(void); /* plat_stub.c: the shape of the page shown now */
+            params[0] = 1333.333f / (float)Port_PageAspectMilli() / (float)GS_W; /* one PS2 pixel across, as wide as at 4:3 (outline.frag) */
             params[1] = 1.0f / (float)GS_H;
             params[2] = 100.0f / 255.0f;
             params[3] = getenv("BT3_FX_DEBUG") != NULL ? 1.0f : 0.0f;
