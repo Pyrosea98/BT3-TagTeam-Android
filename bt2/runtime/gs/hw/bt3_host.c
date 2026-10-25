@@ -18,6 +18,8 @@
 #include <SDL3/SDL.h>
 #include "bt3/gs_texpack.h"
 #include "bt3/ui.h"
+#include "bt3/gs_internal.h"
+#include "bt3/tbo_art.h"
 
 /* ---- settings */
 
@@ -223,13 +225,48 @@ int MenuText_MapGlyph(int tbp, int cbp, int width, int height, float u0, float v
     return 0;
 }
 unsigned MenuLabels_ArtKey(void) { return 0; }
-int MenuLabels_ArtSwap(unsigned char *rgba, int w, int h) { (void)rgba; (void)w; (void)h; return 0; }
+/* The main menu's eleventh item, Online Mode (game/main_menu_item.cpp): its name and plate in the sheets' free rows. */
+extern int Bt2MenuItem_ArtSwap(unsigned char *rgba, int w, int h);
+int MenuLabels_ArtSwap(unsigned char *rgba, int w, int h) { return Bt2MenuItem_ArtSwap(rgba, w, h); }
 int MenuTranslation_ArtPath(int artId, char *out, size_t capacity) { (void)artId; (void)out; (void)capacity; return 0; }
+/* The pictures BT2's own screens draw (game/main_menu_item.cpp: Online Mode), through the renderer's lines of letters
+   (TBO_TEXT_BASE and on): RGBA with the GS's alpha, malloc'ed for the renderer to take. */
+extern uint32_t *Bt2MenuItem_Pixels(uint32_t slot, uint32_t *version, uint32_t *w, uint32_t *h);
+extern uint32_t Bt2MenuItem_Version(uint32_t slot);
 uint32_t *TboText_Pixels(uint32_t id, uint32_t *version, uint32_t *w, uint32_t *h) {
-    (void)id; (void)version; (void)w; (void)h;
-    return NULL;
+    return Bt2MenuItem_Pixels(id - TBO_TEXT_BASE, version, w, h);
 }
-uint32_t TboText_Version(uint32_t id) { (void)id; return 0; }
+uint32_t TboText_Version(uint32_t id) { return Bt2MenuItem_Version(id - TBO_TEXT_BASE); }
+
+/* One of those pictures drawn over the frame about to be shown (at the flip, after the game's own drawing): a sprite
+   into the frame buffer `fbp` (FRAME's units, `fbw` x 64 wide, format `psm`), from (x0, y0) to (x1, y1) in its pixels,
+   blended by the picture's alpha times `alpha` / 0x80. The GS's registers are given back as the game left them. */
+uint64_t Bt2Hw_LastFrame(void) { return gGs.frame[0]; } /* FRAME_1 as the game left it */
+void Bt2Hw_OverlaySprite(int fbp, int fbw, int psm, int width, int height, uint32_t slot, float x0, float y0, float x1, float y1, int alpha) {
+    GsState kept = gGs;
+    const uint64_t tex0 = (uint64_t)1 << 14 | (uint64_t)TBO_PSM << 20 | (uint64_t)10 << 26 | (uint64_t)10 << 30 | (uint64_t)1 << 34 |
+                          (uint64_t)(TBO_TEXT_BASE + slot) << 37;
+    union { float f; uint32_t u; } s0 = {0.0f}, s1 = {1.0f}, q = {1.0f};
+    Gs_RegWrite(0x4C, (uint64_t)fbp | (uint64_t)fbw << 16 | (uint64_t)psm << 24); /* FRAME_1 */
+    /* ZBUF_1: the game's depth buffer, not written (a ZBP equal to the FBP is a pass the renderer drops: gs_draw.c) */
+    Gs_RegWrite(0x4E, kept.zbuf[0] | (uint64_t)1 << 32);
+    Gs_RegWrite(0x47, (uint64_t)1 << 16 | (uint64_t)1 << 17);                          /* TEST_1: depth always passes */
+    Gs_RegWrite(0x42, 0x44);                                                           /* ALPHA_1: (Cs - Cd) * As + Cd */
+    Gs_RegWrite(0x4A, 0);                                                              /* FBA_1 */
+    Gs_RegWrite(0x18, 0);                                                              /* XYOFFSET_1 */
+    Gs_RegWrite(0x40, (uint64_t)(width - 1) << 16 | (uint64_t)(height - 1) << 48);     /* SCISSOR_1 */
+    Gs_RegWrite(0x08, 0);                                                              /* CLAMP_1 */
+    Gs_RegWrite(0x14, (uint64_t)1 << 5 | (uint64_t)1 << 6);                            /* TEX1_1: filtered */
+    Gs_RegWrite(0x06, tex0);                                                           /* TEX0_1 */
+    Gs_RegWrite(0x1A, 1);                                                              /* PRMODECONT: PRIM's own */
+    Gs_RegWrite(0x00, 6 | 1 << 4 | 1 << 6);                                            /* PRIM: sprite, textured, blended */
+    Gs_RegWrite(0x01, 0x808080u | (uint64_t)(alpha & 0xFF) << 24 | (uint64_t)q.u << 32);     /* RGBAQ: alpha 0x80 = the picture's own */
+    Gs_RegWrite(0x02, s0.u | (uint64_t)s0.u << 32);                                    /* ST */
+    Gs_RegWrite(0x05, (uint64_t)(uint32_t)(x0 * 16.0f) | (uint64_t)(uint32_t)(y0 * 16.0f) << 16);
+    Gs_RegWrite(0x02, s1.u | (uint64_t)s1.u << 32);
+    Gs_RegWrite(0x05, (uint64_t)(uint32_t)(x1 * 16.0f) | (uint64_t)(uint32_t)(y1 * 16.0f) << 16);
+    gGs = kept;
+}
 
 /* BT3's texture packs (none for BT2 here: BT2 has its own, gs/textures, for paraLLEl-GS). */
 void TexPack_Init(void) {}

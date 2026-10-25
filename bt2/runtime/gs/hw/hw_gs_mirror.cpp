@@ -19,6 +19,7 @@ void Bt2Hw_FrameEnd(void);
 void Bt2Hw_Field(void);
 void Bt2Hw_SetLateUs(int us);
 extern int gGsMainFbp;
+void Bt2MenuItem_Overlay(std::uint64_t dispfb,std::uint64_t display); // (game/main_menu_item.cpp)
 extern int gsScale4; // (gs/hw/bt3/gs_draw.c: the internal resolution in quarters)
 }
 
@@ -130,6 +131,7 @@ void flip(const std::array<std::uint64_t,15>& privileged) {
     // 2048-word units as FRAME.FBP).
     const std::uint64_t pmode=privileged[0],dispfb=(pmode&2)?privileged[9]:privileged[7];
     if(pmode&3)gGsMainFbp=int(dispfb&0x1FF);
+    if(pmode&3)Bt2MenuItem_Overlay(dispfb,(pmode&2)?privileged[10]:privileged[8]); // (BT2's own screens over the frame)
     Bt2Hw_FrameEnd();
 }
 

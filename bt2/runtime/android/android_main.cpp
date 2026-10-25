@@ -355,6 +355,8 @@ extern "C" __attribute__((visibility("default"))) int SDL_main(int argc,char* ar
                 setEnv("BT2_GL_WINDOW",renderer=="bt3" && gl?"1":"");
             }
             setEnv("BT2_HW_SETTINGS",renderer.empty()?"":(user/"renderer").string());
+            // The main menu's Online Mode item (game/main_menu_item.h), with BT3's renderer: its pictures in user/menu-item.
+            setEnv("BT2_MAIN_MENU_ITEM",renderer=="bt3" && fs::is_directory(user/"menu-item",error)?(user/"menu-item").string():"");
             if(sample) {startSampler();setenv("BT2_GPU_TIMESTAMPS","1",1);} // And the GPU's time by stage.
         }
 

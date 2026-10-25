@@ -61,6 +61,8 @@ set(BT2_ANDROID_SOURCES
     "${BT2_SOURCE_ROOT}/runtime/gs/gpu/gpu_window_presenter.cpp"
     "${BT2_SOURCE_ROOT}/runtime/gs/gpu/in_between_frames.cpp"
     "${BT2_SOURCE_ROOT}/runtime/game/startup_inputs.cpp"
+    "${BT2_SOURCE_ROOT}/runtime/game/main_menu_item.cpp"
+    "${BT2_SOURCE_ROOT}/runtime/game/opening_music.cpp"
     "${BT2_SOURCE_ROOT}/runtime/android/android_main.cpp")
 
 # What every unit of the engine is built with.

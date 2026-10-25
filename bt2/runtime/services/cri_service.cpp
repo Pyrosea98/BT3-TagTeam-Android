@@ -5,6 +5,9 @@
 #include <cstring>
 #include <iostream>
 
+// Sound of the port's own added to each field before the device has it (Dragon Rage: game/opening_music.h).
+std::function<void(std::vector<std::int16_t>&)> host_music_mix;
+
 // Native CRI ADX service (0x90000200) in place of CRI_ADXI. Replies as the original returned them
 // (traced 2026-10-11); the handles are opaque IOP addresses the EE keeps and passes back.
 // - 2 create channel {index, EE buffer, IOP buffer, 0x880}: channel handle 0x1B58C0 + index*0x44.
@@ -96,5 +99,9 @@ void EeRuntime::nativeCriVblank(const R5900Context* interrupted) {
         std::memcpy(memory_.data()+c.ee+stream_size-4,&counter,4);
         c.pending=false;++native_cri_returns;
     }
-    if(on_audio_field) {const auto pcm=audio_mixer.field([this](std::span<std::int32_t> mix){sound_sampler.render(mix);});on_audio_field(pcm);++audio_fields;}
+    if(on_audio_field) {
+        auto pcm=audio_mixer.field([this](std::span<std::int32_t> mix){sound_sampler.render(mix);});
+        if(host_music_mix)host_music_mix(pcm);
+        on_audio_field(pcm);++audio_fields;
+    }
 }

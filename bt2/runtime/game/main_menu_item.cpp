@@ -1,0 +1,393 @@
+#include "game/main_menu_item.h"
+#include "game/opening_music.h"
+#include <array>
+#include <atomic>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <algorithm>
+#include <fstream>
+#include <functional>
+#include <initializer_list>
+#include <vector>
+
+// The main menu (overlay DBZP.BIN) as the game has it, read from its code (addresses BT2's, USA disc):
+// - its state, at *0x421380: +0x0C the guide's speech, +0x10/+0x38/+0x60 three layers (0x28 apart; the wheel and
+//   its icons in the second, the guides and the message window in the third), +0xE4 flags (1|2: leaving), +0xE8
+//   the cursor, +0xEC the message shown (8: the greeting; item n's description is n+9), +0xF0 the wheel's top item
+//   (the cursor minus two, as it was before the last move), +0xF4 which guide speaks, +0xF8 the leaving count,
+//   +0xFC the greeting spoken, +0x100/+0x104 the chosen item's icon animation;
+// - each frame (0x3B4250): the guides (0x3B3E50), the drawing (0x3B37A8), then the pad (0x3B3F38) when the wheel
+//   stands still; a move (0x3B3DE8) restarts the icon and shows and speaks the new item's description;
+// - the wheel shows five items, (top + i) of ten, each a plate of the sheet of plates (frame item / 4, row item % 4,
+//   64 lines); the chosen one's name is a row of the sheet of names and its icon an animation (frames per item at
+//   0x4213D8; Dueling's, item 3, at its own speed).
+// Here the same with eleven: item 10 is Online Mode. Its icon is Dueling's; its description the greeting, unspoken.
+namespace {
+constexpr std::uint32_t state_pointer=0x421380,progress_pointer=0x3876A4,pad=0x3B0B00;
+constexpr std::uint32_t init_menu=0x3B3100,guides=0x3B3E50,draw_menu=0x3B37A8,moved_menu=0x3B3DE8,pad_menu=0x3B3F38;
+constexpr std::uint32_t items=11,online_item=10,dueling_item=3,greeting=8;
+// the game's helpers: layers and their parts (by name), the guides, the message window, sound effects
+constexpr std::uint32_t part_find=0x26EBC0,part_frame=0x26EC18,part_rect=0x26EC48,part_animate=0x26EC78,part_scroll=0x26ED60;
+constexpr std::uint32_t layer_still=0x26EB60,layer_play=0x26EB78,layer_step=0x26E9E8,layer_draw=0x26EA58,guides_draw=0x24C060;
+constexpr std::uint32_t guide_eyes=0x2495A8,guide_talks=0x249778,guide_quiet=0x2498D8,message_window=0x249FB8;
+constexpr std::uint32_t speak=0x2493C0,speech_state=0x1018B8,leave_fade=0x243A80,sound=0x297FE0;
+// names and tables in the overlay's data
+constexpr std::uint32_t icon_rect=0x4213C0,icon_frames=0x4213D8,icon_part=0x421400,row_rect=0x421418,name_part=0x421430;
+constexpr std::uint32_t arrow_rect=0x421448,arrow_part=0x421460,wheel_parts=0x421470,guide_parts=0x4216F0,window_part=0x421740;
+constexpr std::uint32_t bg_rect=0x421750,bg_speeds=0x421768,bg_parts=0x421770,play_up=0x421790,play_down=0x421780,play_next=0x4217A0;
+// the modes the ten items start (the first: 7 once the story has begun, 6 before)
+constexpr std::array<std::uint32_t,10> item_modes{6,0xA,0x18,0x1E,0x3D,0x35,0x5,0x26,0x30,0x2B};
+
+std::uint32_t read32(const std::uint8_t* rdram,std::uint32_t at) {std::uint32_t v;std::memcpy(&v,rdram+at,4);return v;}
+std::uint64_t read64(const std::uint8_t* rdram,std::uint32_t at) {std::uint64_t v;std::memcpy(&v,rdram+at,8);return v;}
+void write32(std::uint8_t* rdram,std::uint32_t at,std::uint32_t v) {std::memcpy(rdram+at,&v,4);}
+void write64(std::uint8_t* rdram,std::uint32_t at,std::uint64_t v) {std::memcpy(rdram+at,&v,8);}
+void setRegister(R5900Context* c,int index,std::uint32_t value) {c->r[index].low=static_cast<std::uint64_t>(static_cast<std::int64_t>(static_cast<std::int32_t>(value)));}
+std::uint32_t wrap(std::int32_t item) {return static_cast<std::uint32_t>((item%static_cast<std::int32_t>(items)+items)%items);}
+
+struct Guest {
+    std::uint8_t* rdram;R5900Context* c;PS2Runtime* runtime;std::uint32_t self;
+    // A call as a JAL makes it: a0-a3 and t0-t3, f12 and f13; returns v0. The callee returns to `self`.
+    std::uint32_t call(std::uint32_t target,std::initializer_list<std::uint32_t> arguments={},float f12=0,float f13=0) {
+        int index=4;
+        for(const auto argument:arguments)setRegister(c,index++,argument);
+        c->f[12]=f12;c->f[13]=f13;
+        setRegister(c,31,self);
+        runtime->dispatchGuestBranch(rdram,c,target,self,self,PS2Runtime::GuestBranchKind::DirectCall,"main menu item");
+        return static_cast<std::uint32_t>(c->r[2].low);
+    }
+    std::uint32_t state() const {return read32(rdram,state_pointer);}
+    std::uint32_t get(std::uint32_t offset) const {return read32(rdram,state()+offset);}
+    void set(std::uint32_t offset,std::uint32_t value) {write32(rdram,state()+offset,value);}
+    void copy(std::uint32_t to,std::uint32_t from,std::uint32_t bytes) {std::memmove(rdram+to,rdram+from,bytes);}
+};
+// The replaced function returns where its caller's JAL left $ra.
+void returnTo(Guest& g,std::uint32_t ra) {
+    g.c->pc=ra;
+    g.runtime->dispatchGuestBranch(g.rdram,g.c,ra,g.self,0,PS2Runtime::GuestBranchKind::Return,"JR $ra");
+}
+
+PS2Runtime::RecompiledFunction original_init=nullptr;
+std::uint32_t plate_entry=0; // the texture entry of the third sheet of plates, given 256 lines
+
+// The third sheet of plates (512 x 128: items 8 and 9) is drawn as 512 x 256, so a third row (lines 128 to 191)
+// can hold item 10's plate: its texture entry (0x40 bytes: +0x08 the pixels' packet size, +0x30 TEX0), the last of
+// a file of three sheets of 512 wide (two of 256 lines, then this one), gets TH 8 instead of 7. Only what is drawn
+// changes; the upload is the game's own. The renderer fills the new lines (artSwap below).
+void growPlateSheet(std::uint8_t* rdram,bool now) {
+    static unsigned waited=0;
+    if(plate_entry && (read64(rdram,plate_entry+0x30)>>30&15)==8)return;
+    plate_entry=0;
+    if(!now && ++waited%120)return; // (a look through main RAM: at the menu's set-up, then every two seconds until found)
+    const auto sheet=[&](std::uint32_t e,std::uint32_t th,std::uint32_t size) {
+        const std::uint64_t t0=read64(rdram,e+0x30);
+        return read32(rdram,e+8)==size && (t0>>20&63)==0x13 && (t0>>14&63)==8 && (t0>>26&15)==9 && (t0>>30&15)==th;
+    };
+    for(std::uint32_t e=0x100000;e+0x40<0x2000000;e+=0x10) {
+        if(!sheet(e,7,0x10080) || !sheet(e-0x40,8,0x20080) || !sheet(e-0x80,8,0x20080))continue;
+        if(read32(rdram,e-0xA0)!=3 || read32(rdram,e-0x9C)!=8)continue; // the file's header: three entries, from word 8
+        write64(rdram,e+0x30,read64(rdram,e+0x30)&~(std::uint64_t{15}<<30)|std::uint64_t{8}<<30);
+        plate_entry=e;
+        std::fprintf(stderr,"Main menu item: the third sheet of plates (entry 0x%X) drawn with 256 lines\n",e);
+        return;
+    }
+}
+
+void initMenu(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
+    original_init(rdram,c,runtime);
+    // The wheel's top from the cursor kept from the last visit, of eleven (the game counts ten).
+    const std::uint32_t state=read32(rdram,state_pointer);
+    write32(rdram,state+0xF0,wrap(static_cast<std::int32_t>(read32(rdram,state+0xE8))-2));
+    growPlateSheet(rdram,true);
+}
+
+void speakItem(Guest& g) {
+    const std::uint32_t item=g.get(0xE8);
+    if(item==online_item) {g.set(0xEC,greeting);return;} // (no line of the guides is about it)
+    g.set(0xEC,item+9);
+    g.set(0xF4,(item^1)&1);
+    g.call(speak,{g.get(0x0C),0x36DC,0x3AF5,0,g.get(0xEC)});
+}
+
+void movedMenu(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
+    Guest g{rdram,c,runtime,moved_menu};const std::uint32_t ra=static_cast<std::uint32_t>(c->r[31].low);
+    g.set(0x100,0);g.set(0x104,0);
+    speakItem(g);
+    returnTo(g,ra);
+}
+
+void guidesMenu(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
+    Guest g{rdram,c,runtime,guides};const std::uint32_t ra=static_cast<std::uint32_t>(c->r[31].low);
+    for(std::uint32_t i=0;i<3;++i)g.call(layer_step,{g.state()+0x10+i*0x28});
+    // After the greeting: the chosen item's description (on Online Mode the greeting stays).
+    if(g.get(0xEC)==greeting && g.get(0xFC) && g.get(0xE8)!=online_item && g.call(speech_state)==5)speakItem(g);
+    returnTo(g,ra);
+}
+
+// The Online Mode screen. Choosing the item leaves the menu as any item does (its "next" animation, the fade), to
+// the menu's own mode (4) again, marked: the menu's mode function (0x3B4250, below) then runs the screen instead of
+// the menu, with the frame's functions the menu calls every frame and none of its own, and runs the menu after it
+// (set up anew, the cursor on Online Mode). On the screen: Online or Ranked with up and down, cross shows that it is
+// coming soon, triangle or circle goes back. Its pictures are drawn at the flip (overlay below), the opening's
+// music under it (opening_music.h).
+struct Screen {bool open=false,soon=false,leaving=false;std::uint32_t choice=0;int fade=0;};
+Screen screen;
+bool screen_next=false; // the menu was left for the screen
+std::uint32_t flips=0,menu_drawn=~0u,menu_item=0; // the menu drawn in this frame (its flip number), its item
+std::atomic<bool> menu_active{false}; // the main menu drawn this frame or the last (the renderer's thread reads it)
+EeRuntime* ee=nullptr;
+std::string disc_image;
+OpeningMusic music;
+unsigned music_volume=100; // the player's, kept while the game's music is silenced
+
+constexpr std::uint32_t menu_mode=0x3B4250,main_menu_mode=4;
+constexpr std::uint32_t frame_begin=0x2711A0,frame_pad=0x28B090,frame_pad2=0x28BDA0,frame_sound=0x297978,frame_fade=0x2438E8;
+constexpr std::uint32_t frame_draw=0x2A0800,frame_fade_draw=0x2437E8,frame_end=0x271240,fade_in=0x243968,faded_out=0x243BA8;
+constexpr std::uint32_t paused=0x243BC0,pause_a=0x101890,pause_b=0x101498;
+PS2Runtime::RecompiledFunction original_menu_mode=nullptr;
+
+void screenLoop(Guest& g) {
+    const std::function<void(std::uint32_t)> effect=[&](std::uint32_t which) {g.call(sound,{0,which,0x40,0x40,1});};
+    screen={true,false,false,0,0};
+    music_volume=ee->audio_mixer.stream_percent;ee->audio_mixer.stream_percent=0; // (the menu's music stays silent)
+    music.start(disc_image);
+    g.call(fade_in,{0,0,0});
+    for(;;) {
+        for(const auto f:{frame_begin,frame_pad,frame_pad2,frame_sound,frame_fade,frame_draw,frame_fade_draw,frame_end})g.call(f);
+        if(g.call(paused)) {g.call(pause_a);g.call(pause_b);continue;}
+        if(g.call(faded_out))break;
+        screen.fade=std::clamp(screen.fade+(screen.leaving?-9:9),0,128);
+        if(screen.leaving)continue;
+        const std::uint32_t held=read32(g.rdram,pad+0x144),pressed=read32(g.rdram,pad+0x134);
+        if(screen.soon) {
+            if(pressed&0x7000){screen.soon=false;effect(2);} // cross, circle or triangle: the message closes
+        } else if(held&0x50) {
+            screen.choice^=1;effect(0);
+        } else if(pressed&0x4000) {
+            screen.soon=true;effect(1);
+        } else if(pressed&0x3000) { // triangle, circle: back to the menu
+            screen.leaving=true;effect(2);
+            g.call(leave_fade,{0,0,0});
+        }
+    }
+    music.stop();
+    ee->audio_mixer.stream_percent=music_volume;
+    screen={};
+}
+
+void menuMode(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
+    if(screen_next) {
+        screen_next=false;
+        Guest g{rdram,c,runtime,menu_mode};
+        const auto ra=c->r[31],a0=c->r[4],sp=c->r[29];
+        screenLoop(g);
+        c->r[31]=ra;c->r[4]=a0;c->r[29]=sp;c->pc=menu_mode;
+    }
+    original_menu_mode(rdram,c,runtime);
+}
+
+void padMenu(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
+    Guest g{rdram,c,runtime,pad_menu};const std::uint32_t ra=static_cast<std::uint32_t>(c->r[31].low),going_on=static_cast<std::uint32_t>(c->r[4].low);
+    const std::function<void(std::uint32_t)> effect=[&](std::uint32_t which) {g.call(sound,{0,which,0x40,0x40,1});};
+    if(g.call(layer_still,{g.state()+0x38})) {
+        const std::uint32_t held=read32(rdram,pad+0x144),pressed=read32(rdram,pad+0x134),item=g.get(0xE8);
+        if(held&0x50) { // up, down: the wheel turns from where it was
+            g.set(0xF0,wrap(static_cast<std::int32_t>(item)-2));
+            g.set(0xE8,wrap(static_cast<std::int32_t>(item)+(held&0x10?-1:1)));
+            g.call(moved_menu);
+            g.call(layer_play,{g.state()+0x38,held&0x10?play_down:play_up});
+            effect(0);
+        } else if(pressed&0x4000) { // cross
+            {
+                const std::uint32_t progress=read32(rdram,progress_pointer);
+                write32(rdram,progress+0x1C,item==online_item?main_menu_mode:item==0 && (read32(rdram,progress+0x2C)&0x2000000)?7:item_modes[item]);
+                screen_next=item==online_item;
+                g.set(0xF0,wrap(static_cast<std::int32_t>(item)-2));
+                g.set(0xE4,g.get(0xE4)|3);
+                g.set(0xF8,15);
+                g.call(layer_play,{g.state()+0x38,play_next});
+                effect(1);
+            }
+        } else if(pressed&0x1000) { // triangle: back to the title
+            g.call(leave_fade,{0,0,0});
+            write32(rdram,going_on,0);
+            effect(2);
+        }
+    }
+    returnTo(g,ra);
+}
+
+void drawMenu(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
+    Guest g{rdram,c,runtime,draw_menu};
+    const std::uint32_t ra=static_cast<std::uint32_t>(c->r[31].low);
+    const auto sp=c->r[29];
+    const std::uint32_t frame=static_cast<std::uint32_t>(sp.low)-0x340;
+    setRegister(c,29,frame);
+    // The frame as the game's: +0 a part's handle, +0x10 a rectangle, +0x30 the icons' frame counts, +0x60 the
+    // wheel's five part names, +0x2E0 the backgrounds' speeds.
+    const std::uint32_t handle=frame,rect=frame+0x10,counts=frame+0x30,names=frame+0x60,speeds=frame+0x2E0;
+    growPlateSheet(rdram,false);
+    const std::uint32_t item=g.get(0xE8),wheel=g.state()+0x38;
+    menu_drawn=flips;menu_item=item;menu_active.store(true,std::memory_order_relaxed);
+    // the chosen item's icon (Online Mode: Dueling's, at its speed)
+    g.copy(rect,icon_rect,0x14);g.copy(counts,icon_frames,0x28);
+    const std::uint32_t icon=item==online_item?dueling_item:item;
+    g.call(part_find,{wheel,icon_part,handle});
+    g.call(part_frame,{wheel,handle,icon});
+    g.call(part_animate,{wheel,handle,g.state()+0x100,g.state()+0x104,rect,read32(rdram,counts+icon*4),1,icon==dueling_item?7u:6u});
+    // its name: row item % 4 of sheet item / 4 (Online Mode: the third sheet's free third row)
+    g.copy(rect,row_rect,0x14);
+    write32(rdram,rect+4,item%4*64);write32(rdram,rect+12,item%4*64+64);
+    g.call(part_find,{wheel,name_part,handle});
+    g.call(part_frame,{wheel,handle,item/4});
+    g.call(part_rect,{wheel,handle,rect});
+    g.copy(counts,arrow_rect,0x14);
+    g.call(part_find,{wheel,arrow_part,handle});
+    g.call(part_rect,{wheel,handle,counts});
+    // the wheel: five plates from its top
+    g.copy(names,wheel_parts,0x280);g.copy(rect,row_rect,0x14);
+    for(std::uint32_t i=0;i<5;++i) {
+        const std::uint32_t shown=(g.get(0xF0)+i)%items;
+        write32(rdram,rect+4,shown%4*64);write32(rdram,rect+12,shown%4*64+64);
+        g.call(part_find,{wheel,names+i*0x80,handle});
+        g.call(part_frame,{wheel,handle,shown/4});
+        g.call(part_rect,{wheel,handle,rect});
+    }
+    // the guides (Videl and Gohan: eyes, and the mouth of the one speaking) and the message window
+    const std::uint32_t people=g.state()+0x60;
+    for(std::uint32_t k=0;k<2;++k) {
+        g.call(part_find,{people,guide_parts+k*0x20,handle});
+        g.call(guide_eyes,{people,handle,g.state()+0x110+k*4,k?5u:1u});
+        g.call(part_find,{people,guide_parts+k*0x20+(k?0x18u:0x10u),handle});
+        if(g.get(0xF4)==k)g.call(guide_talks,{people,handle,g.state()+0x118+k*4,k?7u:3u});
+        else g.call(guide_quiet,{people,handle,k?7u:3u});
+    }
+    g.call(part_find,{people,window_part,handle});
+    // (Online Mode: no message of the game's, -1 draws none; its own line is drawn over the window at the flip)
+    g.call(message_window,{people,handle,0,0,g.get(0x08),item==online_item?0xFFFFFFFFu:g.get(0xEC),0});
+    // the two backgrounds, each scrolling at its speed
+    const std::uint32_t back=g.state()+0x10;
+    g.copy(counts,bg_rect,0x14);g.copy(speeds,bg_speeds,8);
+    for(std::uint32_t k=0;k<2;++k) {
+        float speed;std::memcpy(&speed,rdram+speeds+k*4,4);
+        g.call(part_find,{back,bg_parts+k*8,handle});
+        g.call(part_scroll,{back,handle,counts,g.state()+0x108+k*4,0},speed,0.0f);
+    }
+    // the three layers, the guides' own drawing before the last
+    for(std::uint32_t k=0;k<3;++k) {
+        if(k==2)g.call(guides_draw,{g.state()});
+        g.call(layer_draw,{g.state()+0x10+k*0x28});
+    }
+    c->r[29]=sp;
+    returnTo(g,ra);
+}
+
+// The item's pictures (512 x 64, RGBA as the GS has it: alpha 0x80 opaque) and the two sheets they go into, known
+// by the FNV-1a hash of their first 128 lines as the renderer decodes them.
+struct Art {std::vector<std::uint8_t> text,plate;std::uint64_t text_sheet=0,plate_sheet=0;};
+Art art;
+std::atomic<bool> art_ready{false};
+std::vector<std::uint8_t> readFile(const std::string& path,std::size_t size) {
+    std::ifstream in(path,std::ios::binary);std::vector<std::uint8_t> bytes(size);
+    if(!in.read(reinterpret_cast<char*>(bytes.data()),static_cast<std::streamsize>(size)))return {};
+    return bytes;
+}
+
+// The screen's pictures, RGBA with the GS's alpha (online/<name>.raw, their sizes in online/pictures.txt: "name w h"),
+// given to the renderer by slot (its lines of letters, gs/hw/bt3_host.c): the screen with Online chosen, with Ranked
+// chosen, the "coming soon" message, and the menu's description of the item (over its message window).
+enum Slot {online_picture,ranked_picture,soon_picture,description_picture,pictures};
+struct Picture {std::uint32_t w=0,h=0;std::vector<std::uint8_t> rgba;};
+std::array<Picture,pictures> picture;
+constexpr std::array<const char*,pictures> picture_names{"online","ranked","soon","description"};
+void readPictures(const std::string& folder) {
+    std::ifstream list(folder+"/online/pictures.txt");std::string name;std::uint32_t w,h;
+    while(list>>name>>w>>h)
+        for(std::size_t k=0;k<pictures;++k)
+            if(name==picture_names[k])picture[k]={w,h,readFile(folder+"/online/"+name+".raw",std::size_t{w}*h*4)};
+}
+}
+
+extern "C" std::uint32_t* Bt2MenuItem_Pixels(std::uint32_t slot,std::uint32_t* version,std::uint32_t* w,std::uint32_t* h) {
+    if(slot>=pictures || picture[slot].rgba.empty())return nullptr;
+    auto* px=static_cast<std::uint32_t*>(std::malloc(picture[slot].rgba.size()));
+    if(!px)return nullptr;
+    std::memcpy(px,picture[slot].rgba.data(),picture[slot].rgba.size());
+    *version=1;*w=picture[slot].w;*h=picture[slot].h;
+    return px;
+}
+extern "C" std::uint32_t Bt2MenuItem_Version(std::uint32_t slot) {return slot<pictures && !picture[slot].rgba.empty()?1:0;}
+extern "C" std::uint64_t Bt2Hw_LastFrame(void);
+extern "C" void Bt2Hw_OverlaySprite(int fbp,int fbw,int psm,int width,int height,std::uint32_t slot,float x0,float y0,float x1,float y1,int alpha);
+
+// At each flip, over the frame the game drew: the screen when it is open, else the item's description while the menu
+// shows it. Positions in the frame's own pixels (the game's 640 x 448).
+extern "C" void Bt2MenuItem_Overlay(std::uint64_t dispfb,std::uint64_t display) {
+    const std::uint32_t flip=flips++;
+    const bool menu=menu_drawn==flip;
+    // The pictures go into both buffers of the game's pair: the one it has just drawn (FRAME as it left it) and the
+    // one DISPFB names (on the screen now): whichever of the two the renderer shows has them.
+    const std::uint64_t frame=Bt2Hw_LastFrame();
+    const int fbp=int(frame&0x1FF),fbw=int(frame>>16&63),psm=int(frame>>24&63),shown=int(dispfb&0x1FF);
+    const int magh=int(display>>23&15)+1,width=int((display>>32&0xFFF)+1)/magh,height=int((display>>44&0x7FF)+1);
+    static bool logged=false;
+    if(!logged && menu){logged=true;std::fprintf(stderr,"Main menu item: the frame shown is %d x %d (buffer %d, %d wide, format %d)\n",width,height,fbp,fbw*64,psm);}
+    if(!menu)menu_active.store(false,std::memory_order_relaxed);
+    const auto draw=[&](Slot slot,float x0,float y0,float x1,float y1,int alpha=128) {
+        if(picture[slot].rgba.empty())return;
+        Bt2Hw_OverlaySprite(fbp,fbw,psm,width,height,slot,x0,y0,x1,y1,alpha);
+        if(shown!=fbp)Bt2Hw_OverlaySprite(shown,fbw,psm,width,height,slot,x0,y0,x1,y1,alpha);
+    };
+    if(screen.open) {
+        draw(screen.choice?ranked_picture:online_picture,0,0,float(width),float(height),screen.fade);
+        if(screen.soon) {
+            // (a pixel of the frame is shown wider than tall with the widescreen patch: the picture keeps its shape)
+            static const bool wide=[]{const char* p=std::getenv("BT2_GAME_PATCHES");return p && std::strstr(p,"widescreen");}();
+            const float shape=(wide?16.0f/9.0f:4.0f/3.0f)*float(height)/float(width);
+            const float w=float(width)*0.5f,h=w*shape*float(picture[soon_picture].h)/float(std::max(1u,picture[soon_picture].w));
+            draw(soon_picture,(float(width)-w)/2,(float(height)-h)/2,(float(width)+w)/2,(float(height)+h)/2);
+        }
+    } else if(menu && menu_item==online_item) {
+        draw(description_picture,37.4f,347,348.9f,391); // (where the window's two lines are: measured on the frame)
+    }
+}
+
+extern "C" int Bt2MenuItem_ArtSwap(unsigned char* rgba,int w,int h) {
+    // (only while the main menu is shown: the two sheets are its own, and the look at every other 512 x 256 picture
+    // the renderer decodes, in a fight too, would cost for nothing)
+    if(!art_ready.load(std::memory_order_acquire) || w!=512 || h!=256 || !menu_active.load(std::memory_order_relaxed))return 0;
+    std::uint64_t hash=14695981039346656037ull;
+    for(int i=0;i<512*128*4;++i)hash=(hash^rgba[i])*1099511628211ull;
+    static int logged=0;
+    const bool text=hash==art.text_sheet,plate=hash==art.plate_sheet;
+    if(!text && !plate) {
+        if(logged<24){++logged;std::fprintf(stderr,"Main menu item: a 512 x 256 sheet %016llx\n",static_cast<unsigned long long>(hash));}
+        return 0;
+    }
+    std::memcpy(rgba+512*128*4,(text?art.text:art.plate).data(),512*64*4);
+    if(plate)std::memset(rgba+512*192*4,0,512*64*4); // (the lines past the upload: whatever GS memory holds there)
+    return 1;
+}
+
+void installMainMenuItem(EeRuntime& runtime,const std::string& folder) {
+    art.text=readFile(folder+"/text.raw",512*64*4);
+    art.plate=readFile(folder+"/plate.raw",512*64*4);
+    std::ifstream sheets(folder+"/sheets.txt");
+    sheets>>std::hex>>art.text_sheet>>art.plate_sheet;
+    if(art.text.empty() || art.plate.empty() || !art.text_sheet || !art.plate_sheet) {
+        std::fprintf(stderr,"Main menu item: no pictures in %s, the menu stays the game's\n",folder.c_str());
+        return;
+    }
+    art_ready.store(true,std::memory_order_release);
+    readPictures(folder);
+    original_init=runtime.replaceFunction(init_menu,initMenu);
+    runtime.replaceFunction(guides,guidesMenu);
+    runtime.replaceFunction(moved_menu,movedMenu);
+    runtime.replaceFunction(pad_menu,padMenu);
+    runtime.replaceFunction(draw_menu,drawMenu);
+    original_menu_mode=runtime.replaceFunction(menu_mode,menuMode);
+    ee=&runtime;disc_image=runtime.local_disc_path;
+    host_music_mix=[](std::vector<std::int16_t>& out){music.mix(out,ee->audio_mixer.master_percent*music_volume/100);};
+    std::fprintf(stderr,"Main menu item: Online Mode, the main menu's eleventh item\n");
+}

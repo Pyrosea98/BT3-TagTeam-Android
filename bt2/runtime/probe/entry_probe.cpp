@@ -8,6 +8,9 @@
 #include "gs/textures/gs_texture_names.h"
 #include "probe_state.h"
 #include "game_starter.h"
+#ifdef BT2_HW_GS
+#include "game/main_menu_item.h"
+#endif
 #include "host/audio_device.h"
 #include "host/frame_pacer.h"
 #include "host/host_input.h"
@@ -679,6 +682,11 @@ int main(int argc, char** argv) {
             if (battle) installBattleStarter(runtime, parseBattleStart(battle));
             if (screen) installScreenStarter(runtime, parseScreenStart(screen));
             if (episode) installEpisodeStarter(runtime, parseEpisodeStart(episode));
+#ifdef BT2_HW_GS
+            // BT2_MAIN_MENU_ITEM=<folder>: Dragon Rage's eleventh item of the main menu, Online Mode (a player's run with
+            // BT3's renderer; its pictures in the folder, game/main_menu_item.h).
+            if (const char* item = std::getenv("BT2_MAIN_MENU_ITEM"); item && *item && std::getenv("BT2_PLAYER_SETTINGS")) installMainMenuItem(runtime, item);
+#endif
         }
         // BT2_FIGHT_UNCAPPED (tool runs; the 60 fps study, docs/plans/graphics/HIGH_FRAME_RATE_PLAN.md): the fight's
         // frame wait (0x28C790: until Timer 1 has counted 400 lines, which makes a fight frame two fields) finds the
