@@ -6,6 +6,7 @@
  */
 #include <SDL3/SDL.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 
@@ -25,6 +26,7 @@ volatile uint32_t gPortDataStripped = 1;
 volatile int gPortNetWindowClose;
 int gPortMusicPercent = 100, gPortSePercent = 100, gPortVoicePercent = 100, gPortStagePercent = 100;
 unsigned char gPad[0x400];         /* (BT3: the game's pad block; only a test of gs_input.c reads it) */
+unsigned long long gPortNetWaitNs; /* (BT3 online: the time a frame waited for the other player; gs_core.c's report) */
 
 /* ---- pacing: the recompiled game paces itself */
 unsigned long long Port_BlankNs(void) { return 16683350ull; }
@@ -105,6 +107,10 @@ uint32_t MenuText_TexKey(int width, int height, int indexed, int tbp, int cbp, i
     return 0;
 }
 unsigned MenuLabels_ArtKey(void) { return 0; }
+int MenuLabels_LanguageArtPixels(int id, unsigned char **pixels, int *w, int *h) { (void)id; (void)pixels; (void)w; (void)h; return 0; }
+void MenuText_NewTexture(void) {}
+void Port_LagNote(int what, unsigned long long value) { (void)what; (void)value; }
+void Port_UiNotice(const char *text) { fprintf(stderr, "bt4: notice: %s\n", text); } /* (BT3: a line on screen; here the log) */
 int MenuLabels_ArtSwap(unsigned char *rgba, int w, int h) { (void)rgba; (void)w; (void)h; return 0; }
 int MenuTranslation_ArtPath(int artId, char *out, size_t capacity) { (void)artId; (void)out; (void)capacity; return 0; }
 uint32_t *TboText_Pixels(uint32_t id, uint32_t *version, uint32_t *w, uint32_t *h) { (void)id; (void)version; (void)w; (void)h; return NULL; }

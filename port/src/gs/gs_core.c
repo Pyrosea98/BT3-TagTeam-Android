@@ -623,9 +623,11 @@ static uint8_t sVtxSeam[3];
    resolution). Even at their exact positions the seam and the parts beside it left a pixel open here and there,
    where one's edge has a corner the other's has not; overlapping them a little closes those. */
 static void seam_widen(Vertex *t) {
-    extern int gsScale;
+    /* (Android: the internal resolution in quarter steps, gsScale4; the PC's whole-step gsScale is not in this
+       renderer, and an `extern int gsScale` here was linked to a function of the game's of that name) */
+    extern int gsScale4;
     float cx = (t[0].x + t[1].x + t[2].x) / 3.0f, cy = (t[0].y + t[1].y + t[2].y) / 3.0f;
-    float d = 0.5f / (float)(gsScale > 0 ? gsScale : 1);
+    float d = 0.5f / (gsScale4 > 0 ? (float)gsScale4 * 0.25f : 1.0f);
     int i;
     for (i = 0; i < 3; i++) {
         float dx = t[i].x - cx, dy = t[i].y - cy, len = sqrtf(dx * dx + dy * dy);
