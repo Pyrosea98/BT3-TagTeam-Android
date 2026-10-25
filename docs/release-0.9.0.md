@@ -162,6 +162,8 @@ ajustes. "0.9.0" é a build final limpa (8d9d5fb, APK `final`), luta gravada do 
     - `lib/`: `libbt3.so` (o motor: a decomp recompilada), `libbt4.so` (o runner do BT3-Recomp com o código do mod
       traduzido para C++ e compilado: é código gerado a partir do ELF, sem as seções de dados do ELF; `.rodata` de
       1,4 MB são tabelas do runtime), `libbt4gsx.so` (ARMSX2/PCSX2, GPL-3), SDL3 e os ganchos de driver;
+    - `classes.dex`: o launcher e, desde a seção 8, o Apache Commons Compress (Apache-2.0, compatível com a AGPL-3.0;
+      creditado nos três READMEs), reduzido pelo R8 ao leitor de zip;
     - `assets/engine`: fontes livres (Anton, DejaVu, Fira) e a arte própria do menu (`tbo/ui`);
     - `assets/bt4gsx`: recursos do PCSX2 (GameIndex.yaml, shaders, fontes com as licenças junto) e o cache de
       SPIR-V (shaders compilados do próprio ARMSX2, nada do jogo);
@@ -292,7 +294,11 @@ ficou com 20% de bateria, no USB.
 ## 7. Commits locais e como publicar
 
 ```
-(este relatório) Docs: release 0.9.0 report
+(seção 8)        Docs: fullscreen and texture packs in the 0.9.0 report
+5dab121 Textures: help says what to do with a .rar or .7z pack and the room it needs
+d6467b2 Texture packs: used on Android, in both games; more zips read
+79ce685 Game: hide the system bars before the surface is made
+6dabc20 Docs: release 0.9.0 report
 d138e3a Launcher: log the BT4 renderer on start
 8d9d5fb Release 0.9.0: version, README, changelog
 89a39bb Dragon Net: busy notice on Ranked, 429 test env
@@ -323,3 +329,94 @@ Atenção ao versionCode: no CI ele vem do número da execução (`DR_VERSION_CO
 aparelhos de teste estão com o 900 local, assinado com a chave de teste (`dragonrage-test.jks`); um APK do CI com
 código menor ou outra assinatura não instala por cima sem desinstalar (o RP5 recusa downgrade). Os jogadores, que
 vêm do APK do CI, não têm esse problema.
+
+## 8. Depois do relatório: tela cheia no RP5 e pacotes de textura
+
+Os dois itens pedidos depois do relatório. Os dois valem também para a build estável (ver o fim da seção).
+
+### BT4 (e BT3) sem ocupar a tela inteira no RP5 (79ce685)
+
+**Causa.** Não era a proporção do jogo nem um recorte: a superfície do jogo era criada enquanto a barra de navegação
+ainda estava na tela (1920x1080 menos os 108 px da barra = **1920x972**). O SDL só esconde as barras quando o motor
+cria a janela, e aí a superfície já existia. Em parte dos inícios ela ficava em 972 a partida inteira e o sistema
+esticava a imagem para 1080: no `dumpsys SurfaceFlinger`, a camada do jogo com `size=(1920, 972)` e escala
+`tr=[1.00 … 1.11]`, ou seja, tudo 11% mais alto e, em 16:9, faixas pretas dos lados. Não depende do renderizador:
+acontecia no BT3 e no BT4 (o ARMSX2 registrava "window 1920x972"). Nos logs do lab, a partir de 24/10 metade das
+rodadas do RP5 tinha `swapchain yes 1920x972`.
+
+**Tentativa descartada.** Refazer o swapchain quando ele difere da janela (`SDL_SetGPUSwapchainParameters`) não
+adianta: a própria superfície Vulkan continua informando 972 (`currentExtent`). Revertido.
+
+**Correção.** O `GameActivity` esconde as barras no `onCreate`, antes de a superfície existir, com as mesmas flags
+do modo tela cheia do SDL (`setWindowStyle(true)` também, para o SDL continuar escondendo-as depois de um gesto).
+A linha `present:` do log agora traz o tamanho da janela ao lado do swapchain.
+
+| | antes | depois |
+|---|---|---|
+| RP5, BT3, inícios seguidos | 3 de 8 em 1920x972 | 10 de 10 em 1920x1080 desde o 1º quadro |
+| RP5, BT4 ARMSX2 16:9 / 4:3 / tela cheia | janela 1920x972 | 1920x1080; 16:9 e tela cheia ocupam a tela, 4:3 com faixas (certo) |
+| RP5, BT4 Dragon Rage 16:9 | — | 1920x1080, ocupa a tela |
+| Cube (720x720), BT3, 4 inícios | 720x720 | 720x720 |
+| BT3 luta gravada, Cube VK 1x / VK 2x / GL 2x | 100 / 94,8 / 97,8% | 100 / 94,3 / 97,7% |
+| BT3 luta gravada, RP5 VK 2x / VK 4x / GL 2x | 100 / 83,7 / 100% | 100 / 83,7 / 100% |
+| Imagem (8 quadros no Cube, 7 no RP5) | — | 0 pixels diferentes contra a final |
+
+### Importar texturas não funcionava (d6467b2, 5dab121)
+
+Havia quatro falhas independentes; a primeira explica sozinha o "instala e nada muda" em qualquer aparelho.
+
+1. **BT3: o pacote importado nunca era usado no Android.** O launcher instala em `files/textures`, e o motor
+   procurava `"textures"` com o SDL, que no Android resolve caminho relativo dentro da pasta **interna** do app
+   (`/data/user/0/<app>/files`), não na pasta do jogo. O log do jogo dizia `texture pack: no folder textures` com o
+   pacote no lugar. O motor foi testado com pacotes só no PC, onde o caminho relativo funciona. Correção: no Android
+   o caminho fica absoluto a partir da pasta do jogo (`gs_texpack.c`).
+2. **BT4: nenhum dos dois renderizadores olhava `bt4/textures`.** O do Dragon Rage tinha a mesma falha do item 1
+   (e o jogo ainda troca de pasta); o ARMSX2 procurava em `bt4/gsx/ARMSX2/textures/SLUS-21978/replacements`, com
+   `LoadTextureReplacements = false`. Agora o host passa o caminho completo de `bt4/textures` aos dois (`BT3_TEXTURES`
+   e `BT4GSX_TEXTURES`, este com um trecho novo no `armsx2-bt4.patch`), e o ARMSX2 liga as substituições só quando
+   há um pacote instalado (sem pacote, o ini é o mesmo de antes).
+3. **Zips que o leitor do Java recusa.** Testado no PC com o mesmo leitor do app (`ZipInputStream`) e uma fatia do
+   pacote real: 7-Zip com Deflate64 ou BZip2 dava "invalid compression method", e zip gravado em fluxo com entradas
+   sem compressão dava "only DEFLATED entries can have EXT descriptor"; Deflate comum, Store, Info-ZIP, Zip64, nomes
+   do Windows e com acento passavam. O app agora lê com o Apache Commons Compress: as 11 variantes passam no PC, e no
+   RP5 a de Deflate64 e a gravada em fluxo instalaram pela interface (598 texturas cada).
+4. **Espaço.** O pacote que circula (o mesmo das 18.704 texturas do log do Odin 3 de 11/10) vem em **RAR 5** de
+   2,1 GB e ocupa **10,3 GB** extraído. Com a build anterior, no RP5 com 7,7 GB livres: 68 s extraindo e a janela
+   "write failed: ENOSPC (No space left on device)". Agora o app lê o índice do zip antes (1,3 s para esse pacote)
+   e recusa na hora: "Espaço insuficiente: este pack ocupa 10,3 GB depois de extraído e o aparelho tem 7,8 GB
+   livres". Se o espaço acabar no meio (zip sem índice legível), a mensagem diz isso. O que uma importação cortada
+   deixava em `.import` é apagado na próxima.
+
+Também: o seletor de arquivos mostra qualquer arquivo (antes o `.rar`/`.7z` aparecia apagado e o jogador não recebia
+explicação nenhuma); um `.7z` escolhido recebe "Escolha um pack em .zip. Um .rar ou .7z precisa ser extraído e
+compactado de novo...". A ajuda da tela de texturas diz isso e o espaço necessário. RAR 5 não tem leitor em Java
+(o junrar só lê RAR 4); ler `.7z` direto seria possível com o Commons Compress e o XZ, mas não entrou.
+
+Sobre o log do Odin 3 (0.4.0, 11/10): "18704 files, 0 replacement textures", sem nenhuma "other image". O zip abriu,
+mas nenhum nome, do jeito que aquela build o via, terminava em `.dds`/`.png`; a 0.6.0 já tinha trocado esse ponto
+(nome direto da entrada do zip, com `trim`, e os 3 primeiros nomes no log). Com o mesmo pacote, a build atual
+reconhece as 18.704. Mesmo que aquela importação tivesse passado, o jogo não teria usado o pacote (item 1).
+
+**Medido** (pacote inteiro, zip de 1,9 GB feito no 7-Zip, importado pela interface):
+
+| | Cube (Mali-G57) | RP5 (Adreno 650) |
+|---|---|---|
+| Importar, build anterior | 146 s, 18.704 texturas | ENOSPC depois de 68 s (7,7 GB livres) |
+| Importar, build nova | 154 s (BT4) | 136 s (41,5 GB livres, depois que o espaço foi liberado) |
+| BT3, luta gravada com o pacote | 18.597 indexadas, ~3.000 trocadas, 100% (VK 1x, trabalho 22,6 ms contra 22,0 sem) | 18.597 indexadas, ~2.800 trocadas, 100% (VK 2x, 16,3 ms contra 16,0) |
+| BT4 com o pacote do BT3 | ARMSX2: 18.597 indexadas, 28,7 atualizações/s; Dragon Rage: 34 trocadas, 29,3 (29,6 sem) | não medido |
+
+O Cube não tem texturas DXT na GPU: os `.dds` são descompactados na CPU, e mesmo assim a luta fica em 30. No BT4 o
+ARMSX2 reservou um cache de até 5,3 GB para texturas descompactadas (metade da RAM): com um pacote feito para o BT4,
+que troque muito mais que as 34 do pacote do BT3, vale medir a memória numa luta longa.
+
+**Ainda aberto:** um pacote em `.rar`/`.7z` continua precisando ser convertido pelo jogador; e o pacote tem pastas
+alternativas (`Original Buttons`, `Xbox Layout`) ao lado de `replacements` com os mesmos nomes; vale o primeiro
+encontrado, como já estava documentado no `docs/port/README.md`.
+
+**Para a build estável:** as duas correções valem para qualquer build Android (não dependem de nada desta versão): o
+`onCreate` do `GameActivity`, o `gs_texpack.c` e o leitor de zip do launcher. A parte do BT4 só existe nesta.
+
+**Aparelhos:** os testes desta seção instalaram o pacote nos dois e mudaram ajustes; tudo voltou ao estado da seção
+6 (ajustes do BT3 e do BT4, `bt3_env.txt` do Cube, sem `fight.rec`, sem pacotes em `textures`, Downloads igual,
+saves iguais). Os dois estão com o APK desta seção (900). O zip do pacote ficou no PC em `~/dbz-tex/zips/SLUS-21678.zip`.

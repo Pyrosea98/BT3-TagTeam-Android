@@ -167,7 +167,7 @@ were offered), `perf_log`, `frag_depth`. The on-screen controller is in `touch_c
 - GPU drivers by [Mr. Purple](https://github.com/MrPurple666/purple-turnip), [StevenMXZ](https://github.com/StevenMXZ/Adreno-Tools-Drivers)
   and [K11MCH1](https://github.com/K11MCH1/AdrenoToolsDrivers), loaded with [libadrenotools](https://github.com/bylaws/libadrenotools) (BSD-2-Clause).
 - [AMD FidelityFX Super Resolution 1](https://github.com/GPUOpen-Effects/FidelityFX-FSR) (MIT),
-  [Snapdragon Game Super Resolution](https://github.com/SnapdragonStudios/snapdragon-gsr) (BSD-3-Clause), [SDL3](https://libsdl.org) (zlib),
+  [Snapdragon Game Super Resolution](https://github.com/SnapdragonStudios/snapdragon-gsr) (BSD-3-Clause), [SDL3](https://libsdl.org) (zlib), [Apache Commons Compress](https://commons.apache.org/proper/commons-compress/) (Apache-2.0),
   [Dear ImGui](https://github.com/ocornut/imgui) (MIT), the fonts in `port/third_party/fonts` (their own licences).
 - Made with the help of AI.
 

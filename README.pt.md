@@ -172,7 +172,7 @@ opcional `match_url.txt` (uma linha, `https://...`) aponta outro serviço de mat
 - Drivers de GPU de [Mr. Purple](https://github.com/MrPurple666/purple-turnip), [StevenMXZ](https://github.com/StevenMXZ/Adreno-Tools-Drivers)
   e [K11MCH1](https://github.com/K11MCH1/AdrenoToolsDrivers), carregados com [libadrenotools](https://github.com/bylaws/libadrenotools) (BSD-2-Clause).
 - [AMD FidelityFX Super Resolution 1](https://github.com/GPUOpen-Effects/FidelityFX-FSR) (MIT),
-  [Snapdragon Game Super Resolution](https://github.com/SnapdragonStudios/snapdragon-gsr) (BSD-3-Clause), [SDL3](https://libsdl.org) (zlib),
+  [Snapdragon Game Super Resolution](https://github.com/SnapdragonStudios/snapdragon-gsr) (BSD-3-Clause), [SDL3](https://libsdl.org) (zlib), [Apache Commons Compress](https://commons.apache.org/proper/commons-compress/) (Apache-2.0),
   [Dear ImGui](https://github.com/ocornut/imgui) (MIT), as fontes em `port/third_party/fonts` (cada uma com sua licença).
 - Feito com a ajuda de IA.
 

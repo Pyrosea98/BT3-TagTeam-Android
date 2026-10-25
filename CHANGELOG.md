@@ -45,6 +45,18 @@ comparison.
   the devices measured it cannot yet: the RG Cube does 30 and the Retroid Pocket 5 about 36 to 41.
 - The image can be picked from Downloads and still opens after the device restarts.
 
+## Texture packs
+- **They now work on Android**: the game looked for packs in an internal folder of the app, so an imported pack was
+  never used ("it installed and nothing changed"). They are now used in **BT3** and **BT4** (with both renderers).
+  Measured with the SLUS-21678 HD pack (18,704 textures, 10.3 GB): about 3,000 textures replaced in the recorded
+  fight, at a steady 30 fps on the RG Cube and the Retroid Pocket 5.
+- **More zips open**: ones made in 7-Zip with Deflate64 or BZip2 and ones written as a stream (stored, with a data
+  descriptor) gave "a compression the app cannot read".
+- **Space**: a pack that does not fit is refused before unpacking, with its size and the free space ("Not enough
+  space: this pack takes 10.3 GB unpacked and the device has 7.8 GB free"), instead of unpacking for over a minute
+  and failing with a system error. What an interrupted import left behind is removed.
+- The file picker also shows .rar and .7z, and the app explains how to turn them into a .zip.
+
 ## Online
 - **Server busy**: when the free server reaches its daily limit (HTTP 429, Cloudflare's error 1027), the game stops
   asking for a while (30 s, doubling up to 10 min) instead of insisting, moves to the backup server, and the launcher
@@ -59,6 +71,9 @@ comparison.
 - The app's log says why when the launcher cannot reach the online service.
 
 ## Controls and launcher
+- **Full screen**: on the Retroid Pocket 5 (and devices with a navigation bar) the game sometimes started in a smaller
+  area (1920x972) that the system stretched to the screen, everything 11% taller and black bars at the sides in 16:9.
+  The picture now fills the screen from the start, in BT3 and BT4 (10 of 10 starts right; before, 3 of 8 wrong).
 - **Classic pad on a square screen** (RG Cube 720x720): L1/L2 and R1/R2 no longer overlap, and the face buttons and the
   d-pad stay on screen. Nothing changes on 16:9.
 - **START + SELECT** also closes the in-game menu, not only opens it.

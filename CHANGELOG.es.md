@@ -49,6 +49,18 @@ comparación de imagen píxel a píxel.
   unas 36 a 41.
 - La imagen se puede elegir desde Descargas y sigue abriendo después de reiniciar el dispositivo.
 
+## Packs de texturas
+- **Ahora funcionan en Android**: el juego buscaba los packs en una carpeta interna de la app, así que un pack
+  importado nunca se usaba ("se instaló y nada cambió"). Ahora se usan en **BT3** y **BT4** (con los dos
+  renderizadores). Medido con el pack HD de SLUS-21678 (18.704 texturas, 10,3 GB): unas 3.000 texturas cambiadas en
+  la pelea grabada, a 30 fps estables en el RG Cube y el Retroid Pocket 5.
+- **Abren más zips**: los hechos en 7-Zip con Deflate64 o BZip2 y los escritos como flujo (sin compresión, con
+  descriptor) daban "una compresión que la app no puede leer".
+- **Espacio**: un pack que no cabe se rechaza antes de extraerlo, con su tamaño y el espacio libre ("No hay espacio
+  suficiente: este pack ocupa 10,3 GB descomprimido y el dispositivo tiene 7,8 GB libres"), en vez de extraer durante
+  más de un minuto y fallar con un error del sistema en inglés. Se borra lo que dejaba una importación interrumpida.
+- El selector de archivos también muestra .rar y .7z, y la app explica cómo convertirlos a .zip.
+
 ## Online
 - **Servidor ocupado**: cuando el servidor gratuito llega a su límite diario (HTTP 429, error 1027 de Cloudflare), el
   juego deja de preguntar un rato (30 s, duplicando hasta 10 min) en lugar de insistir, pasa al servidor de reserva, y
@@ -63,6 +75,10 @@ comparación de imagen píxel a píxel.
 - El log de la app registra el motivo cuando el launcher no puede hablar con el servicio online.
 
 ## Controles y launcher
+- **Pantalla completa**: en el Retroid Pocket 5 (y en dispositivos con barra de navegación) el juego a veces empezaba
+  en un área más pequeña (1920x972) que el sistema estiraba a la pantalla, todo un 11% más alto y franjas negras a los
+  lados en 16:9. Ahora la imagen ocupa toda la pantalla desde el inicio, en BT3 y BT4 (10 de 10 inicios bien; antes,
+  3 de 8 mal).
 - **Control clásico en pantalla cuadrada** (RG Cube 720x720): L1/L2 y R1/R2 ya no se superponen, y el rombo de botones
   y la cruceta quedan dentro de la pantalla. En 16:9 no cambia nada.
 - **START + SELECT** también cierra el menú del juego, no solo lo abre.
