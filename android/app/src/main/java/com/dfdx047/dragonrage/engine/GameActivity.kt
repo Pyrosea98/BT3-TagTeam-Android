@@ -314,7 +314,9 @@ open class GameActivity : SDLActivity() {
             val text = stream?.bufferedReader()?.use { it.readText() } ?: ""
             // (in the log for a report about online play: the matchmaking's refusals, limits and outages)
             if (code !in 200..299) android.util.Log.w("bt3", "net: HTTP $code from ${url.substringAfterLast('/')}: ${text.take(200)}")
-            text
+            // A 429 is said in the answer, which the engine reads (net_match.c: it then asks nothing for a while). A
+            // Worker's own is JSON; Cloudflare's (error 1027, the daily requests) is not.
+            if (code == 429) """{"error":"${if (text.trimStart().startsWith("{") && text.contains("busy")) "busy" else "limit"}","http":429}""" else text
         } finally {
             c.disconnect()
         }

@@ -254,7 +254,8 @@ class AppViewModel @JvmOverloads constructor(app: Application, val game: Game = 
         viewModelScope.launch {
             val r = runCatching { OnlineStatus.check(paths, BuildConfig.PORT_RELEASE, mode) }
             _online.value = r.getOrDefault(OnlineState.Unreachable)
-            ActivityLog.info("online", "${if (mode == 0) "Dragon Net" else "PC"}: ${_online.value}" + (r.exceptionOrNull()?.let { " (${it.javaClass.simpleName}: ${it.message})" } ?: ""))
+            ActivityLog.info("online", "${if (mode == 0) "Dragon Net" else "PC"}: ${_online.value}" + (r.exceptionOrNull()?.let { " (${it.javaClass.simpleName}: ${it.message})" }
+                ?: OnlineStatus.lastFailure?.takeIf { _online.value == OnlineState.Unreachable }?.let { " ($it)" } ?: ""))
         }
     }
 

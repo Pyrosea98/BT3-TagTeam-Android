@@ -313,6 +313,7 @@ private fun OnlineBanner(vm: AppViewModel) {
     val (color, title, text) = when (val st = state) {
         OnlineState.Checking -> Triple(MaterialTheme.colorScheme.outline, stringResource(R.string.online_checking), "")
         OnlineState.Unreachable -> Triple(MaterialTheme.colorScheme.outline, stringResource(R.string.online_unreachable_title), stringResource(R.string.online_unreachable))
+        OnlineState.Limited -> Triple(Dbz.GiOrange, stringResource(R.string.online_limited_title), stringResource(R.string.online_limited))
         is OnlineState.Outdated -> Triple(MaterialTheme.colorScheme.error, stringResource(R.string.online_outdated_title),
             stringResource(R.string.online_outdated, OnlineStatus.release(st.min), OnlineStatus.release(st.mine)))
         is OnlineState.OfficialOnly -> Triple(Dbz.GiOrange, stringResource(R.string.online_official_title), stringResource(R.string.online_official))

@@ -346,6 +346,8 @@
     <string name="online_checking">Comprobando el servicio online…</string>
     <string name="online_unreachable_title">No se pudo contactar el servicio online</string>
     <string name="online_unreachable">Sin internet, o el servicio de partidas no respondió. El juego offline no se ve afectado; prueba más tarde con el botón de actualizar.</string>
+    <string name="online_limited_title">Servicio online ocupado</string>
+    <string name="online_limited">Servidor ocupado (límite diario), inténtalo más tarde. El juego offline no se ve afectado.</string>
     <string name="online_outdated_title">El online necesita una actualización</string>
     <string name="online_outdated">El servicio online ahora pide la versión %1$s o más nueva del port de PC, y este Dragon Rage es %2$s. Las partidas online no empezarán hasta que instales el Dragon Rage más reciente (releases de GitHub). Todo lo offline sigue funcionando.</string>
     <string name="online_official_title">Partida rápida: solo versiones oficiales</string>

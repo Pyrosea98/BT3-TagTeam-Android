@@ -620,6 +620,7 @@ static void set_open(bool open) {
     if (!open && sNet) {
         DrNet_PresenceActive(0); // (no longer counted among the players online)
         DrChat_Close();
+        DrRanked_Cancel(); // the Ranked queue is asked only while its screen is up (not once a match is handed over)
     }
     if (open && sChat) {
         chat_close();

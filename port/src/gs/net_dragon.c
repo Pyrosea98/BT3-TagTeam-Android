@@ -246,6 +246,7 @@ static char sChatOut[4][200]; /* messages waiting to be sent (hex comes later) *
 static int sChatOutN;
 
 static int sPresenceOn, sPresenceLeave, sOnline = -1;
+static Uint64 sSearchAt; /* when the search under way began (the queue is asked less often as it goes on) */
 static Uint64 sPresenceAt;
 
 static void message(int msg, int state) {
@@ -265,6 +266,10 @@ static int post_ranked(const char *what, const char *extra, char *answer, size_t
     SDL_snprintf(path, sizeof(path), "ranked/%s", what);
     SDL_snprintf(body, sizeof(body), "{\"v\":%d,\"id\":\"%s\",\"token\":\"%s\"%s}", wire(), sId, sToken, extra != NULL ? extra : "");
     if (!Match_PostDragon(path, body, answer, size)) {
+        return 0;
+    }
+    if (strstr(answer, "\"error\":\"limit\"") != NULL) {
+        message(DRMSG_LIMIT, 99); /* (a search goes on, without asking, until the pause is over: net_match.c) */
         return 0;
     }
     if (strstr(answer, "\"error\":\"version\"") != NULL) {
@@ -304,7 +309,7 @@ static int identity(void) {
         sId[0] = sToken[0] = '\0';
         retryWait = retryWait == 0 ? 15000 : retryWait * 2 > 300000 ? 300000 : retryWait * 2;
         retryAt = SDL_GetTicks() + retryWait;
-        message(strstr(answer, "\"version\"") != NULL ? DRMSG_VERSION : DRMSG_REGISTER_FAILED, -1);
+        message(strstr(answer, "\"version\"") != NULL ? DRMSG_VERSION : strstr(answer, "\"limit\"") != NULL ? DRMSG_LIMIT : DRMSG_REGISTER_FAILED, -1);
         return 0;
     }
     SDL_snprintf(file, sizeof(file), "%s %s\n", sId, sToken);
@@ -500,7 +505,8 @@ static void do_presence(void) {
 }
 
 static int SDLCALL worker(void *unused) {
-    Uint64 chatAt = 0;
+    Uint64 chatAt = 0, resultAt = 0, resultWait = 0; /* (a result the rival has not reported yet: sent again in 5 s,
+                                                         doubling to a minute, not every round) */
     (void)unused;
     for (;;) {
         char answer[4096], extra[256], name[20], match[33], code[8], cancelled[33];
@@ -538,11 +544,24 @@ static int SDLCALL worker(void *unused) {
         {
             char om[33], od[16];
             int os;
-            urgent = outbox_first(om, &os, od); /* (a result still to send) */
+            urgent = outbox_first(om, &os, od) && now >= resultAt; /* (a result still to send) */
+            if (!urgent && resultAt != 0 && !outbox_first(om, &os, od)) {
+                resultAt = resultWait = 0;
+            }
         }
         if ((refresh || search || cancel || board || chat || urgent) && identity()) {
             int pendingRefresh = refresh;
-            do_result(&pendingRefresh);
+            if (urgent || refresh) {
+                char om[33], od[16];
+                int os;
+                do_result(&pendingRefresh);
+                if (outbox_first(om, &os, od)) {
+                    resultWait = resultWait == 0 ? 5000 : resultWait * 2 > 60000 ? 60000 : resultWait * 2;
+                    resultAt = SDL_GetTicks() + resultWait;
+                } else {
+                    resultAt = resultWait = 0;
+                }
+            }
             if (cancel && is_hex(cancelled, 32)) {
                 SDL_snprintf(extra, sizeof(extra), ",\"match\":\"%s\"", cancelled);
                 post_ranked("cancel", extra, answer, sizeof(answer));
@@ -600,7 +619,7 @@ static int SDLCALL worker(void *unused) {
                     SDL_snprintf(extra, sizeof(extra), ",\"rematches\":0,\"rules\":\"%s\"", mode ? "team3-inf-v1" : "solo-inf-v1");
                     if (post_ranked("queue", extra, answer, sizeof(answer))) {
                         update_match(answer, gen);
-                    } else if (sView.msg != DRMSG_VERSION) {
+                    } else if (sView.msg != DRMSG_VERSION && sView.msg != DRMSG_LIMIT) {
                         message(strstr(answer, "busy") != NULL ? DRMSG_BUSY : DRMSG_NO_ANSWER, 99);
                     }
                 }
@@ -615,15 +634,26 @@ static int SDLCALL worker(void *unused) {
             sChat.state = -1;
             SDL_UnlockMutex(sLock);
         }
-        /* the next round: at once when asked for something, else in two seconds (a search) or a little more */
-        for (i = 0; i < (search ? 200 : 100); i++) {
+        /* The next round: at once when asked for something; a search asks the queue every 4 s in its first half
+           minute, every 8 s to two minutes, then every 15 s (nobody there: the service's requests are a daily
+           allowance shared by every player); paired, every 3 s (the room code is coming). Nothing searched: the
+           loop only looks at what the window asked for, with no request. */
+        {
+            Uint64 waited = SDL_GetTicks() - sSearchAt;
+            int paired, rounds;
             SDL_LockMutex(sLock);
-            urgent = sRefresh || sWantCancel || sWantBoard || sRoomPending[0] != '\0' || sChatOutN > 0 || sPresenceLeave;
+            paired = sView.state == 3;
             SDL_UnlockMutex(sLock);
-            if (urgent) {
-                break;
+            rounds = !search ? 100 : paired ? 150 : waited < 30000 ? 200 : waited < 120000 ? 400 : 750;
+            for (i = 0; i < rounds; i++) {
+                SDL_LockMutex(sLock);
+                urgent = sRefresh || sWantCancel || sWantBoard || sRoomPending[0] != '\0' || sChatOutN > 0 || sPresenceLeave;
+                SDL_UnlockMutex(sLock);
+                if (urgent) {
+                    break;
+                }
+                SDL_Delay(20);
             }
-            SDL_Delay(20);
         }
     }
     return 0;
@@ -690,6 +720,7 @@ void DrRanked_Search(const char *name, int mode) {
     sHandedOver[0] = '\0';
     sView.mode = mode != 0;
     sWantSearch = sView.searching = 1;
+    sSearchAt = SDL_GetTicks();
     sView.state = 1;
     sView.match[0] = sView.code[0] = sView.peer[0] = sRoomPending[0] = '\0';
     sView.msg = DRMSG_SEARCHING;

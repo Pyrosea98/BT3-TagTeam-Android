@@ -347,6 +347,8 @@
     <string name="online_checking">Checking the online service…</string>
     <string name="online_unreachable_title">Could not reach the online service</string>
     <string name="online_unreachable">No internet, or the matchmaking service did not answer. Offline play is not affected; try again later with the refresh button.</string>
+    <string name="online_limited_title">Online service busy</string>
+    <string name="online_limited">Server busy (daily limit), try again later. Offline play is not affected.</string>
     <string name="online_outdated_title">Online needs an update</string>
     <string name="online_outdated">The online service now asks for the PC port\'s release %1$s or newer, and this Dragon Rage is %2$s. Online matches will not start until you install the latest Dragon Rage (GitHub releases). Everything offline keeps working.</string>
     <string name="online_official_title">Quick match: official builds only</string>
