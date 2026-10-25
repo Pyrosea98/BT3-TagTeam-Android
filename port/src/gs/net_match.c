@@ -550,7 +550,7 @@ static int limit_before(const char *base, char *out, size_t size) {
 
 /* BT3_NET_TEST_429=1: every request answered as Cloudflare's 1027 would be, without asking (testing the pause) */
 static int limit_test(char *out, size_t size) {
-    if (SDL_getenv("BT3_NET_TEST_429") == NULL) {
+    if (getenv("BT3_NET_TEST_429") == NULL) { /* (the C library's: on Android SDL's copy predates bt3_env.txt) */
         return 0;
     }
     SDL_strlcpy(out, "{\"error\":\"limit\",\"http\":429}", size);

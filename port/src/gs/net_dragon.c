@@ -582,6 +582,8 @@ static int SDLCALL worker(void *unused) {
                         sView.msg = DRMSG_UPDATED;
                     }
                     SDL_UnlockMutex(sLock);
+                } else if (sView.msg == DRMSG_LIMIT) {
+                    message(DRMSG_LIMIT, -1); /* (said on the screen as the server being busy, not as a failure) */
                 } else if (sView.msg != DRMSG_VERSION) {
                     message(DRMSG_PROFILE_FAILED, -1);
                 }
