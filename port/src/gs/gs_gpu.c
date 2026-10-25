@@ -896,6 +896,13 @@ static int vk_init(void) {
     sFsNd = shader(SHADER_CODE(kGsNdFrag), SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 1);
     sFsNzNd = shader(SHADER_CODE(kGsnzNdFrag), SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 1);
 #endif
+    if (getenv("BT3_FS_TRIVIAL") != NULL) { /* EXPERIMENT (lite): every draw with trivial.frag (a wrong picture) */
+        SDL_GPUShader *t = shader(SHADER_CODE(kTrivialFrag), SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 1);
+        if (t != NULL) {
+            sFs = sFsNz = sFsWb = sFsNd = sFsNzNd = t;
+            fprintf(stderr, "bt3: EXPERIMENT: trivial fragment shader\n");
+        }
+    }
     if (sVs == NULL || sFs == NULL || sFsNz == NULL || sFsWb == NULL) {
         fprintf(stderr, "bt3: shaders: %s\n", SDL_GetError());
         return 0;
@@ -1137,6 +1144,89 @@ static int sLastShown = -1; /* the target shown last (the paused picture) */
 
 /* The game's picture into the window: its shape kept (4:3 or 16:9), centred, the rest black. */
 /* A scissor inside the target (the game's may reach past its 512 x 512: nothing is drawn there anyway). */
+/* BT3_VK_AREA=1 (Android, Dragon Rage Lite): the render area of a pass that goes on drawing into a target (load, not
+   clear) is the rectangle its draws stay in: their scissors, and a GS draw's vertices a pixel wider. The loader
+   (android/app/src/main/cpp/loader.c, Dr_VkNextRenderArea) hands it to vkCmdBeginRenderPass, so a tile-based GPU
+   loads and stores only those tiles. The run is taken up to the next step that ends the pass for certain (a
+   native step other than a DATE marker, a DATE copy, another target): a pass that ends sooner only gets a wider
+   area than it needs. */
+#ifdef __ANDROID__
+#include <dlfcn.h>
+static void (*sNextArea)(int x, int y, int w, int h);
+static void pass_area(uint32_t n, int target) {
+    static int on = -1;
+    int x0 = 1 << 30, y0 = 1 << 30, x1 = -(1 << 30), y1 = -(1 << 30), W = sTW * SCALE, H = sTH * SCALE;
+    uint32_t j;
+    if (on < 0) {
+        void *h = dlopen("libmain.so", RTLD_NOW | RTLD_NOLOAD);
+        sNextArea = h != NULL ? (void (*)(int, int, int, int))dlsym(h, "Dr_VkNextRenderArea") : NULL;
+        on = sNextArea != NULL && getenv("BT3_VK_AREA") != NULL && atoi(getenv("BT3_VK_AREA")) != 0;
+        fprintf(stderr, "bt3: vulkan: render areas %s\n", on ? "on" : "off");
+    }
+    if (!on) {
+        return;
+    }
+    for (j = n; j < gsDrawCount; j++) {
+        const GsDraw *d = &gsDraws[j];
+        int a0, b0, a1, b1;
+        if (d->target != target) {
+            break;
+        }
+        if (d->native) {
+            int rx, ry, rw, rh;
+            if (d->native == 5 && !(gsTargets[d->target].cleared && GsDraw_DateRegion(j, &rx, &ry, &rw, &rh))) {
+                continue; /* (a DATE marker with nothing to copy: the pass may go on) */
+            }
+            break;
+        }
+        a0 = d->scissor[0], b0 = d->scissor[1], a1 = d->scissor[0] + d->scissor[2], b1 = d->scissor[1] + d->scissor[3];
+        if (!d->vu && !d->wall) { /* the vertices' box, a GS pixel wider on every side */
+            float bx0 = 1e9f, by0 = 1e9f, bx1 = -1e9f, by1 = -1e9f;
+            uint32_t k;
+            for (k = 0; k < d->count; k++) {
+                const Vtx *v = &gsVerts[d->first + k];
+                if (!(v->x == v->x) || !(v->y == v->y)) { /* (not a number: the scissor) */
+                    bx0 = -1e9f, by0 = -1e9f, bx1 = 1e9f, by1 = 1e9f;
+                    break;
+                }
+                if (v->x < bx0) { bx0 = v->x; }
+                if (v->x > bx1) { bx1 = v->x; }
+                if (v->y < by0) { by0 = v->y; }
+                if (v->y > by1) { by1 = v->y; }
+            }
+            if (d->count > 0 && bx0 > -1e6f && bx1 < 1e6f && by0 > -1e6f && by1 < 1e6f) {
+                int c0 = (int)floorf(bx0 * (float)SCALE) - SCALE, e0 = (int)floorf(by0 * (float)SCALE) - SCALE;
+                int c1 = (int)ceilf(bx1 * (float)SCALE) + SCALE, e1 = (int)ceilf(by1 * (float)SCALE) + SCALE;
+                if (c0 > a0) { a0 = c0; }
+                if (e0 > b0) { b0 = e0; }
+                if (c1 < a1) { a1 = c1; }
+                if (e1 < b1) { b1 = e1; }
+            }
+        }
+        if (a1 <= a0 || b1 <= b0) {
+            continue; /* (draws nothing) */
+        }
+        if (a0 < x0) { x0 = a0; }
+        if (b0 < y0) { y0 = b0; }
+        if (a1 > x1) { x1 = a1; }
+        if (b1 > y1) { y1 = b1; }
+    }
+    /* whole tiles (16 x 16), inside the target */
+    x0 = x0 < 0 ? 0 : x0 & ~15, y0 = y0 < 0 ? 0 : y0 & ~15;
+    x1 = x1 > W ? W : (x1 + 15) & ~15, y1 = y1 > H ? H : (y1 + 15) & ~15;
+    if (x1 > W) { x1 = W; }
+    if (y1 > H) { y1 = H; }
+    if (x1 <= x0 || y1 <= y0) {
+        x0 = 0, y0 = 0, x1 = 16, y1 = 16; /* (nothing drawn: one tile) */
+    }
+    if (x0 > 0 || y0 > 0 || x1 < W || y1 < H) {
+        sNextArea(x0, y0, x1 - x0, y1 - y0);
+    }
+}
+#else
+static void pass_area(uint32_t n, int target) { (void)n, (void)target; }
+#endif
+
 static void clamp_scissor(SDL_Rect *r) {
     int w = (int)(sTW * SCALE), h = (int)(sTH * SCALE);
     if (r->x < 0) { r->w += r->x; r->x = 0; }
@@ -1810,6 +1900,67 @@ static void vk_frame_end(void) {
     if (aux_plan_on()) {
         aux_plan();
     }
+    {   /* BT3_PIPE_STAT=<n>: every n frames, between two neighbouring draws of vertex programs on one target that
+           take different pipelines, which bits of the key differ (blend 0-9, depth test 10-11, write 12, topology
+           13-14, colour mask 16-19, program 20-21, 23 no depth output, 24 shadow, 25 work buffer, 27 no discard) */
+        static int every = -1;
+        if (every < 0) { every = getenv("BT3_PIPE_STAT") != NULL ? atoi(getenv("BT3_PIPE_STAT")) : 0; }
+        if (every > 0 && gGsFrame % (unsigned)every == 0) {
+            unsigned bits[32] = {0}, changes = 0, pairs = 0, same2 = 0, k, b;
+            for (k = 1; k < gsDrawCount; k++) {
+                const GsDraw *a = &gsDraws[k - 1], *c = &gsDraws[k];
+                if (!a->vu || !c->vu || a->native || c->native || a->target != c->target) { continue; }
+                pairs++;
+                if (a->pipeline != c->pipeline) {
+                    uint32_t x = sPipes[a->pipeline].key ^ sPipes[c->pipeline].key;
+                    changes++;
+                    for (b = 0; b < 32; b++) { bits[b] += (x >> b) & 1; }
+                    if (k >= 2 && gsDraws[k - 2].pipeline == c->pipeline) { same2++; } /* A B A */
+                    if (changes <= 4) {
+                        fprintf(stderr, "pipestat:   draw %u key %08x -> %08x (tex %d -> %d, uniform %d -> %d, count %u -> %u, first %u -> %u, misc %g %g %g %g -> %g %g %g %g)\n", k,
+                                sPipes[a->pipeline].key, sPipes[c->pipeline].key, a->tex == c->tex, 0, a->uniform, c->uniform, a->count, c->count, a->first, c->first,
+                                a->misc[0], a->misc[1], a->misc[2], a->misc[3], c->misc[0], c->misc[1], c->misc[2], c->misc[3]);
+                    }
+                }
+            }
+            fprintf(stderr, "pipestat: frame %u: %u neighbouring vu pairs, %u change pipeline (%u back to the one before), bits:", gGsFrame, pairs, changes, same2);
+            for (b = 0; b < 32; b++) { if (bits[b]) { fprintf(stderr, " %u:%u", b, bits[b]); } }
+            fprintf(stderr, "\n");
+        }
+    }
+    {   /* BT3_DATE_LOG=<n>: every n frames, the draws around the destination alpha tests: what each writes (alpha or
+           not), where, and what the tests read (to see which copies could be shared or moved) */
+        static int every = -1;
+        if (every < 0) { every = getenv("BT3_DATE_LOG") != NULL ? atoi(getenv("BT3_DATE_LOG")) : 0; }
+        if (every > 0 && gGsFrame % (unsigned)every == 0) {
+            uint32_t k, vuRun = 0;
+            fprintf(stderr, "datelog: frame %u\n", gGsFrame);
+            for (k = 0; k < gsDrawCount; k++) {
+                const GsDraw *d = &gsDraws[k];
+                if (d->vu && !d->native && d->misc[1] == 0.0f) { vuRun++; continue; }
+                if (vuRun) { fprintf(stderr, "datelog:   (%u vertex-program draws)\n", vuRun); vuRun = 0; }
+                if (d->native == 5) {
+                    int rx = 0, ry = 0, rw = 0, rh = 0, c = GsDraw_DateRegion(k, &rx, &ry, &rw, &rh);
+                    fprintf(stderr, "datelog: %4u DATE copy %d: %d,%d %dx%d (target %03x)\n", k, c, rx, ry, rw, rh, gsTargets[d->target].fbp);
+                } else if (d->native) {
+                    fprintf(stderr, "datelog: %4u native %d (target %03x)\n", k, d->native, gsTargets[d->target].fbp);
+                } else {
+                    float bx0 = 1e9f, by0 = 1e9f, bx1 = -1e9f, by1 = -1e9f;
+                    uint32_t w;
+                    uint32_t key = sPipes[d->pipeline].key;
+                    for (w = 0; !d->vu && w < d->count; w++) {
+                        const Vtx *v = &gsVerts[d->first + w];
+                        if (v->x < bx0) { bx0 = v->x; } if (v->x > bx1) { bx1 = v->x; }
+                        if (v->y < by0) { by0 = v->y; } if (v->y > by1) { by1 = v->y; }
+                    }
+                    fprintf(stderr, "datelog: %4u %s target %03x date %.0f alpha %d aux-needed %d,%d-%d,%d box %.0f,%.0f-%.0f,%.0f scissor %d,%d %dx%d\n", k,
+                            d->vu ? "vu" : "gs", gsTargets[d->target].fbp, d->misc[1], (int)((key >> 16 & SDL_GPU_COLORCOMPONENT_A) != 0),
+                            sAuxNeed[k][0], sAuxNeed[k][1], sAuxNeed[k][2], sAuxNeed[k][3], bx0, by0, bx1, by1,
+                            d->scissor[0], d->scissor[1], d->scissor[2], d->scissor[3]);
+                }
+            }
+        }
+    }
     for (n = 0; n < gsDrawCount; n++) {
         const GsDraw *d = &gsDraws[n];
         SDL_GPUBufferBinding vb;
@@ -2129,6 +2280,9 @@ static void vk_frame_end(void) {
             sPassN++;
             sPassWhy[shadowStart ? 2 : broke ? broke : cur >= 0 ? 1 : 0]++;
             broke = 0;
+            if (ct.load_op == SDL_GPU_LOADOP_LOAD && !passStencil) { /* (a pass that clears, all of it is cleared) */
+                pass_area(n, d->target);
+            }
             pass = SDL_BeginGPURenderPass(cmd, cts, 2, passNoDepth ? NULL : &dt);
             {   /* the draws' 1024 x 1024 page (see sTW): larger than the target, which holds its top-left part */
                 SDL_GPUViewport vp = {0.0f, 0.0f, 1024.0f * SCALE, 1024.0f * SCALE, 0.0f, 1.0f};
@@ -2216,7 +2370,11 @@ static void vk_frame_end(void) {
             continue;
         }
         if (d->vu) {
+            static int dup = -1; /* BT3_DRAW_DUP=1: EXPERIMENT (lite): each vertex program's draw followed by one of its
+                                    first triangle alone, to measure what a draw costs the GPU by itself */
+            if (dup < 0) { dup = getenv("BT3_DRAW_DUP") != NULL; }
             SDL_DrawGPUIndexedPrimitives(pass, d->count, 1, d->first, 0, 0);
+            if (dup && d->count >= 3) { SDL_DrawGPUIndexedPrimitives(pass, 3, 1, d->first, 0, 0); }
         } else if (split) {
             /* inside the part read later with the byte, the rest of its scissor without: four bands around it */
             const int16_t *r = sAuxNeed[n];

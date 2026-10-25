@@ -414,8 +414,88 @@ static void *watchdog(void *arg) {
 typedef void (*VkVoidFn)(void);
 static VkVoidFn (*sDriverGipa)(void *instance, const char *name);
 
+/* The render area of the engine's next render pass (Dragon Rage Lite, BT3_VK_AREA): gs_gpu.c names the rectangle its
+   draws stay in, and vkCmdBeginRenderPass gets it instead of the whole attachment. A tile-based GPU (Mali) then loads
+   and stores only those tiles: a pass that draws a life bar, or a 64 x 64 step of the glow, no longer moves the
+   whole 512 x 512 picture through memory twice. The pixels outside are kept as they are (Vulkan: load and store act
+   on the render area alone). SDL is pointed at this library for that, as for a custom driver. */
+typedef struct { int32_t x, y; uint32_t w, h; } DrRect;
+typedef struct { uint32_t sType; const void *next; void *renderPass, *framebuffer; DrRect area; uint32_t clears; const void *values; } DrPassBegin;
+typedef void (*DrBeginFn)(void *cmd, const DrPassBegin *begin, uint32_t contents);
+static VkVoidFn (*sDeviceGdpa)(void *device, const char *name);
+static DrBeginFn sBegin;
+static __thread int sAreaSet;
+static __thread DrRect sArea;
+static unsigned long sAreaUsed;
+
+__attribute__((visibility("default"))) void Dr_VkNextRenderArea(int x, int y, int w, int h) {
+    sArea.x = x, sArea.y = y, sArea.w = (uint32_t)w, sArea.h = (uint32_t)h;
+    sAreaSet = w > 0 && h > 0;
+}
+
+static void begin_pass(void *cmd, const DrPassBegin *begin, uint32_t contents) {
+    if (sAreaSet) {
+        DrPassBegin b = *begin;
+        int32_t x0 = sArea.x > b.area.x ? sArea.x : b.area.x, y0 = sArea.y > b.area.y ? sArea.y : b.area.y;
+        int32_t x1 = (int32_t)(sArea.x + sArea.w), y1 = (int32_t)(sArea.y + sArea.h);
+        if (x1 > (int32_t)(b.area.x + b.area.w)) { x1 = (int32_t)(b.area.x + b.area.w); }
+        if (y1 > (int32_t)(b.area.y + b.area.h)) { y1 = (int32_t)(b.area.y + b.area.h); }
+        sAreaSet = 0;
+        if (x1 > x0 && y1 > y0) {
+            b.area.x = x0, b.area.y = y0, b.area.w = (uint32_t)(x1 - x0), b.area.h = (uint32_t)(y1 - y0);
+            if (sAreaUsed++ == 0) {
+                say("render areas: on (first %d,%d %ux%u)", x0, y0, b.area.w, b.area.h);
+            }
+            sBegin(cmd, &b, contents);
+            return;
+        }
+    }
+    sBegin(cmd, begin, contents);
+}
+
+static VkVoidFn device_proc(void *device, const char *name) {
+    VkVoidFn f = sDeviceGdpa(device, name);
+    if (f != NULL && strcmp(name, "vkCmdBeginRenderPass") == 0) {
+        sBegin = (DrBeginFn)f;
+        return (VkVoidFn)begin_pass;
+    }
+    return f;
+}
+
+static int sAreaOn;
+
 __attribute__((visibility("default"))) VkVoidFn vkGetInstanceProcAddr(void *instance, const char *name) {
-    return sDriverGipa != NULL ? sDriverGipa(instance, name) : NULL;
+    VkVoidFn f = sDriverGipa != NULL ? sDriverGipa(instance, name) : NULL;
+    if (sAreaOn && f != NULL) {
+        if (strcmp(name, "vkGetDeviceProcAddr") == 0) {
+            sDeviceGdpa = (VkVoidFn(*)(void *, const char *))f;
+            return (VkVoidFn)device_proc;
+        }
+        if (strcmp(name, "vkCmdBeginRenderPass") == 0) {
+            sBegin = (DrBeginFn)f;
+            return (VkVoidFn)begin_pass;
+        }
+    }
+    return f;
+}
+
+/* The system's driver behind vkGetInstanceProcAddr above, for the render areas (when no custom driver is loaded). */
+static void area_driver(const char *libdir) {
+    char self[1100];
+    void *h;
+    sAreaOn = getenv("BT3_VK_AREA") != NULL && atoi(getenv("BT3_VK_AREA")) != 0;
+    if (!sAreaOn || sDriverGipa != NULL) {
+        return;
+    }
+    h = dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL);
+    sDriverGipa = h != NULL ? (VkVoidFn(*)(void *, const char *))dlsym(h, "vkGetInstanceProcAddr") : NULL;
+    if (sDriverGipa == NULL) {
+        sAreaOn = 0;
+        say("render areas: no libvulkan.so");
+        return;
+    }
+    snprintf(self, sizeof(self), "%s/libmain.so", libdir);
+    setenv("SDL_VULKAN_LIBRARY", self, 1);
 }
 
 static void custom_driver(const char *libdir, const char *driverDir, const char *driverLib) {
@@ -595,6 +675,7 @@ int SDL_main(int argc, char *argv[]) {
     if (argc > 4 && argv[3][0] != '\0' && argv[4][0] != '\0') {
         custom_driver(libdir, argv[3], argv[4]); /* (chosen in the app: GameActivity passes its folder and file) */
     }
+    area_driver(libdir);
     setenv("SDL_VIDEO_DRIVER", "android", 0);
     setenv("SDL_ANDROID_TRAP_BACK_BUTTON", "1", 0); /* the back button opens the settings (gs_gpu.c), it does not end the game */
 

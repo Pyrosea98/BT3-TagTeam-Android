@@ -164,6 +164,13 @@ unsigned gsFxOff;
 int gsGlowPercent = GLOW_DEFAULT;
 int gsFilter;
 int gsGlarePercent = GLOW_DEFAULT;
+/* BT3_GLOW_SKIP=1: the glow chains (the object glow and the sky's glare: gfxm_a.c GfxPost_DrawGlow) left out
+   whole, their passes on the work pages and the pass that adds them back (EXPERIMENT, lite) */
+int Port_GlowSkip(void) {
+    static int skip = -1;
+    if (skip < 0) { skip = getenv("BT3_GLOW_SKIP") != NULL ? atoi(getenv("BT3_GLOW_SKIP")) : 0; }
+    return skip;
+}
 int gsSharpBlur = 1; /* the setting "Sharp stage blur" (sharp_blur): see draw_state */
 static int sGlowIsGlare; /* the glow chain under way is the sky's glare (gfxm_a.c GfxPost_DrawGlow: see below) */
 static int sBlockSample; /* the draw being set up reads a work buffer at the GS's 1x (orig.x): pipeline_get, key bit 25 */
@@ -4877,8 +4884,109 @@ static void skip_decide(void) {
     }
 }
 
+/* BT3_DRAW_STAT: why each draw of the frame is not merged into the one before it (the first difference found), every
+   30 frames. Measures how many calls a batching of the vertex programs' uniforms or of the textures would save. */
+static void draw_stat(void) {
+    static const char *const why[] = {"native", "vu kind", "target", "pipeline", "texture", "sampler", "params", "scissor", "blend", "uniform only", "same"};
+    unsigned n[11] = {0}, vuDraws = 0, i, k;
+    for (i = 1; i < gsDrawCount; i++) {
+        const GsDraw *a = &gsDraws[i - 1], *b = &gsDraws[i];
+        int r;
+        vuDraws += b->vu != 0;
+        if (a->native || b->native) { r = 0; }
+        else if (a->vu != b->vu || a->wall != b->wall) { r = 1; }
+        else if (a->target != b->target) { r = 2; }
+        else if (a->pipeline != b->pipeline) { r = 3; }
+        else if (a->tex != b->tex) { r = 4; }
+        else if (a->sampler != b->sampler) { r = 5; }
+        else if (memcmp(a->mode, b->mode, sizeof(a->mode)) || memcmp(a->misc, b->misc, sizeof(a->misc)) || memcmp(a->rect, b->rect, sizeof(a->rect)) ||
+                 memcmp(a->orig, b->orig, sizeof(a->orig))) { r = 6; }
+        else if (memcmp(a->scissor, b->scissor, sizeof(a->scissor))) { r = 7; }
+        else if (a->blendc != b->blendc) { r = 8; }
+        else if (a->vu && a->uniform != b->uniform) { r = 9; }
+        else { r = 10; }
+        n[r]++;
+    }
+    fprintf(stderr, "drawstat: frame %u: %u draws (%u of vertex programs):", gGsFrame, gsDrawCount, vuDraws);
+    for (k = 0; k < 11; k++) {
+        if (n[k]) { fprintf(stderr, " %s %u,", why[k], n[k]); }
+    }
+    fprintf(stderr, "\n");
+}
+
+/* BT3_PASS_LOG=<n>: every n frames, the frame's draws as runs on one target: the buffer, how many draws, which
+   buffers they read and the bounds of their scissors (where a pass would break, and why) */
+static void pass_log(void) {
+    uint32_t i = 0, j;
+    fprintf(stderr, "passlog: frame %u, %u draws\n", gGsFrame, gsDrawCount);
+    while (i < gsDrawCount) {
+        const GsDraw *a = &gsDraws[i];
+        int x0 = 1 << 30, y0 = 1 << 30, x1 = 0, y1 = 0, t, nr = 0;
+        uint32_t reads[4] = {0}, vu = 0;
+        double area = 0.0;
+        for (j = i; j < gsDrawCount && gsDraws[j].target == a->target && gsDraws[j].native == a->native; j++) {
+            const GsDraw *d = &gsDraws[j];
+            vu += d->vu != 0;
+            if (!d->vu && !d->native) { /* the draw's triangles' area, in GS pixels */
+                uint32_t q;
+                for (q = 0; q + 2 < d->count; q += 3) {
+                    const Vtx *v = &gsVerts[d->first + q];
+                    area += fabs((double)(v[1].x - v[0].x) * (v[2].y - v[0].y) - (double)(v[2].x - v[0].x) * (v[1].y - v[0].y)) * 0.5;
+                }
+            }
+            if (d->scissor[0] < x0) { x0 = d->scissor[0]; }
+            if (d->scissor[1] < y0) { y0 = d->scissor[1]; }
+            if (d->scissor[0] + d->scissor[2] > x1) { x1 = d->scissor[0] + d->scissor[2]; }
+            if (d->scissor[1] + d->scissor[3] > y1) { y1 = d->scissor[1] + d->scissor[3]; }
+            if (d->tex_is_target) {
+                for (t = 0; t < gsTargetCount; t++) {
+                    if (sBackend->targetColor(t) == d->tex) {
+                        int k;
+                        for (k = 0; k < nr && reads[k] != gsTargets[t].fbp; k++) {
+                        }
+                        if (k == nr && nr < 4) { reads[nr++] = gsTargets[t].fbp; }
+                    }
+                }
+            }
+        }
+        fprintf(stderr, "passlog:   %4u-%4u fbp %03x native %d: %u draws (%u vu), scissors %d,%d-%d,%d, area %.0f kpx", i, j - 1,
+                a->target >= 0 ? gsTargets[a->target].fbp : 0xfff, a->native, j - i, vu, x0, y0, x1, y1, area / 1000.0);
+        for (t = 0; t < nr; t++) { fprintf(stderr, " reads %03x", reads[t]); }
+        fprintf(stderr, "\n");
+        if (area > 1000e3) { /* (a run that covers the screen several times over: each of its draws) */
+            uint32_t q, w;
+            for (q = i; q < j; q++) {
+                const GsDraw *d = &gsDraws[q];
+                double ar = 0.0;
+                float bx0 = 1e9f, by0 = 1e9f, bx1 = -1e9f, by1 = -1e9f;
+                for (w = 0; !d->vu && w < d->count; w++) {
+                    const Vtx *v = &gsVerts[d->first + w];
+                    if (v->x < bx0) { bx0 = v->x; } if (v->x > bx1) { bx1 = v->x; }
+                    if (v->y < by0) { by0 = v->y; } if (v->y > by1) { by1 = v->y; }
+                    if (w % 3 == 2) {
+                        ar += fabs((double)(v[-1].x - v[-2].x) * (v[0].y - v[-2].y) - (double)(v[0].x - v[-2].x) * (v[-1].y - v[-2].y)) * 0.5;
+                    }
+                }
+                fprintf(stderr, "passlog:     draw %u: vu %d, %u vertices, area %.0f kpx, box %.0f,%.0f-%.0f,%.0f, tex %s, mode %d %d %d %d, misc %.0f %.0f %.0f %.2f, pipe %d, rgba0 %u %u %u %u\n",
+                        q, d->vu, d->count, ar / 1000.0, bx0, by0, bx1, by1, d->tex_is_target ? "target" : d->tex ? "yes" : "none",
+                        d->mode[0], d->mode[1], d->mode[2], d->mode[3], d->misc[0], d->misc[1], d->misc[2], d->misc[3], d->pipeline,
+                        d->vu ? 0 : gsVerts[d->first].r, d->vu ? 0 : gsVerts[d->first].g, d->vu ? 0 : gsVerts[d->first].b, d->vu ? 0 : gsVerts[d->first].a);
+            }
+        }
+        i = j;
+    }
+}
+
 void GsGpu_FrameEnd(void) {
-    sInGlowChain = 0; /* (a chain is always within one frame) */
+    sInGlowChain = 0;
+    {
+        static int every = -1;
+        if (every < 0) { every = getenv("BT3_PASS_LOG") != NULL ? atoi(getenv("BT3_PASS_LOG")) : 0; }
+        if (every > 0 && gGsFrame % (unsigned)every == 0 && !gsSkipFrame && !gPortResim) { pass_log(); }
+    } /* (a chain is always within one frame) */
+    if (getenv("BT3_DRAW_STAT") != NULL && gGsFrame % 30 == 0 && !gsSkipFrame && !gPortResim) {
+        draw_stat();
+    }
     if (gPortResim) { /* a frame that is only being re-run: nothing was recorded, nothing is shown */
         return;
     }

@@ -633,6 +633,12 @@ void GfxPost_DrawGlow(s32 passes, u32 color, u32 glow) {
 
     passes += passes & 1;
 #ifdef PORT
+    {
+        extern int Port_GlowSkip(void); /* port/src/gs/gs_draw.c: the chain left out (Dragon Rage Lite) */
+        if (Port_GlowSkip()) {
+            return;
+        }
+    }
     Port_GsMarker(PORT_GLOW_BEGIN);
 #endif
     Gfx_AddDefaultEnv();
