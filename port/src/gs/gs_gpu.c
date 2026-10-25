@@ -592,8 +592,19 @@ static int vk_init(void) {
         }
     }
     sDepthFormat = sShadowStencil ? SDL_GPU_TEXTUREFORMAT_D32_FLOAT_S8_UINT : SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
+    if (sDev == NULL) {
+        /* (no window made: gs_draw.c tries OpenGL next, and Android has room for one window only. A custom driver
+           SDL_GPU refuses, such as MaliSX2 0.2.3 on the Mali-G57, left this one behind and the game ran unseen) */
+        return 0;
+    }
     sWindow = GsDraw_WindowCreate(0); /* the shared window: shape, display and full screen decided there */    if (sWindow == NULL || !SDL_ClaimWindowForGPUDevice(sDev, sWindow)) {
         fprintf(stderr, "bt3: no GPU window: %s\n", SDL_GetError());
+        if (sWindow != NULL) {
+            SDL_DestroyWindow(sWindow);
+            sWindow = NULL;
+        }
+        SDL_DestroyGPUDevice(sDev);
+        sDev = NULL;
         return 0;
     }
     /* The game paces itself at 30 frames per second; waiting for the display's own refresh on top of that
