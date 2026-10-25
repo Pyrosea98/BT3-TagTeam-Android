@@ -4,11 +4,11 @@ Branch `device-lab` (criado de `armsx2`), commits só locais, sem push. Datas: 2
 
 | Aparelho | SoC / GPU | Driver | Android |
 |---|---|---|---|
-| RG Cube | Unisoc T820, Mali-G57 MC4 | do sistema (MaliSX2 não testado, ver "Pendente") | 13, root |
+| RG Cube | Unisoc T820, Mali-G57 MC4 | do sistema r40p0 (e MaliSX2 0.2.3 no teste de drivers) | 13 (LineageOS GSI), root |
 | Retroid Pocket 5 (RP5) | Snapdragon 865, Adreno 650 | Qualcomm 512.746.0 (e Turnip axfl2-006 no teste de drivers) | 13 |
 
-Builds medidas: `armsx2` (950764a) como base e os commits deste branch até 2e894c0. O APK final (libbt3, libbt4
-e o launcher de 2e894c0) está instalado no RP5.
+Builds medidas: `armsx2` (950764a) como base e os commits deste branch até 23fa0ef. O APK final (libbt3, libbt4
+e o launcher de 23fa0ef) está instalado nos dois aparelhos.
 
 ## Como foi medido
 
@@ -37,6 +37,10 @@ e o launcher de 2e894c0) está instalado no RP5.
 | GL 2x, base | 92,5% | 27,8 | 34,6 | n/a | 53,2 | 14,5 |
 | GL 2x, sem profundidade | 92,5% | 27,7 | 34,9 | n/a | 53,2 | 14,5 |
 | GL 3x | 43,5% | 13,1 | 71,0 | n/a | 54,0 | 15,1 |
+| GL 2x, `gl_fetch` (só teste, **imagem errada**) | 100% | 30,0 | 20,6 | n/a | 41,3 | 1,0 |
+| GL 3x, `gl_fetch` (só teste, imagem errada) | 55,6% | 16,7 | 56,2 | n/a | 41,6 | 1,0 |
+| VK 2x, final (23fa0ef) | 86,3% | 25,9 | 37,2 | 21,1 | 60,7 | 14,5 |
+| GL 2x com MaliSX2 0.2.3 (o Vulkan dele é recusado, cai para GL; 23fa0ef) | 90,3% | 27,1 | 35,5 | n/a | 53,2 | 14,5 |
 
 Perfil (`fx_off=48 frame_skip=1 frag_depth=0`):
 
@@ -94,7 +98,12 @@ voo, stencil e quebra no DATE, tudo entre 73,0 e 73,7%. No Cube, GL persist=0 de
    - DATE com stencil, como o PCSX2: um quad marca no stencil os pixels pelo bit de alfa e o desenho testa o
      stencil, sem cópia e sem sair do pass;
    - framebuffer fetch (`EXT/ARM_shader_framebuffer_fetch`). Já existe no GL (`gl_fetch=1` / `BT3_GL_FETCH=1`,
-     desligado por padrão porque travou dois Mali-G52). **Não foi medido no G57**: o Cube caiu antes.
+     desligado por padrão porque travou dois Mali-G52). **Medido no G57: rápido, mas desenha errado.** GL 2x vai
+     de 92,5% a 100% (cópias de 14,5 para 1, trabalho de 34,6 para 20,6 ms) e GL 3x de 43,5% a 55,6%, sem travar.
+     Mas a comparação de pixels (1x, 8 quadros da luta) dá 15 mil a 174 mil pixels diferentes por quadro: o
+     cenário fica lavado (a camada que o DATE devia recusar passa) e aparecem blocos quadrados do tamanho de um
+     tile (imagens em `fetchcmp_*.png` no scratchpad da sessão). O fetch do driver Mali não é confiável aqui;
+     deve continuar desligado. Fica o DATE com stencil.
 3. O máximo medido no Cube para 30 estáveis: **VK 1.5x** (pior quadro 25 ms) ou GL 2x (100%, pior 30 ms, sem
    folga). VK 2x chega a 86,8%. Movimento suave 60 não cabe nem em 1x (31 quadros/s).
 
@@ -117,14 +126,28 @@ voo, stencil e quebra no DATE, tudo entre 73,0 e 73,7%. No Cube, GL persist=0 de
 |---|---|---|
 | Importar ISO (Downloads, "Selecionar ISO") | OK: 23 arquivos, 5,5 MB copiados, imagem lida no lugar, SHA-256 do ELF 224525C5…E8A4 no log, DBZP.BIN copiado | OK, mesmos números; permissão persistida antes da cópia (dumpsys `persisted=0x1`) |
 | Remover e reimportar | OK (saves mantidos) | OK |
-| Abrir depois de reiniciar | n/a | **pendente**: o Cube saiu do USB no reboot |
-| Renderer ARMSX2, VK e GL | OK: abre, desenha certo, luta a 30; readback de 344064 bytes em 2 a 14 ms | pendente |
-| Renderer Dragon Rage, VK e GL | 30 quadros/s estáveis por 150 s+ (VK: 36 passes, 11 cópias, draws 4 ms) | pendente |
-| 60 fps nas lutas (`bt4_fps60`) | liga (halfstep ativo), mas só faz 37 a 41 atualizações/s: o código do jogo leva ~15 a 16 ms por quadro (`guest_ms`), então a luta roda a ~65% e fica mais **lenta**. Desliga pelo menu (Desempenho → "60 fps nas lutas") ao vivo e salva | pendente |
-| Tecla voltar abre o menu de toque e pausa | OK (BT3 e BT4; páginas Vídeo, Desempenho, Efeitos, Áudio, Interface, Controles e Online abrem) | pendente |
-| START+SELECT | não dá para injetar no RP5 (teclado não entra no `PortInput_ComboPoll`, gamepad precisa de root) | pendente (pad.py) |
+| Abrir depois de reiniciar | n/a | **bug corrigido (0cabeef)**: "the disc image cannot be read", ver abaixo |
+| Renderer ARMSX2, VK | OK: abre, desenha certo, luta a 30; readback de 344064 bytes em 2 a 14 ms | OK com 0cabeef: luta a 28,8 quadros/s, 28 a 29 atualizações/s, readback 3 a 12 ms. **Na primeira abertura** a tela fica preta ~25 s e um quadro do jogo leva 22,8 s: o ARMSX2 compila 85 shaders SPIR-V na CPU (cache vazio). Da segunda vez, sem espera |
+| Renderer ARMSX2, GL | OK | OK: 28,8 quadros/s, 28 a 29 atualizações/s, desenha certo (inclusive o cenário distante) |
+| Renderer ARMSX2, VK, com MaliSX2 0.2.3 | n/a | **melhor que o driver do sistema**: 29,9 quadros/s, 29,8 atualizações/s, GPU 17 a 23% (contra 39 a 41%) |
+| Renderer Dragon Rage, VK e GL | 30 quadros/s estáveis por 150 s+ (VK: 36 passes, 11 cópias, draws 4 ms) | OK, 1x: VK 29,7 quadros/s (39 passes, 14,5 cópias), GL 29,8 (34 trocas de alvo, 14,4 cópias); código do jogo ~21 ms por quadro. O ruído no cenário distante aparece igual |
+| 60 fps nas lutas (`bt4_fps60`) | liga (halfstep ativo), mas só faz 37 a 41 atualizações/s: o código do jogo leva ~15 a 16 ms por quadro (`guest_ms`), então a luta roda a ~65% e fica mais **lenta**. Desliga pelo menu (Desempenho → "60 fps nas lutas") ao vivo e salva | liga, mas faz **30** atualizações/s (código do jogo 22 a 24 ms): a luta roda à **metade** da velocidade |
+| Tecla voltar abre o menu de toque e pausa | OK (BT3 e BT4; páginas Vídeo, Desempenho, Efeitos, Áudio, Interface, Controles e Online abrem) | OK (abre e fecha) |
+| START+SELECT | não dá para injetar no RP5 (teclado não entra no `PortInput_ComboPoll`, gamepad precisa de root) | abre o menu; **não fechava** (corrigido em 8e838c7, testado 3 vezes seguidas, o jogo volta sem pausar) |
 
 Bugs do BT4 corrigidos:
+
+- **0cabeef** (Cube): depois do reboot o BT4 dizia "the disc image cannot be read (/proc/self/fd/75)". A
+  permissão persistida estava lá (`urigrants.xml`); o problema era outro. A ISO foi escolhida por um endereço
+  `msf:` (MediaStore). O launcher abre o fd, mas o motor reabria `/proc/self/fd/N` pelo caminho
+  (`access()` no host, `std::ifstream` e `file_size` no runtime). Isso refaz a checagem de permissão do FUSE em
+  `/storage/emulated/0/Download/…iso`, e o app, sem permissão de armazenamento, é recusado (com o uid do app:
+  `Permission denied`). O RP5 tinha um endereço `raw:` e passava. Agora o runtime lê a imagem pelo próprio fd,
+  com `pread`, no patch do BT3-Recomp; o host checa o fd. Testado nos dois aparelhos.
+- **8e838c7**: START+SELECT abre o menu de toque do BT4 (`openGameMenu`), mas não fechava. Agora fecha, e os
+  botões não chegam ao jogo enquanto o menu está aberto (sem um START solto que pausaria a luta).
+  Observação: se o START chega uns 50 ms antes do SELECT, o jogo vê o START sozinho e abre a própria pausa por
+  baixo do menu. Isso já acontecia antes.
 
 - **4c8794e**:
   - ARMSX2: os botões não chegavam ao jogo (`sendPad` exigia o renderer Dragon Rage).
@@ -172,7 +195,8 @@ quadros/s, igual a antes.
 | **Trilho lateral em 1080p paisagem** | **bug corrigido (f355797)**: com as 9 páginas do BT3, "Ajustes" e "Jogo" ficavam fora da tela e não dava para chegar neles; agora o trilho rola |
 | Drivers: baixar Turnip (RP5), instalar, rodar, voltar ao do sistema | OK: "Turnip Adreno (TM) 650, Mesa 27.0.0-devel"; volta para Qualcomm 512.746.0 confirmada |
 | **Drivers: tocar no nome do driver** | **bug corrigido (dc9f17f)**: só o botão de rádio escolhia o driver; agora a linha inteira escolhe |
-| Drivers: MaliSX2 no Cube | pendente |
+| Drivers: MaliSX2 0.2.3 no Cube (importado por .zip, ver "Online/GitHub no Cube"), rodar, voltar | importa e escolhe certo. **BT3 com Vulkan: o SDL_GPU recusa o MaliSX2** ("No supported SDL_GPU backend found", com e sem os recursos opcionais) e o jogo caía para GL **com a tela preta** (o jogo rodava sem imagem): a janela da tentativa Vulkan ficava aberta e o GL não conseguia criar a sua. **Corrigido em 23fa0ef**: agora cai para GL e roda (90,3% em GL 2x). BT4 com ARMSX2 + MaliSX2: melhor que o driver do sistema (tabela do BT4). Voltar para o driver do sistema e remover: OK, VK 2x de volta a 86,3% |
+| **Online/GitHub no Cube** | "Dragon Net: Unreachable" e "Não deu para acessar o GitHub" vêm do aparelho: o uid do app está em `REJECT_ALL` com "Restricted networking mode" do LineageOS (`dumpsys netpolicy`). O shell alcança a internet. Não é bug do app; não mexi na configuração |
 | Pacotes de textura / mods | **não testado**: não há pacote nem mod no PC nem nos aparelhos |
 | Atalho na tela inicial | OK: "Criar atalho do jogo" fixa o atalho e ele abre o BT3 direto (ficou na tela inicial do RP5) |
 | Exportar log | OK: `Download/DragonRage-log-<data>.txt` (1 MB) e abre o compartilhar |
@@ -189,9 +213,19 @@ quadros/s, igual a antes.
   padrão.
 - Na página Controles do launcher todas as opções aparecem: estilo, menu/luta, visual, símbolos, opacidade,
   tamanho, vibração, analógico flutuante, clashes, macros.
-- Dúvida: os botões "…" e de pausa ficam embaixo do overlay de desempenho do sistema do RP5, e um toque em "…"
-  não fez nada. Pode ser o overlay; repetir com ele desligado.
-- Cube: pendente.
+- No RP5, um toque em "…" não fez nada: o botão fica embaixo do overlay de desempenho do sistema. No Cube, sem
+  overlay, o "…" abre "Controles na tela" normalmente, então era o overlay.
+
+### Controles de toque (Cube, 720x720)
+
+- Escondidos ao abrir (controle embutido) e aparecem no primeiro toque.
+- "…" abre "Controles na tela" (símbolos, opacidade, ocultar, editar layout).
+- Editor: arrastar funciona (Y movido) e "Pronto" grava `touch_controls.json`. Apaguei o arquivo depois, porque
+  o Cube não tinha um.
+- Na tela quadrada, com o layout **padrão**:
+  - os botões de troca (⇄) e de carga invadem o direcional;
+  - a barra do editor cobre o medidor de FPS.
+  É cosmético; um layout padrão próprio para 1:1 resolveria.
 
 ## Perfis de GPU (84b31f2)
 
@@ -213,6 +247,10 @@ quadros/s, igual a antes.
 | f355797 | Launcher: o trilho lateral rola |
 | 84b31f2 | Perfis de GPU medidos (G57 MC4, Adreno 650) |
 | 2e894c0 | GS: marca todas as páginas de um upload de 24 bits |
+| 8b92104 | Este relatório |
+| 0cabeef | BT4: lê a imagem do disco pelo fd (ISO por MediaStore não abria) |
+| 8e838c7 | Menu de toque: START+SELECT também fecha |
+| 23fa0ef | GS: sem janela sobrando quando o Vulkan não sobe (fallback para GL ficava preto) |
 
 ## O que vai para o `bt4` estável e o que fica no lab
 
@@ -228,27 +266,28 @@ Testei aplicar cada commit no `bt4` numa worktree temporária (sem tocar no bran
 | 84b31f2 | limpo | só muda a oferta do diálogo |
 | 2e894c0 | limpo | correção de memória, desempenho igual |
 | c2b26ba | **conflito em `gs_gl.c`** | é o maior ganho no Mali (+13 pontos) e no Adreno, com imagem idêntica. O conflito vem do GL persist, que é do `armsx2` (9ecce97). Aplicar no `bt4` exige levar junto ou separar a parte de GL |
+| 8e838c7 | limpo | START+SELECT fecha o menu do BT4 |
+| 0cabeef | **conflito** (`bt4_main.cpp`, `bt3recomp-android.patch`) | o bug existe no `bt4` (mesmo `access()`): qualquer ISO escolhida por MediaStore não abre. Port manual pequeno: as 3 funções em `ps2_iop.cpp` e o uso nos 4 leitores |
+| 23fa0ef | **conflito de contexto** em `gs_gpu.c` | o bug existe no `bt4` (mesmo código): driver Vulkan recusado leva a tela preta. Port manual de ~10 linhas |
 
 **Fica no `device-lab` / `armsx2`:** 4c8794e, que é do renderer ARMSX2 (não existe no `bt4`; dá conflito).
 
 **Vai para o `mali-lab`:**
-- DATE com stencil ou framebuffer fetch no Mali;
-- medir `gl_fetch` no G57;
-- `BT3_GPU_NO_DATE_COPY` continua só como teste.
+- DATE com stencil (o framebuffer fetch foi medido no G57 e desenha errado; ver "Gargalo do Mali");
+- `BT3_GPU_NO_DATE_COPY` e `gl_fetch` continuam só como teste.
 
-## Pendente (Cube fora do ar)
+**Sugestões abertas (não implementadas):**
+- `bt4_fps60` deixa a luta mais lenta nos dois aparelhos (Cube 50%, RP5 65%): esconder ou avisar quando o código
+  do jogo passa de ~16 ms por quadro, ou desligar sozinho.
+- ARMSX2 na primeira abertura: mostrar "preparando shaders" ou compilar antes, no launcher (no Cube, ~25 s de
+  tela preta).
+- Padrão de controles de toque para telas 1:1.
 
-O Cube caiu do USB no teste de reboot. Pelo Wi-Fi ele aparece em 192.168.1.178 (portas 36741/43337/49569),
-mas como **offline**: falta parear. O código 859879 não funcionou em nenhuma das portas encontradas, porque o
-pareamento usa uma porta própria, mostrada na tela "Parear com código". Ficou faltando no Cube:
+## Cube: como foi retomado
 
-- abrir o BT4 depois do reboot;
-- BT4 nos dois renderers, VK e GL;
-- `bt4_fps60`;
-- START+SELECT;
-- driver MaliSX2 (instalar, rodar, voltar);
-- controles de toque;
-- `gl_fetch`.
+O Cube voltou pelo USB depois do reboot e todos os itens que estavam pendentes foram feitos (tabelas acima).
+Os testes do BT4 no Cube usam um roteiro de botões próprio (`bt4cube.sh` no scratchpad): sem save do BT4, ele
+responde "No" a criar o save e "Sí" a jogar sem salvar.
 
 ## Estado dos aparelhos
 
@@ -258,8 +297,15 @@ pareamento usa uma porta própria, mostrada na tela "Parear com código". Ficou 
   - removidos `bt3_env.txt` (raiz e `bt4/`) e as gravações de luta;
   - driver do sistema;
   - o atalho do BT3 ficou na tela inicial;
-  - o APK do `device-lab` (2e894c0) continua instalado.
-- **Cube:** não foi restaurado (está offline). Ao reconectar:
-  - voltar a configuração original: `scale=2 scale4=6 fx_off=48 dr_renderer=1 frame_skip=1 filter=0
-    aspect_milli=1333`;
-  - apagar `bt3_env.txt` (raiz e `bt4/`).
+  - o APK final do `device-lab` (23fa0ef) está instalado;
+  - `dr_unlock_all=1` estava pendente (pedido pelo jogador): a medida final rodou o jogo e consumiu o pedido
+    (só na memória: o memory card ficou idêntico ao backup). Voltei a chave para 1, então o desbloqueio roda
+    na próxima vez que o jogador abrir o jogo.
+- **Cube:**
+  - `bt3_settings.txt` e `bt3_env.txt` (`BT3_GS_VERBOSE=1`, que já estava lá) restaurados do backup;
+  - `bt4/bt3_settings.txt` como estava antes destes testes; sem `bt4/bt3_env.txt`;
+  - saves do BT3 idênticos ao backup; nenhum save do BT4 criado;
+  - driver do sistema; o MaliSX2 foi removido; `touch_controls.json` não existe (como antes);
+  - removidos `fight.rec`, `port/`, e de `Download/` o `.zip` do MaliSX2, `fight.rec`, `lab_saves.tar` e
+    `dr_backup.tar`;
+  - o APK final do `device-lab` (23fa0ef) está instalado.
