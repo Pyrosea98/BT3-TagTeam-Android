@@ -13,6 +13,9 @@ import com.dfdx047.dragonrage.ui.screens.bt2.Bt2DriversScreen
 import com.dfdx047.dragonrage.ui.screens.bt2.Bt2DebugScreen
 import com.dfdx047.dragonrage.ui.screens.bt2.Bt2SettingsScreen
 import android.os.Bundle
+import android.view.InputDevice
+import android.view.KeyEvent
+import android.view.MotionEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -108,6 +111,17 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    // A controller (Bluetooth or USB) is the game's only, as a PS2 pad: the launcher ignores it (touch drives it).
+    private fun fromController(source: Int): Boolean =
+        source and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD ||
+            source and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean =
+        if (KeyEvent.isGamepadButton(event.keyCode) || fromController(event.source)) true else super.dispatchKeyEvent(event)
+
+    override fun dispatchGenericMotionEvent(ev: MotionEvent): Boolean =
+        if (fromController(ev.source)) true else super.dispatchGenericMotionEvent(ev)
 }
 
 private enum class Dest(val route: String, val label: Int, val icon: ImageVector) {

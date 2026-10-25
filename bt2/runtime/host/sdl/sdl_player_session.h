@@ -56,7 +56,13 @@ public:
             if(auto loaded=Settings::load(path_)) {settings=*loaded;apply();}
         }
         const auto pad=input_.gamepad();
+#ifdef __ANDROID__
+        // On Android a controller is only the PS2's: Guide and L3 + R3 are the game's (L3 and R3 its buttons), not a way
+        // out; the app's own menu (the back key, the touch controls' menu button) leaves the game.
+        if(window_.backPressed())leaveRequested();
+#else
         if(window_.backPressed() | trigger_.update(pad,false,settings.overlay_start_select))leaveRequested();
+#endif
         if(!window_.focused()) {fast_switch_.stop();setFast(false);return {};}
         const bool fast_button=settings.fast_forward_button<GamepadState::Count && pad.connected && pad.held(GamepadState::Button(settings.fast_forward_button));
         setFast(fast_switch_.update((settings.fast_forward_key && HostInput::keyDown(std::uint8_t(settings.fast_forward_key))) || fast_button,settings.fast_forward_toggle));
