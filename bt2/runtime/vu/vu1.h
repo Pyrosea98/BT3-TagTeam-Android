@@ -4,6 +4,7 @@
 // with XGKICK (PATH1). Only the instructions the game's microprograms use are modelled; any other
 // stops by name.
 #pragma once
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstring>
@@ -76,7 +77,10 @@ private:
     friend struct Vu1Hand;   // The hand-written programs.
     struct Result {enum Target {None,Register,Accumulator} target=None;unsigned reg=0,mask=0;std::array<std::uint32_t,4> value{};};
     Result upper(std::uint32_t word,std::uint32_t at);
-    void lower(std::uint32_t word,std::uint32_t at,const Kick& kick);
+    void lower(std::uint32_t word,std::uint32_t at,const Kick& kick); // (inline: vu1_lower.h)
+    void lowerDiv(std::uint32_t word);                                // DIV and XGKICK, out of line (vu1.cpp)
+    void lowerKick(std::uint32_t word,std::uint32_t at,const Kick& kick);
+    [[noreturn]] static void refuseBranch(unsigned reg,std::uint32_t at);
     void setVi(unsigned reg,std::uint16_t value,bool flag_instruction=false);
     std::uint16_t branchVi(unsigned reg,std::uint32_t at) const;
     std::uint8_t* cell(std::uint32_t address) {return data.data()+(address&data_mask)*16;}
@@ -114,3 +118,5 @@ private:
     void gifPacketInto(std::vector<std::uint8_t>& packet,std::uint32_t address) const;
     std::uint32_t gifPacketQwords(std::uint32_t address) const; // The packets' length up to and including EOP.
 };
+
+#include "vu1_lower.h"
