@@ -22,6 +22,7 @@ import shutil
 import subprocess
 import sys
 import types
+import zipfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 HERE = ROOT / "port/bt4"
@@ -40,6 +41,8 @@ ELF_SHA256 = "224525c5639c00e01c2604c4685d307bc739c041000dcf8c69a4f884f465e8a4" 
 
 ARMSX2_URL, ARMSX2_REV = "https://github.com/ARMSX2/ARMSX2", "90126bdfea7a3ffb1fd288b2f7f0ae0b033af2d6"
 ARMSX2 = WORK / "ARMSX2"
+# what the APK puts beside libbt4gsx.so (resources/, cache/): a new value has Bt4Activity copy them out again
+GSX_FILES = "files2"
 ARMSX2_PATCH = HERE / "patches/armsx2-bt4.patch"
 GSX = HERE / "gsx"
 
@@ -163,12 +166,30 @@ def generate(data):
     bt3setup.generate_runner(ctx, recomp)
 
 
+def check_symbols(lib):
+    """Every symbol libbt4.so leaves to the system is one the system has: one of BT3's port the GS asks for and nothing
+    here answers (bt4_shim.c) is otherwise only found on the device, as "dlopen failed: cannot locate symbol" (0.9.0's
+    merge of the PC's 0.1.38 did that). The unwinder's _Unwind_* come from the device's libc, not the NDK's stubs."""
+    def names(path, flags):
+        r = subprocess.run([LLVM / "bin/llvm-nm", "-D", *flags, path], capture_output=True, text=True) # (a linker script: none)
+        return {l.split()[-1].split("@")[0] for l in r.stdout.splitlines() if l.strip()}
+    have = names(SDL3 / "lib/libSDL3.so", ["--defined-only"])
+    for so in sorted((SYSROOT / f"usr/lib/aarch64-linux-android/{API}").glob("*.so")):
+        have |= names(so, ["--defined-only"])
+    want = {l.split()[-1].split("@")[0] for l in subprocess.run([LLVM / "bin/llvm-nm", "-D", "--undefined-only", lib],
+            capture_output=True, text=True, check=True).stdout.splitlines() if l.split()[0] == "U"}
+    missing = sorted(w for w in want - have if not w.startswith("_Unwind_"))
+    if missing:
+        sys.exit("libbt4.so needs symbols nothing defines (add them to host/bt4_shim.c): " + ", ".join(missing))
+
+
 def build():
     out = WORK / "build"
     run(["cmake", "-S", HERE, "-B", out, "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release", f"-DCMAKE_TOOLCHAIN_FILE={toolchain_file()}",
          f"-DBT3R={BT3R}", f"-DDR={ROOT}", f"-DDRGEN={GEN}", f"-DSDL3={SDL3}", f"-DFFMPEG={ffmpeg()}"])
     run(["cmake", "--build", out, "--target", "bt4"])
     lib = out / "libbt4.so"
+    check_symbols(lib)
     dst = ROOT / "android/app/src/main/jniLibs/arm64-v8a"
     dst.mkdir(parents=True, exist_ok=True)
     run([LLVM / "bin/llvm-strip", "--strip-debug", "-o", dst / "libbt4.so", lib])
@@ -229,7 +250,15 @@ set(CMAKE_PROJECT_INCLUDE "{after}")
     for part in ("shaders/common", "shaders/opengl", "shaders/vulkan", "fonts"):
         shutil.copytree(res / part, assets / "resources" / part)
     shutil.copyfile(res / "GameIndex.yaml", assets / "resources/GameIndex.yaml")
-    (assets / "version.txt").write_text(ARMSX2_REV + " " + sha256(dst / "libbt4gsx.so")[:16] + "\n")
+    # an empty patches.zip: the game's own patches are the recompiled game's business (this core only draws its GS
+    # stream); without one ARMSX2 says on screen at every start that it could not open it
+    zipfile.ZipFile(assets / "resources/patches.zip", "w").close()
+    # Its Vulkan shaders already compiled (gsx/cache, see the README there): without them the first start spends
+    # 20 to 25 s compiling SPIR-V on the CPU before the first picture (85 shaders on the RG Cube).
+    for f in sorted((GSX / "cache").glob("vulkan_shaders_*.*")):
+        (assets / "cache").mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(f, assets / "cache" / f.name)
+    (assets / "version.txt").write_text(ARMSX2_REV + " " + sha256(dst / "libbt4gsx.so")[:16] + " " + GSX_FILES + "\n")
     print(f"== libbt4gsx.so ({(dst / 'libbt4gsx.so').stat().st_size >> 20} MB, for 4 KB memory pages) and its resources installed")
 
 

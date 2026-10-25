@@ -357,7 +357,9 @@ __attribute__((visibility("default"))) int Bt4Gsx_Run(const Bt4GsxArgs* a)
 
 	char upscale[32];
 	std::snprintf(upscale, sizeof(upscale), "%g", static_cast<double>(a->upscale));
-	std::vector<std::string> args = {"bt4gsx", "-renderer", a->renderer, "-upscale", upscale, "-window", "-loop", "0"};
+	// (no "unsafe settings" notice on screen at every start: the renderer is the launcher's choice, not a mistake)
+	std::vector<std::string> args = {"bt4gsx", "-renderer", a->renderer, "-upscale", upscale, "-window", "-loop", "0",
+		"-set", "EmuCore/WarnAboutUnsafeSettings=false"};
 	if (a->ini && a->ini[0])
 	{
 		args.push_back("-ini");
