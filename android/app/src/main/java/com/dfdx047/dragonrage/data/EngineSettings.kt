@@ -67,6 +67,16 @@ class EngineSettings(private val file: File) {
         // Dragon Rage's own, read by the Android glue of the engine at start
         const val UNLOCK_ALL = "dr_unlock_all"    // 1: run Save_UnlockAll once on the next start, then 0
         const val FPS60 = "dr_fps60"              // reserved for the 60 fps mode
+        const val ADPF = "adpf"                   // the system's performance hints (Android 13+): 1 on (default), 0 off
+        const val SUSTAINED = "dr_sustained"      // Android's sustained performance mode for the game's window: 1 on
+        const val BT4_ASPECT = "bt4_aspect"       // Budokai Tenkaichi 4: 0 16:9 (the mod's own), 1 4:3, 2 the whole screen
+        const val BT4_FPS60 = "bt4_fps60"         // Budokai Tenkaichi 4: 60 fps fights (BT3-Recomp's mode)
+        const val BT4_FPS60_DROPPED = "bt4_fps60_dropped" // 1: they went back to 30 on this device (below 57 a second)
+        const val BT4_RENDERER = "bt4_renderer"   // Budokai Tenkaichi 4: 0 Dragon Rage's GS, 1 ARMSX2's (libbt4gsx.so)
+
+        /** Whether this build has ARMSX2's renderer for Budokai Tenkaichi 4 (port/bt4/build_bt4.py --armsx2). */
+        fun hasArmsx2Renderer(context: android.content.Context): Boolean =
+            java.io.File(context.applicationInfo.nativeLibraryDir, "libbt4gsx.so").exists()
         const val INTERP = "interp"               // smooth motion: 0 off, 1 60, 2 120, 3 240 pictures a second (the engine's)
         const val PRESENT = "present"             // present mode: 0 automatic, 1 vsync (FIFO), 2 mailbox, 3 immediate
         const val GPU_API = "gpu_api"             // the engine's renderer: 0 Vulkan, 1 OpenGL ES 3.2 (written from RENDERER)
@@ -77,6 +87,8 @@ class EngineSettings(private val file: File) {
         const val FRAG_DEPTH = "frag_depth"       // precise depth (the fragment shader writes depth): 1 on, 0 off (faster)
         const val ASTC = "astc"                   // texture packs kept as ASTC copies (textures_astc) where the GPU reads ASTC
         const val FRAME_SKIP = "frame_skip"       // skip pictures instead of slowing down
+        const val LITE = "dr_lite"                // Lite mode for weak GPUs: 1 on (render thread, glow chains at 0 left out, render areas on Mali)
+        const val GLARE = "glare"                 // the sky's glare: 0..200 %, the glow's until set
         const val GPU_TIER = "dr_gpu_tier"        // the GPU's tier the launcher's optimisations were made for (GpuProfiles)
         const val TOUCH = "dr_touch"              // on-screen controls: 0 off, 1 automatic, 2 always
         const val TOUCH_OPACITY = "dr_touch_alpha" // 10..100 %

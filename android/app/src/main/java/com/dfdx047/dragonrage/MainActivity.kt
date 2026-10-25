@@ -4,7 +4,16 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.viewModels
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.verticalScroll
+import androidx.lifecycle.ViewModelProvider
+import com.dfdx047.dragonrage.data.Game
+import com.dfdx047.dragonrage.data.UiPrefs
+import com.dfdx047.dragonrage.ui.screens.WelcomeScreen
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -83,33 +92,45 @@ import androidx.compose.ui.text.style.TextOverflow
 import com.dfdx047.dragonrage.ui.theme.DragonRageTheme
 
 class MainActivity : ComponentActivity() {
-    private val vm: AppViewModel by viewModels()
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        val prefs = UiPrefs.get(this)
         setContent {
-            val ui by vm.uiState.collectAsStateWithLifecycle()
-            DragonRageTheme(mode = ui.theme, dynamicColor = ui.dynamicColor) {
-                DragonRageApp(vm)
+            // the welcome screen first (which game), then that game's pages with its own view model, folder and colours
+            var chosen by rememberSaveable { mutableStateOf<String?>(null) }
+            val ui by prefs.state.collectAsStateWithLifecycle()
+            val game = chosen?.let { Game.of(it) }
+            DragonRageTheme(mode = ui.theme, dynamicColor = ui.dynamicColor, game = game ?: Game.BT3) {
+                if (game == null) {
+                    WelcomeScreen(last = prefs.game) { g -> prefs.setGame(g); chosen = g.id }
+                } else {
+                    val vm = remember(game) {
+                        ViewModelProvider(this@MainActivity, AppViewModel.factory(application, game))["game-${game.id}", AppViewModel::class.java]
+                    }
+                    BackHandler { chosen = null } // (back: to the welcome screen)
+                    DragonRageApp(vm, onSwitchGame = { chosen = null })
+                }
             }
         }
     }
 }
 
-private enum class Dest(val route: String, val label: Int, val icon: ImageVector) {
+private enum class Dest(val route: String, val label: Int, val icon: ImageVector, val bt4: Boolean = true) {
     HOME("home", R.string.nav_home, Icons.Rounded.Home),
     TEXTURES("textures", R.string.nav_textures, Icons.Rounded.Texture),
-    MODS("mods", R.string.nav_mods, Icons.Rounded.Extension),
+    MODS("mods", R.string.nav_mods, Icons.Rounded.Extension, bt4 = false),
     CONTROLS("controls", R.string.nav_controls, Icons.Rounded.SportsEsports),
-    CHEATS("cheats", R.string.nav_cheats, Icons.Rounded.LockOpen),
-    DRIVERS("drivers", R.string.nav_drivers, Icons.Rounded.DeveloperBoard),
+    CHEATS("cheats", R.string.nav_cheats, Icons.Rounded.LockOpen, bt4 = false),
+    DRIVERS("drivers", R.string.nav_drivers, Icons.Rounded.DeveloperBoard, bt4 = false),
     DEBUG("debug", R.string.nav_debug, Icons.Rounded.BugReport),
     SETTINGS("settings", R.string.nav_settings, Icons.Rounded.Settings),
 }
 
 @Composable
-private fun DragonRageApp(vm: AppViewModel) {
+private fun DragonRageApp(vm: AppViewModel, onSwitchGame: () -> Unit) {
+    // Budokai Tenkaichi 4 has no mods, cheats or drivers pages (yet): those are the BT3 engine's
+    val pages = Dest.entries.filter { vm.game == Game.BT3 || it.bt4 }
     val nav = rememberNavController()
     val entry by nav.currentBackStackEntryAsState()
     val current = entry?.destination?.route
@@ -135,10 +156,17 @@ private fun DragonRageApp(vm: AppViewModel) {
     Row(Modifier.fillMaxSize().background(colors.background).kiBackground(colors.primary, colors.secondary)) {
         if (wide) {
             NavigationRail(containerColor = Color.Transparent, modifier = Modifier.windowInsetsPadding(WindowInsets.safeDrawing)) {
-                Dest.entries.forEach { d ->
+                // nine pages (BT3) are taller than a 1080-pixel landscape screen: the rail scrolls
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    pages.forEach { d ->
+                        NavigationRailItem(
+                            selected = current == d.route, onClick = { go(d) },
+                            icon = { Icon(d.icon, null) }, label = { Text(stringResource(d.label)) },
+                        )
+                    }
                     NavigationRailItem(
-                        selected = current == d.route, onClick = { go(d) },
-                        icon = { Icon(d.icon, null) }, label = { Text(stringResource(d.label)) },
+                        selected = false, onClick = onSwitchGame,
+                        icon = { Icon(Icons.Rounded.SwapHoriz, null) }, label = { Text(stringResource(R.string.nav_switch_game)) },
                     )
                 }
             }
@@ -157,7 +185,8 @@ private fun DragonRageApp(vm: AppViewModel) {
                                     .windowInsetsPadding(WindowInsets.navigationBars).padding(horizontal = 4.dp, vertical = 6.dp),
                                 horizontalArrangement = Arrangement.SpaceEvenly,
                             ) {
-                                Dest.entries.forEach { d -> BarItem(d, current == d.route) { go(d) } }
+                                pages.forEach { d -> BarItem(d.icon, d.label, current == d.route) { go(d) } }
+                                BarItem(Icons.Rounded.SwapHoriz, R.string.nav_switch_game, false, onSwitchGame)
                             }
                         }
                     }
@@ -185,7 +214,7 @@ private fun DragonRageApp(vm: AppViewModel) {
 
 /** One page of the bottom bar: its icon in a pill that lights when it is the page shown, and its name. */
 @Composable
-private fun BarItem(d: Dest, selected: Boolean, onClick: () -> Unit) {
+private fun BarItem(icon: ImageVector, label: Int, selected: Boolean, onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     Column(
         Modifier.width(76.dp).clip(RoundedCornerShape(14.dp)).clickable(onClick = onClick).padding(vertical = 4.dp),
@@ -196,10 +225,10 @@ private fun BarItem(d: Dest, selected: Boolean, onClick: () -> Unit) {
                 .background(if (selected) colors.primary.copy(alpha = 0.22f) else Color.Transparent)
                 .padding(horizontal = 16.dp, vertical = 4.dp),
         ) {
-            Icon(d.icon, null, tint = if (selected) colors.primary else colors.onSurfaceVariant, modifier = Modifier.size(24.dp))
+            Icon(icon, null, tint = if (selected) colors.primary else colors.onSurfaceVariant, modifier = Modifier.size(24.dp))
         }
         Text(
-            stringResource(d.label), maxLines = 1, overflow = TextOverflow.Ellipsis,
+            stringResource(label), maxLines = 1, overflow = TextOverflow.Ellipsis,
             style = MaterialTheme.typography.labelSmall, color = if (selected) colors.primary else colors.onSurfaceVariant,
         )
     }

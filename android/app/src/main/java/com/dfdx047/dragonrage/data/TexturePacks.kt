@@ -45,7 +45,22 @@ class TexturePacks(private val context: Context, private val paths: GamePaths, p
         val isZip = resolver.openInputStream(uri)?.use { it.read() == 'P'.code && it.read() == 'K'.code }
             ?: throw IllegalStateException(context.getString(R.string.err_open_file))
         if (!isZip) throw IllegalArgumentException(context.getString(R.string.err_zip_only))
+        checkRoom(zipUnpackedSize { resolver.openFileDescriptor(uri, "r")?.let { android.os.ParcelFileDescriptor.AutoCloseInputStream(it).channel } })
         importFrom(fileName.substringBeforeLast('.'), { resolver.openInputStream(uri) ?: throw IllegalStateException(context.getString(R.string.err_open_file)) }, onProgress)
+    }
+
+    /**
+     * Refuses a pack that cannot fit before anything is unpacked: the pack players have (18 704 files) takes 13 GB
+     * unpacked out of a 2-3 GB zip, and unpacking it into a phone without the room ran for minutes and ended in the
+     * system's "ENOSPC". [unpacked] null (the zip's size is not known in advance): checked while unpacking instead.
+     */
+    fun checkRoom(unpacked: Long?) {
+        paths.root.mkdirs()
+        val free = paths.root.usableSpace
+        Log.i("bt3", "texture import: ${if (unpacked == null) "unpacked size not known in advance" else "takes ${formatBytes(unpacked)} unpacked"}, ${formatBytes(free)} free")
+        if (unpacked != null && unpacked + (64L shl 20) > free) {
+            throw IllegalArgumentException(context.getString(R.string.err_no_space, formatBytes(unpacked), formatBytes(free)))
+        }
     }
 
     /** The same from any stream (a downloaded file); [rawName] becomes the pack's folder name. */
@@ -73,15 +88,21 @@ class TexturePacks(private val context: Context, private val paths: GamePaths, p
         val name = safeName(rawName)
         // unpacked next to textures/ (the same storage: the finished pack is moved, not copied, and takes its room once)
         val stagingRoot = File(paths.root, ".import").also { it.mkdirs() }
+        // what an import cut short left (the app closed or killed while unpacking): it would take its room for good
+        stagingRoot.listFiles().orEmpty().forEach {
+            Log.w("bt3", "texture import: removing what an unfinished import left: ${it.name}, ${formatBytes(it.sizeDeep())}")
+            it.deleteRecursively()
+        }
         val staging = uniqueChild(stagingRoot, name)
         staging.mkdirs()
         Log.i("bt3", "texture import: \"$rawName\" into ${paths.textures}")
+        var unpacked = 0L
         try {
             var found = 0
             val others = mutableListOf<String>()
             val firstNames = mutableListOf<String>()
             val files = try {
-                unzip(input, staging, onBytes = { onProgress(context.getString(R.string.progress_extracting, formatBytes(it))) }, charset = charset) { rel ->
+                unzip(input, staging, onBytes = { unpacked = it; onProgress(context.getString(R.string.progress_extracting, formatBytes(it))) }, charset = charset) { rel ->
                     val file = rel.substringAfterLast('/').trim()
                     if (firstNames.size < 3) firstNames += rel
                     if (isReplacement(file)) found++ else if (others.size < 3 && (file.endsWith(".png", true) || file.endsWith(".dds", true))) others += file
@@ -112,6 +133,7 @@ class TexturePacks(private val context: Context, private val paths: GamePaths, p
             pack
         } catch (e: Exception) {
             if (e !is kotlinx.coroutines.CancellationException) Log.w("bt3", "texture import failed: ${e.message}", e)
+            if (e.isNoSpace()) throw IllegalArgumentException(context.getString(R.string.err_no_space_during, formatBytes(unpacked)), e)
             throw e
         } finally {
             staging.deleteRecursively()

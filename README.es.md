@@ -23,14 +23,16 @@
 ---
 
 > [!IMPORTANT]
-> **Estado (0.8.0): el juego completo corre de forma nativa en Android arm64**: menús, modo historia y peleas completas a
+> **Estado (0.9.0): el juego completo corre de forma nativa en Android arm64**: menús, modo historia y peleas completas a
 > los 30 fps del juego, en Snapdragon y en GPUs Mali, Xclipse y PowerVR. El launcher ahora **detecta tu GPU** y te ofrece
 > ajustes pensados para mantener las peleas a 30 fps estables; ya están incluidos el juego online (PC y Android en las
 > mismas salas), los packs de texturas HD, un nuevo menú dentro del juego hecho para pantallas táctiles, el nuevo control
 > en pantalla **Dragón** y la **descarga de drivers** para Adreno. La 0.7.0 trae la versión 0.1.37 del port de PC (el
 > online vuelve a funcionar), un **aviso del estado del online** en el launcher, la página **Dragon Net Battle** hecha
-> para pantallas táctiles, packs de texturas en ASTC (experimental). En inglés, portugués y español. Mira la
-> [Hoja de ruta](#hoja-de-ruta).
+> para pantallas táctiles, packs de texturas en ASTC (experimental). La 0.9.0 trae la 0.1.38.7 del port de PC (más
+> rápida a 2x o más, sobre todo en Mali), **Budokai Tenkaichi 4** dibujado por el renderizador de ARMSX2 por defecto
+> y el online que espera cuando los servidores gratuitos llegan a su límite diario. En inglés, portugués y español.
+> Mira la [Hoja de ruta](#hoja-de-ruta).
 
 Este repositorio **no contiene ningún dato del juego**. Necesitas tu propia copia de la **versión de EE. UU. (SLUS-21678)**
 en `.iso`. La app la lee en tu dispositivo; no se descarga ni se sube nada.
@@ -142,6 +144,11 @@ opcional `match_url.txt` (una línea, `https://...`) indica otro servicio de mat
 - [x] **0.8.0**: **Dragon Net**: online con el port de Nintendo Switch (DBT-NX) en un servicio propio (salas, partida
       rápida, Clasificatoria con Elo, chat general, jugadores en línea), sin depender de las versiones del port de PC;
       nueva pantalla Dragon Net Battle; online contra PC como opción (`port/dragonnet`, `docs/DRAGON_NET.md`)
+- [x] **0.8.1**: Dragon Net en tres servidores (uno de reserva y la Clasificatoria aparte), menos peticiones a ellos
+- [x] **0.9.0**: la 0.1.38.7 del port de PC; Budokai Tenkaichi 4 con el renderizador de ARMSX2 por defecto (shaders
+      compilados de antemano), peleas a 60 fps (experimental, vuelve a 30 donde el dispositivo no las aguanta); el
+      online se pausa con el HTTP 429 y avisa que el servidor está ocupado; el control clásico cabe en pantallas
+      cuadradas; medida en un RG Cube y un Retroid Pocket 5 (`docs/release-0.9.0.md`)
 
 ### Lo que viene
 - [ ] Más GPUs medidas para los niveles (¡envía tu log!)
@@ -166,7 +173,7 @@ opcional `match_url.txt` (una línea, `https://...`) indica otro servicio de mat
 - Drivers de GPU de [Mr. Purple](https://github.com/MrPurple666/purple-turnip), [StevenMXZ](https://github.com/StevenMXZ/Adreno-Tools-Drivers)
   y [K11MCH1](https://github.com/K11MCH1/AdrenoToolsDrivers), cargados con [libadrenotools](https://github.com/bylaws/libadrenotools) (BSD-2-Clause).
 - [AMD FidelityFX Super Resolution 1](https://github.com/GPUOpen-Effects/FidelityFX-FSR) (MIT),
-  [Snapdragon Game Super Resolution](https://github.com/SnapdragonStudios/snapdragon-gsr) (BSD-3-Clause), [SDL3](https://libsdl.org) (zlib),
+  [Snapdragon Game Super Resolution](https://github.com/SnapdragonStudios/snapdragon-gsr) (BSD-3-Clause), [SDL3](https://libsdl.org) (zlib), [Apache Commons Compress](https://commons.apache.org/proper/commons-compress/) (Apache-2.0),
   [Dear ImGui](https://github.com/ocornut/imgui) (MIT), las fuentes en `port/third_party/fonts` (cada una con su licencia).
 - Hecho con ayuda de IA.
 

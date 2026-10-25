@@ -626,10 +626,12 @@ static void dr_end(void) {
     ImGui::End();
 }
 
+static int sAndroidPage; // the page shown (the touch menu's "Controller buttons" opens this window on Controls)
+
 static void build_android(void) {
     PortVideo v, was;
     ImGuiIO &io = ImGui::GetIO();
-    static int page;
+    int &page = sAndroidPage;
     static bool askQuit;
     bool open = true;
 
@@ -734,6 +736,279 @@ static void build_android(void) {
         askQuit = false;
         set_open(false);
     }
+}
+
+// ---- The touch menu (Dragon Rage 0.9): the game's own pause menu drawn by the app (engine/GameMenu.kt), over
+// the picture, with the phone's own scrolling, switches and sliders. The app asks through libmain.so (loader.c) and
+// these functions; a value it changes is queued and applied here, on the engine's thread, between two frames (as the
+// window above applies its own). The keys are the names in bt3_settings.txt. While it is up the game waits, as with
+// the window (Ui_Pauses), except in an online match.
+static SDL_Mutex *sNmLock;
+static volatile int sNmWant = -1; // asked by the app: 1 open, 0 closed
+static int sNativeOpen;           // (the engine's side of it)
+static int sNmGen, sNmDirty;
+struct NmPair { char key[32]; int value; };
+static NmPair sNmQueue[64], sNmSnap[64];
+static int sNmQueueN, sNmSnapN;
+static char sNmFonts[3][1024], sNmDevice[256];
+static volatile int sNmAction; // 1 resume, 2 quit, 3 the controller's buttons (this window, Controls)
+
+static void nm_lock(void) {
+    if (sNmLock == NULL) {
+        static SDL_AtomicInt made;
+        if (SDL_CompareAndSwapAtomicInt(&made, 0, 1)) {
+            sNmLock = SDL_CreateMutex();
+        } else {
+            while (sNmLock == NULL) { SDL_Delay(1); }
+        }
+    }
+    SDL_LockMutex(sNmLock);
+}
+
+static int nm_pauses(void) {
+    return sNativeOpen;
+}
+
+static void nm_put(const char *key, int value) {
+    if (sNmSnapN < (int)(sizeof(sNmSnap) / sizeof(sNmSnap[0]))) {
+        SDL_strlcpy(sNmSnap[sNmSnapN].key, key, sizeof(sNmSnap[0].key));
+        sNmSnap[sNmSnapN++].value = value;
+    }
+}
+
+// What the app shows: read where the window above reads it (engine thread, the lock held).
+static void nm_snapshot(void) {
+    PortVideo v;
+    GsGpu_GetSettings(&v);
+    sNmSnapN = 0;
+    nm_put("scale4", v.scale4);
+    nm_put("aspect_milli", v.aspectMilli);
+    nm_put("filter", v.filter);
+    nm_put("smooth_2d", v.smooth2d);
+    nm_put("texture_pack", v.texPack);
+    nm_put("texture_count", v.texPackCount);
+    nm_put("gpu_api", Port_Setting("gpu_api", 0) == 1 ? 1 : 0);
+    nm_put("running_gl", sGL ? 1 : 0);
+    nm_put("frame_skip", v.frameSkip);
+    nm_put("frag_depth", gGsFragDepth);
+    nm_put("interp", gsInterp < 0 ? 0 : gsInterp > 2 ? 2 : gsInterp);
+    nm_put("present", sGL ? 0 : GsGpu_PresentGet());
+    nm_put("meter", meter_on() ? 1 : 0);
+    nm_put("fx_off", v.fxOff);
+    nm_put("glow", v.glow);
+    nm_put("music", v.music);
+    nm_put("effects", v.effects);
+    nm_put("voices", v.voices);
+    nm_put("stage_sounds", v.stage);
+    nm_put("music_follows_speed", gPortMusicFollows > 0 ? 1 : 0);
+    nm_put("hud_layout", v.hudLayout);
+    nm_put("menus_43", Port_Menus43() != 0);
+    nm_put("side_bars", sBars < 0 ? Port_Setting("side_bars", 0) : sBars);
+    nm_put("menu_font_id", v.menuFont);
+    nm_put("battle_font_id", v.battleFont);
+    nm_put("text_font_id", v.textFont);
+    nm_put("clash_square", Port_ClashSquare() != 0);
+    nm_put("clash_square_x", Port_ClashSquareX());
+    nm_put("chat", PortChat_Enabled() != 0);
+    nm_put("game_speed", Port_GameSpeed());
+    nm_put("skip_logos", Port_Setting("skip_logos", 0) != 0);
+    nm_put("skip_intro", Port_Setting("skip_intro", 0) != 0);
+    nm_put("skip_copyright", Port_Setting("skip_copyright", 0) != 0);
+    nm_put("unlock_done", gPortUnlockDone != 0);
+    nm_put("online", Port_NetActive() != 0);
+    nm_put("fps", (int)(ImGui::GetCurrentContext() != NULL ? ImGui::GetIO().Framerate : 0.0f));
+    {
+        const int uses[3] = {MENU_TEXT_MENU, MENU_TEXT_BATTLE, MENU_TEXT_DIALOGUE};
+        for (int k = 0; k < 3; k++) {
+            int n = 0;
+            sNmFonts[k][0] = '\0';
+            for (int i = 0; i < MenuText_FontCount(); i++) {
+                if (i == 0 || MenuText_FontAvailable(i, uses[k])) {
+                    char one[160];
+                    snprintf(one, sizeof(one), "%s%d:%s", n > 0 ? "|" : "", i, i == 0 ? "" : MenuText_FontName(i));
+                    SDL_strlcat(sNmFonts[k], one, sizeof(sNmFonts[k]));
+                    n++;
+                }
+            }
+        }
+    }
+    {
+        char model[PROP_VALUE_MAX] = "", soc[PROP_VALUE_MAX] = "";
+        __system_property_get("ro.product.model", model);
+        __system_property_get("ro.soc.model", soc);
+        snprintf(sNmDevice, sizeof(sNmDevice), "%s%s%s", model, soc[0] ? " · " : "", soc);
+    }
+    sNmGen++;
+}
+
+// One value from the app, applied as the window above applies it.
+static void nm_apply(const char *key, int value) {
+    PortVideo v, was;
+    GsGpu_GetSettings(&v);
+    was = v;
+    if (strcmp(key, "scale4") == 0) { v.scale4 = value; }
+    else if (strcmp(key, "aspect_milli") == 0) { v.aspectMilli = value; }
+    else if (strcmp(key, "filter") == 0) { v.filter = value; }
+    else if (strcmp(key, "smooth_2d") == 0) { v.smooth2d = value; }
+    else if (strcmp(key, "texture_pack") == 0) { v.texPack = value; }
+    else if (strcmp(key, "frame_skip") == 0) { v.frameSkip = value; }
+    else if (strcmp(key, "fx_off") == 0) { v.fxOff = value; }
+    else if (strcmp(key, "glow") == 0) { v.glow = value; }
+    else if (strcmp(key, "music") == 0) { v.music = value; }
+    else if (strcmp(key, "effects") == 0) { v.effects = value; }
+    else if (strcmp(key, "voices") == 0) { v.voices = value; }
+    else if (strcmp(key, "stage_sounds") == 0) { v.stage = value; }
+    else if (strcmp(key, "hud_layout") == 0) { v.hudLayout = value; }
+    else if (strcmp(key, "menu_font_id") == 0) { v.menuFont = value; }
+    else if (strcmp(key, "battle_font_id") == 0) { v.battleFont = value; }
+    else if (strcmp(key, "text_font_id") == 0) { v.textFont = value; }
+    else if (strcmp(key, "gpu_api") == 0) {
+        Port_SettingSave("gpu_api", value ? 1 : 0);
+        Port_SettingSave("dr_renderer", (value ? 1 : 0) + 1);
+        Port_SettingsWrite();
+    } else if (strcmp(key, "frag_depth") == 0) {
+        gGsFragDepth = value != 0;
+        save_setting("frag_depth", gGsFragDepth);
+    } else if (strcmp(key, "interp") == 0) {
+        gsInterp = value < 0 ? 0 : value > 2 ? 2 : value;
+        save_setting("interp", gsInterp);
+    } else if (strcmp(key, "present") == 0) {
+        if (!sGL) {
+            GsGpu_PresentSet(value);
+            Port_SettingsWrite();
+        }
+    } else if (strcmp(key, "meter") == 0) {
+        sMeter = value != 0;
+        save_setting("meter", sMeter);
+    } else if (strcmp(key, "music_follows_speed") == 0) {
+        gPortMusicFollows = value != 0;
+        save_setting("music_follows_speed", gPortMusicFollows);
+    } else if (strcmp(key, "menus_43") == 0) {
+        Port_Menus43Set(value != 0);
+        save_setting("menus_43", value != 0);
+    } else if (strcmp(key, "side_bars") == 0) {
+        sBars = value < 0 ? 0 : value > 2 ? 2 : value;
+        save_setting("side_bars", sBars);
+    } else if (strcmp(key, "clash_square") == 0) {
+        Port_ClashSquareSet(value != 0);
+    } else if (strcmp(key, "clash_square_x") == 0) {
+        Port_ClashSquareXSet(value);
+    } else if (strcmp(key, "chat") == 0) {
+        PortChat_EnabledSet(value != 0);
+    } else if (strcmp(key, "game_speed") == 0) {
+        Port_GameSpeedSet(value < 50 ? 50 : value > 200 ? 200 : value);
+        Port_AudioRefresh();
+    } else if (strcmp(key, "skip_logos") == 0 || strcmp(key, "skip_intro") == 0 || strcmp(key, "skip_copyright") == 0) {
+        save_setting(key, value != 0);
+    } else if (strcmp(key, "unlock_all") == 0) {
+        if (value) { gPortUnlockAll = 1; }
+    }
+    if (memcmp(&v, &was, sizeof(v)) != 0) {
+        GsGpu_SetSettings(&v);
+    }
+}
+
+// Once a frame (frame_build): the app's requests, on the engine's thread.
+static void nm_frame(void) {
+    NmPair q[64];
+    int n, want, action;
+    nm_lock();
+    want = sNmWant;
+    sNmWant = -1;
+    n = sNmQueueN;
+    memcpy(q, sNmQueue, sizeof(NmPair) * (size_t)n);
+    sNmQueueN = 0;
+    action = sNmAction;
+    sNmAction = 0;
+    SDL_UnlockMutex(sNmLock);
+    if (want == 1 && !sNativeOpen) {
+        if (sOpen) { set_open(false); } // (the window and the touch menu are not up together)
+        sNativeOpen = 1;
+        sNmDirty = 1;
+    }
+    for (int i = 0; i < n; i++) {
+        nm_apply(q[i].key, q[i].value);
+        sNmDirty = 1;
+    }
+    if (action == 3) { // the controller's buttons: this window, on its Controls page
+        sNativeOpen = 0;
+        sAndroidPage = 5;
+        set_open(true);
+    } else if (action == 2) {
+        quit_to_app();
+    }
+    if ((want == 0 || action == 1) && sNativeOpen) {
+        sNativeOpen = 0;
+        PortInput_Swallow(); // (the touch that closed it is not the game's)
+    }
+    if (sNmDirty && (sNativeOpen || want == 1)) {
+        nm_lock();
+        nm_snapshot();
+        SDL_UnlockMutex(sNmLock);
+        sNmDirty = 0;
+    }
+}
+
+extern "C" {
+// (loader.c, for the app: GameMenu.kt through MenuBridge)
+int Ui_NmOpen(int open) {
+    nm_lock();
+    sNmWant = open ? 1 : 0;
+    SDL_UnlockMutex(sNmLock);
+    return sReady ? 1 : 0;
+}
+
+int Ui_NmGen(void) {
+    int g;
+    nm_lock();
+    g = sNmGen;
+    SDL_UnlockMutex(sNmLock);
+    return g;
+}
+
+int Ui_NmGet(const char *key, int def) {
+    int v = def;
+    nm_lock();
+    for (int i = 0; i < sNmSnapN; i++) {
+        if (strcmp(sNmSnap[i].key, key) == 0) {
+            v = sNmSnap[i].value;
+            break;
+        }
+    }
+    SDL_UnlockMutex(sNmLock);
+    return v;
+}
+
+void Ui_NmSet(const char *key, int value) {
+    nm_lock();
+    for (int i = 0; i < sNmSnapN; i++) { // (the app shows it at once; the snapshot agrees until it is made again)
+        if (strcmp(sNmSnap[i].key, key) == 0) { sNmSnap[i].value = value; }
+    }
+    if (sNmQueueN < (int)(sizeof(sNmQueue) / sizeof(sNmQueue[0]))) {
+        SDL_strlcpy(sNmQueue[sNmQueueN].key, key, sizeof(sNmQueue[0].key));
+        sNmQueue[sNmQueueN++].value = value;
+    }
+    SDL_UnlockMutex(sNmLock);
+}
+
+int Ui_NmText(const char *key, char *out, int size) {
+    const char *t = "";
+    nm_lock();
+    if (strcmp(key, "gpu") == 0) { t = sGpuName; }
+    else if (strcmp(key, "device") == 0) { t = sNmDevice; }
+    else if (strcmp(key, "fonts_menu") == 0) { t = sNmFonts[0]; }
+    else if (strcmp(key, "fonts_battle") == 0) { t = sNmFonts[1]; }
+    else if (strcmp(key, "fonts_text") == 0) { t = sNmFonts[2]; }
+    SDL_strlcpy(out, t, (size_t)size);
+    SDL_UnlockMutex(sNmLock);
+    return (int)strlen(out);
+}
+
+void Ui_NmAction(int action) {
+    nm_lock();
+    sNmAction = action;
+    SDL_UnlockMutex(sNmLock);
+}
 }
 
 // ---- Dragon Net Battle, the online window opened from the game's main menu: ui_dragonnet.inc.

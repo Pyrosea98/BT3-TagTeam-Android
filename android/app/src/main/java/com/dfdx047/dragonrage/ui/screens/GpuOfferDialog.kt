@@ -2,6 +2,8 @@ package com.dfdx047.dragonrage.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material3.AlertDialog
@@ -12,6 +14,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -32,13 +35,15 @@ fun GpuOfferDialog(vm: AppViewModel) {
         if (offer.fxOffAdd and 16 != 0) add(stringResource(R.string.gpu_opt_blur_far))
         if (offer.fxOffAdd and 32 != 0) add(stringResource(R.string.gpu_opt_blur_move))
         add(stringResource(R.string.gpu_opt_filter))
+        if (offer.lite) add(stringResource(R.string.gpu_opt_lite))
     }
     AlertDialog(
         onDismissRequest = { vm.declineGpuOffer() },
         icon = { Icon(Icons.Rounded.Memory, null, tint = Dbz.SaiyanGold) },
         title = { Text(stringResource(R.string.gpu_offer_title)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            // (scrolls: on a landscape phone the list is taller than the dialog)
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(stringResource(R.string.gpu_offer_found, offer.gpu, tierName(offer.tier)), style = MaterialTheme.typography.bodyMedium)
                 Text(stringResource(R.string.gpu_offer_apply), style = MaterialTheme.typography.bodyMedium)
                 items.forEach { Text("•  $it", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary) }

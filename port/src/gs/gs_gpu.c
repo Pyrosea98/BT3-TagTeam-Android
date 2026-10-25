@@ -18,10 +18,12 @@
 #ifdef __ANDROID__
 #include <unistd.h> /* _exit */
 #endif
+#include <pthread.h>
 #include <SDL3/SDL.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 #include <string.h>
 #include "gs_internal.h"
 #include "gs_draw.h"
@@ -43,7 +45,12 @@ static SDL_GPUDevice *sDev;
    full 1024 x 1024, as before. */
 static int sTW = 512, sTH = 512;
 static unsigned sPassN, sCopyN; /* render passes and copies of the frames since the last report (BT3_GS_VERBOSE) */
-static SDL_GPUShader *sVs, *sFs, *sFsNd, *sFsNz, *sFsNzNd; /* Nd: gs.frag without its discards (key bit 25); Nz: without its depth output (bit 23) */
+/* (BT3_GS_VERBOSE) why the frame's ordinary passes began: 0 the frame's first, 1 another target, 2 a shadow batch,
+   3 after a DATE copy, 4 after the ids' copy, 5 after a table pass, 6 after a native effect, 7 after a movie picture */
+static unsigned sPassWhy[8];
+/* (BT3_GS_VERBOSE) passes whose draws, up to the next native step, never use the depth buffer / never write alpha */
+static unsigned sPassNoDepth, sPassNoAlpha, sPassNoBoth;
+static SDL_GPUShader *sVs, *sFs, *sFsNd, *sFsNz, *sFsNzNd, *sFsWb; /* Nd: gs.frag without its discards (key bit 27); Nz: without its depth output (bit 23); Wb: that and the glow chain's sampling (bit 25) */
 static SDL_GPUTextureFormat sDepthFormat = SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
 static int sShadowStencil;
 static SDL_GPUBuffer *sVbuf;
@@ -66,6 +73,7 @@ static SDL_GPUShader *sVu0Vs, *sVu4Vs, *sVu6Vs;
 typedef struct Pipe {
     uint32_t key;
     SDL_GPUGraphicsPipeline *p;
+    int noAux; /* 1 + the index of the same pipeline without the alpha byte (key bit 26), 0 = not looked up yet */
 } Pipe;
 static Pipe sPipes[1024];
 static int sPipeCount;
@@ -118,7 +126,17 @@ static void copies_create(void) {
 
 /* --- the attachments of the shared targets ------------------------------------------------------------ */
 
-static void target_ensure(int i) {
+/* Spare render targets, made in quiet frames before they are needed: a target is the PS2 screen's size times the
+   internal resolution in three images (colour, the helper, depth: about 130 MB at 8x), and making one took 6.5 ms;
+   the first big effect of a fight asked for four new ones in one frame (26 ms). As many as a session has needed
+   at most (the setting gpu_targets_peak, kept from one run to the next) and are not there yet, 4 at most; one a
+   frame, after a frame drawn in under 6 ms (targets_refill). No more memory than the game takes at its peak, only
+   sooner. BT3_TARGET_SPARES=0: none. */
+#define TARGET_SPARES 4
+static SDL_GPUTexture *sSpareCol[TARGET_SPARES], *sSpareAux[TARGET_SPARES], *sSpareDep[TARGET_SPARES];
+static int sSpareCount, sTargetPeak = -1, sSpareOn = -1;
+
+static void target_make(SDL_GPUTexture **col, SDL_GPUTexture **aux, SDL_GPUTexture **dep) {
     SDL_GPUTextureCreateInfo ci;
     SDL_zero(ci);
     ci.type = SDL_GPU_TEXTURETYPE_2D;
@@ -128,12 +146,49 @@ static void target_ensure(int i) {
     ci.height = sTH * SCALE;
     ci.layer_count_or_depth = 1;
     ci.num_levels = 1;
-    sTgCol[i] = SDL_CreateGPUTexture(sDev, &ci);
+    *col = SDL_CreateGPUTexture(sDev, &ci);
     ci.format = SDL_GPU_TEXTUREFORMAT_R8_UNORM;
-    sTgAux[i] = SDL_CreateGPUTexture(sDev, &ci);
+    *aux = SDL_CreateGPUTexture(sDev, &ci);
     ci.format = sDepthFormat;
     ci.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER; /* the depth effects read it */
-    sTgDep[i] = SDL_CreateGPUTexture(sDev, &ci);
+    *dep = SDL_CreateGPUTexture(sDev, &ci);
+}
+
+static void target_ensure(int i) {
+    extern int Port_Setting(const char *name, int def);
+    extern void Port_SettingSave(const char *name, int value);
+    if (sSpareCount > 0) {
+        sSpareCount--;
+        sTgCol[i] = sSpareCol[sSpareCount];
+        sTgAux[i] = sSpareAux[sSpareCount];
+        sTgDep[i] = sSpareDep[sSpareCount];
+    } else {
+        target_make(&sTgCol[i], &sTgAux[i], &sTgDep[i]);
+    }
+    if (sTargetPeak < 0) {
+        sTargetPeak = Port_Setting("gpu_targets_peak", 0);
+    }
+    if (i + 1 > sTargetPeak) { /* (a new most, kept for the next run: written now, as nothing writes the settings at the end) */
+        extern void Port_SettingsWrite(void);
+        sTargetPeak = i + 1;
+        Port_SettingSave("gpu_targets_peak", sTargetPeak);
+        Port_SettingsWrite();
+    }
+}
+
+static void targets_refill(uint64_t drawn) {
+    extern int Port_Setting(const char *name, int def);
+    if (sSpareOn < 0) {
+        sSpareOn = getenv("BT3_TARGET_SPARES") == NULL || atoi(getenv("BT3_TARGET_SPARES")) != 0;
+    }
+    if (sTargetPeak < 0) {
+        sTargetPeak = Port_Setting("gpu_targets_peak", 0);
+    }
+    if (!sSpareOn || drawn > 6000000ull || sSpareCount == TARGET_SPARES || gsTargetCount + sSpareCount >= sTargetPeak) {
+        return;
+    }
+    target_make(&sSpareCol[sSpareCount], &sSpareAux[sSpareCount], &sSpareDep[sSpareCount]);
+    sSpareCount++;
 }
 
 static void target_drop(int i) {
@@ -154,9 +209,99 @@ static const SDL_GPUTextureFormat kTexFormat[5] = {SDL_GPU_TEXTUREFORMAT_R8G8B8A
                                                    SDL_GPU_TEXTUREFORMAT_ASTC_4x4_UNORM};
 
 /* Makes a texture object; the levels' pixels come with tex_upload (the copy pass uploads them). 0 = unsupported. */
+/* Spare images, made ahead in frames with time to spare: a fight's first big effects asked for 100 and more new
+   textures in one frame, and making their images took 28 ms of it (about 0.23 ms each on an NVIDIA card under
+   Linux). Only the textures' own kind (RGBA8, one level, a power of two up to 1024 a side), by size: of each up to
+   256 x 256, 32 once it has been asked for; of a larger one, as many as the most one frame has asked for so far and
+   4 more (at most 32); 96 MB at most in all. Made at the end of a
+   frame drawn in under 10 ms, for 1 ms at most (pool_refill). An image let go is not taken back (the graphics chip
+   may still read it). BT3_TEX_POOL=0: none. */
+#define POOL_SIZES 24
+#define POOL_MAX 32
+static struct { uint32_t w, h; SDL_GPUTexture *spare[POOL_MAX]; int count, want, burst; unsigned frame; } sPool[POOL_SIZES];
+static int sPoolCount, sPoolOn = -1;
+static uint64_t sPoolBytes;
+
+static SDL_GPUTexture *image_make(uint32_t w, uint32_t h, int format, int levels) {
+    SDL_GPUTextureCreateInfo ci;
+    SDL_zero(ci);
+    ci.type = SDL_GPU_TEXTURETYPE_2D;
+    ci.format = kTexFormat[format < 0 || format > 4 ? 0 : format];
+    ci.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    ci.width = w;
+    ci.height = h;
+    ci.layer_count_or_depth = 1;
+    ci.num_levels = (Uint32)(levels < 1 ? 1 : levels);
+    return SDL_CreateGPUTexture(sDev, &ci);
+}
+
+/* The pool of w x h (asked for now: counted in its burst), or -1 for a texture of another kind. */
+static int pool_find(uint32_t w, uint32_t h, int format, int levels) {
+    extern unsigned gGsFrame;
+    int i;
+    if (sPoolOn < 0) {
+        sPoolOn = getenv("BT3_TEX_POOL") == NULL || atoi(getenv("BT3_TEX_POOL")) != 0;
+    }
+    if (!sPoolOn || format != GS_TEXFMT_RGBA8 || levels > 1 || w > 1024 || h > 1024 || (w & (w - 1)) || (h & (h - 1))) {
+        return -1;
+    }
+    for (i = 0; i < sPoolCount && (sPool[i].w != w || sPool[i].h != h); i++) {
+    }
+    if (i == sPoolCount) {
+        if (sPoolCount == POOL_SIZES) {
+            return -1;
+        }
+        sPool[sPoolCount].w = w;
+        sPool[sPoolCount].h = h;
+        sPoolCount++;
+    }
+    if (sPool[i].frame != gGsFrame) {
+        sPool[i].frame = gGsFrame;
+        sPool[i].burst = 0;
+    }
+    if (w * h <= 65536) { /* (up to 256 x 256: 32 of them are 8 MB at most) */
+        sPool[i].want = POOL_MAX;
+    } else if (++sPool[i].burst + 4 > sPool[i].want) {
+        sPool[i].want = sPool[i].burst + 4 < POOL_MAX ? sPool[i].burst + 4 : POOL_MAX;
+    }
+    return i;
+}
+
+static void pool_refill(uint64_t drawn) {
+    uint64_t until;
+    int i;
+    if (sPoolOn != 1 || drawn > 10000000ull) {
+        return;
+    }
+    until = gpu_now() + 1000000ull;
+    for (i = 0; i < sPoolCount; i++) {
+        uint64_t bytes = (uint64_t)sPool[i].w * sPool[i].h * 4;
+        while (sPool[i].count < sPool[i].want && sPoolBytes + bytes <= 96ull << 20) {
+            SDL_GPUTexture *t;
+            if (gpu_now() >= until) {
+                return;
+            }
+            t = image_make(sPool[i].w, sPool[i].h, GS_TEXFMT_RGBA8, 1);
+            if (t == NULL) {
+                return;
+            }
+            sPool[i].spare[sPool[i].count++] = t;
+            sPoolBytes += bytes;
+        }
+    }
+}
+
 static GsTex tex_create(uint32_t w, uint32_t h, int format, int levels) {
     SDL_GPUTextureCreateInfo ci;
     SDL_GPUTexture *tex;
+    int pool = pool_find(w, h, format, levels);
+
+    if (pool >= 0 && sPool[pool].count > 0) {
+        extern unsigned gDrawImgPooled; /* BT3_DRAW_LOG */
+        gDrawImgPooled++;
+        sPoolBytes -= (uint64_t)w * h * 4;
+        return (GsTex)(uintptr_t)sPool[pool].spare[--sPool[pool].count];
+    }
 
     if (format < 0 || format > 4) {
         format = 0;
@@ -172,7 +317,14 @@ static GsTex tex_create(uint32_t w, uint32_t h, int format, int levels) {
     ci.height = h;
     ci.layer_count_or_depth = 1;
     ci.num_levels = (Uint32)(levels < 1 ? 1 : levels);
-    tex = SDL_CreateGPUTexture(sDev, &ci);
+    {
+        extern unsigned gDrawImgMade; /* BT3_DRAW_LOG */
+        extern uint64_t gDrawImgNs;
+        uint64_t t0 = gpu_now();
+        tex = SDL_CreateGPUTexture(sDev, &ci);
+        gDrawImgNs += gpu_now() - t0;
+        gDrawImgMade++;
+    }
     return (GsTex)(uintptr_t)tex;
 }
 
@@ -189,11 +341,17 @@ static int tex_upload(GsTex handle, int level, uint32_t w, uint32_t h, int forma
     sPending[sPendingCount].px = (uint32_t *)px;
     sPending[sPendingCount].bytes = bytes;
     sPending[sPendingCount].level = (uint32_t)level;
+    {
+        extern uint64_t gDrawUpBytes; /* BT3_DRAW_LOG */
+        gDrawUpBytes += bytes;
+    }
     sPendingCount++;
     return 1;
 }
 
 static void tex_destroy(GsTex tex) {
+    extern unsigned gDrawImgFreed; /* BT3_DRAW_LOG */
+    gDrawImgFreed++;
     SDL_ReleaseGPUTexture(sDev, (SDL_GPUTexture *)(uintptr_t)tex);
 }
 
@@ -209,6 +367,12 @@ static void scale_changed(void) {
     for (i = 0; i < gsTargetCount; i++) {
         target_drop(i);
     }
+    while (sSpareCount > 0) { /* (the spares are the old size) */
+        sSpareCount--;
+        SDL_ReleaseGPUTexture(sDev, sSpareCol[sSpareCount]);
+        SDL_ReleaseGPUTexture(sDev, sSpareAux[sSpareCount]);
+        SDL_ReleaseGPUTexture(sDev, sSpareDep[sSpareCount]);
+    }
     SDL_ReleaseGPUTexture(sDev, sAuxCopy);
     SDL_ReleaseGPUTexture(sDev, sDateCopy);
     copies_create();
@@ -217,12 +381,120 @@ static void scale_changed(void) {
 /* The settings window (F1, ui.cpp) and the shared window it lives in are gs_draw.c's: what the user changes
    there reaches this back end through gsScale4, gsFxOff and gsGlowPercent. */
 
+/* --- measuring which kind of pass costs what (branch native-fx) -------------------------------------
+   Every draw is one of: 1 into another buffer than the picture (the glow chain, the blur by depth, the haze, the
+   shadow page), 2 onto the picture reading a buffer drawn before (an effect put back), 4 onto the picture through a
+   vertex program (the fighters, the stage, 3D effects), 8 onto the picture from GS vertices (sprites: auras,
+   flashes, rays, smoke, particles, the HUD). BT3_FX_SKIP=<bits>: those are left out
+   (the picture is wrong: only for the time it takes). BT3_FX_STAT=<n>: every n frames, per kind and per buffer, the
+   draws and the pixels of their scissors. */
+static struct { double px[4]; unsigned draws[4]; unsigned fbp[64]; double fpx[64]; unsigned fdraws[64]; int nf; unsigned frames; } sFx;
+static int fx_kind(const GsDraw *d) {
+    uint32_t fbp = gsTargets[d->target].fbp;
+    if (fbp != 0x000 && fbp != 0x070) {
+        return 0;
+    }
+    if (d->tex_is_target) {
+        return 1;
+    }
+    return d->vu ? 2 : 3;
+}
+static int fx_measure(const GsDraw *d) {
+    static int skip = -1, stat = -1;
+    int k;
+    if (skip < 0) {
+        skip = getenv("BT3_FX_SKIP") != NULL ? atoi(getenv("BT3_FX_SKIP")) : 0;
+        stat = getenv("BT3_FX_STAT") != NULL ? atoi(getenv("BT3_FX_STAT")) : 0;
+    }
+    if (skip == 0 && stat == 0) {
+        return 0;
+    }
+    k = fx_kind(d);
+    if (stat) {
+        double px = (double)d->scissor[2] * d->scissor[3];
+        int i;
+        sFx.px[k] += px;
+        sFx.draws[k]++;
+        if (k == 0) {
+            for (i = 0; i < sFx.nf && sFx.fbp[i] != gsTargets[d->target].fbp; i++) {
+            }
+            if (i == sFx.nf && sFx.nf < 64) {
+                sFx.fbp[sFx.nf++] = gsTargets[d->target].fbp;
+            }
+            if (i < 64) {
+                sFx.fpx[i] += px;
+                sFx.fdraws[i]++;
+            }
+        }
+    }
+    return (skip >> k) & 1;
+}
+static void fx_frame(void) {
+    static const char *const names[4] = {"other buffers", "effects put back", "3D (vertex programs)", "sprites (GS vertices)"};
+    int k;
+    if (getenv("BT3_FX_STAT") == NULL || ++sFx.frames < (unsigned)atoi(getenv("BT3_FX_STAT"))) {
+        return;
+    }
+    fprintf(stderr, "fx: frame %u, per frame over %u (scissor pixels in millions at this scale)\n", gGsFrame, sFx.frames);
+    for (k = 0; k < 4; k++) {
+        fprintf(stderr, "fx:   %-24s %7.1f draws %8.2f Mpx\n", names[k], sFx.draws[k] / (double)sFx.frames, sFx.px[k] / 1e6 / sFx.frames);
+    }
+    for (k = 0; k < sFx.nf; k++) {
+        fprintf(stderr, "fx:     buffer %03x %7.1f draws %8.2f Mpx\n", sFx.fbp[k], sFx.fdraws[k] / (double)sFx.frames, sFx.fpx[k] / 1e6 / sFx.frames);
+    }
+    memset(&sFx, 0, sizeof(sFx));
+}
+
+/* BT3_LAG_LOG: when the graphics chip has finished a frame handed over ("lag G", after the frame's "lag S"): a thread
+   of its own waits for each frame's fence in turn. Only with the log. */
+static SDL_GPUFence *sLagFences[16];
+static unsigned sLagHead, sLagTail;
+static pthread_mutex_t sLagLock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t sLagWake = PTHREAD_COND_INITIALIZER;
+static void *lag_waiter(void *unused) {
+    extern void Port_LagMark(int what);
+    (void)unused;
+    for (;;) {
+        SDL_GPUFence *f;
+        pthread_mutex_lock(&sLagLock);
+        while (sLagHead == sLagTail) {
+            pthread_cond_wait(&sLagWake, &sLagLock);
+        }
+        f = sLagFences[sLagTail++ % 16];
+        pthread_mutex_unlock(&sLagLock);
+        if (f != NULL) {
+            SDL_WaitForGPUFences(sDev, true, &f, 1);
+            Port_LagMark('G');
+            SDL_ReleaseGPUFence(sDev, f);
+        }
+    }
+    return NULL;
+}
+static void lag_fence(SDL_GPUFence *f) {
+    static int started;
+    pthread_mutex_lock(&sLagLock);
+    if (!started) {
+        pthread_t t;
+        started = 1;
+        pthread_create(&t, NULL, lag_waiter, NULL);
+    }
+    if (sLagHead - sLagTail < 16) {
+        sLagFences[sLagHead++ % 16] = f;
+        pthread_cond_signal(&sLagWake);
+    } else {
+        SDL_ReleaseGPUFence(sDev, f); /* (the waiter is behind: this one is not timed) */
+    }
+    pthread_mutex_unlock(&sLagLock);
+}
+
 /* --- pipelines ---------------------------------------------------------------------------------- */
 
 /* Where the keys of the pipelines the game has used are remembered between runs. Creating a pipeline takes the
-   driver 2 to 10 ms (measured: 46 ms for the ten of the first stage frame), so the known ones are made at start. */
+   driver 2 to 10 ms (measured: 46 ms for the ten of the first stage frame), so the known ones are made at start.
+   (bt3_pipelines2.txt since Dragon Rage 0.9.0: its keys' bits 25 to 28 mean what they mean now; the older file's
+   25 and 26 meant other things.) */
 static const char *pipeline_file(void) {
-    return getenv("BT3_PIPELINES") != NULL ? getenv("BT3_PIPELINES") : "bt3_pipelines.txt";
+    return getenv("BT3_PIPELINES") != NULL ? getenv("BT3_PIPELINES") : "bt3_pipelines2.txt";
 }
 
 /* The blend state of a key made by gs_draw.c's blend_key (bits 0..8: enabled, k source, k destination, C). */
@@ -254,7 +526,8 @@ static void blend_from_key(uint32_t bkey, SDL_GPUColorTargetBlendState *b) {
 /* Creates the pipeline of a key (everything a pipeline depends on is in the key):
    bits 0..9 blend, 10..11 depth test, 12 depth write, 13..14 topology, 16..19 colour write mask,
    20..21 vertices: 0 GS vertices, 1 program 0, 2 program 4, 3 program 6, 23 gs.frag without its depth output,
-   24 the flat-shadow stencil test. */
+   24 the flat-shadow stencil test, 25 gswb.frag, 26 the alpha byte left alone (aux_plan), 27 gs.frag without its
+   discards, 28 for a render pass without the depth buffer (vk_frame_end: pipe_depthless). */
 static int pipeline_create(uint32_t key, int remember) {
     int ztst = (int)((key >> 10) & 3), zwrite = (int)((key >> 12) & 1), topo = (int)((key >> 13) & 3), vu = (int)((key >> 20) & 3);
     int fx = (int)((key >> 22) & 1); /* a full-screen table pass (dclut.frag): no vertices, no depth attachment */
@@ -289,10 +562,11 @@ static int pipeline_create(uint32_t key, int remember) {
         at[2].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4; at[2].offset = 32;
     }
     ci.vertex_shader = vu == 3 ? sVu6Vs : vu == 2 ? sVu4Vs : vu ? sVu0Vs : sVs;
-    {   /* bit 23: without the depth output (gsnz.frag); bit 25: without the discards (where those were made) */
-        int nz = (int)((key >> 23) & 1), nd = (int)((key >> 25) & 1);
+    {   /* bit 23: without the depth output (gsnz.frag); bit 25: the glow chain's sampling (gswb.frag, no depth output
+           either); bit 27: without the discards (where those were made) */
+        int nz = (int)((key >> 23) & 1), nd = (int)((key >> 27) & 1);
         SDL_GPUShader *fs = nz ? sFsNz : sFs, *fsNd = nz ? sFsNzNd : sFsNd;
-        ci.fragment_shader = nd && fsNd != NULL ? fsNd : fs;
+        ci.fragment_shader = (key >> 25) & 1 ? sFsWb : nd && fsNd != NULL ? fsNd : fs;
     }
     ci.vertex_input_state.vertex_buffer_descriptions = &vb;
     ci.vertex_input_state.num_vertex_buffers = 1;
@@ -311,8 +585,10 @@ static int pipeline_create(uint32_t key, int remember) {
         SDL_zero(op);
         op.fail_op = SDL_GPU_STENCILOP_KEEP;
         op.depth_fail_op = SDL_GPU_STENCILOP_KEEP;
-        op.pass_op = SDL_GPU_STENCILOP_INCREMENT_AND_CLAMP;
-        op.compare_op = SDL_GPU_COMPAREOP_EQUAL;
+        /* each run of flat shadows has a reference of its own (vk_frame_end): a pixel takes it the first time and
+           blocks the run's later triangles, and the run after it needs no cleared stencil (no new render pass) */
+        op.pass_op = SDL_GPU_STENCILOP_REPLACE;
+        op.compare_op = SDL_GPU_COMPAREOP_NOT_EQUAL;
         ci.depth_stencil_state.front_stencil_state = op;
         ci.depth_stencil_state.back_stencil_state = op;
         ci.depth_stencil_state.compare_mask = 0xff;
@@ -321,12 +597,18 @@ static int pipeline_create(uint32_t key, int remember) {
     }
     /* the exact alpha byte: never blended, written whenever the frame's alpha is writable */
     cds[1].format = SDL_GPU_TEXTUREFORMAT_R8_UNORM;
-    cds[1].blend_state.color_write_mask = (wmask & SDL_GPU_COLORCOMPONENT_A) ? SDL_GPU_COLORCOMPONENT_R : 0;
+    cds[1].blend_state.color_write_mask = (wmask & SDL_GPU_COLORCOMPONENT_A) && !(key & (1u << 26)) ? SDL_GPU_COLORCOMPONENT_R : 0;
     cds[1].blend_state.enable_color_write_mask = true;
     ci.target_info.color_target_descriptions = cds;
     ci.target_info.num_color_targets = 2;
     ci.target_info.depth_stencil_format = sDepthFormat;
     ci.target_info.has_depth_stencil_target = true;
+    if (key & (1u << 28)) {
+        ci.depth_stencil_state.enable_depth_test = false;
+        ci.depth_stencil_state.enable_depth_write = false;
+        ci.depth_stencil_state.enable_stencil_test = false;
+        ci.target_info.has_depth_stencil_target = false;
+    }
     if (fx) {
         ci.vertex_shader = sFxVs;
         ci.fragment_shader = sDclutFs;
@@ -341,6 +623,10 @@ static int pipeline_create(uint32_t key, int remember) {
     t0 = gpu_now();
     sPipes[sPipeCount].p = SDL_CreateGPUGraphicsPipeline(sDev, &ci);
     gGpuPipeNs += gpu_now() - t0;
+    {
+        extern uint64_t gDrawPipeNs;
+        gDrawPipeNs += gpu_now() - t0;
+    }
     if (sPipes[sPipeCount].p == NULL) {
         fprintf(stderr, "bt3: pipeline %08x: %s\n", key, SDL_GetError());
         return 0;
@@ -370,7 +656,7 @@ static void pipelines_preload(void) {
         if (!sShadowStencil) { key &= ~(1u << 24); }
         for (i = 0; i < sPipeCount && sPipes[i].key != key; i++) {
         }
-        if (i == sPipeCount && (key & ~0x7FF7FFFu) == 0) {
+        if (i == sPipeCount && (key & ~0x1FFF7FFFu) == 0) {
             pipeline_create(key, 0);
             n++;
         }
@@ -389,6 +675,20 @@ static int pipe_get(uint32_t key) {
         }
     }
     return pipeline_create(key, 1);
+}
+
+/* The same pipeline for a render pass without the depth buffer (bit 28): the passes whose draws neither test nor
+   write depth (most of a fight's passes: the effects' work buffers and the 2D) then neither load nor store it. */
+static int sDepthlessOf[1024]; /* pipeline index + 1 of the variant, 0 not made yet */
+static int pipe_depthless(int i) {
+    if (sDepthlessOf[i] == 0) {
+        uint32_t want = sPipes[i].key | (1u << 28);
+        int v = pipe_get(want);
+        /* (none made, the table full: index 0 comes back, another pipeline; the depth's own one is still wrong for
+           the pass, so this is only a guard against binding an unrelated one) */
+        sDepthlessOf[i] = v >= 0 && sPipes[v].key == want && sPipes[v].p != NULL ? v + 1 : i + 1;
+    }
+    return sDepthlessOf[i] - 1;
 }
 
 /* How a finished picture reaches the display. on = 0: without waiting for it (MAILBOX: no tearing, no wait; else
@@ -544,14 +844,40 @@ static int vk_init(void) {
         }
         SDL_DestroyProperties(props);
     }
-    sShadowStencil = sDev != NULL && SDL_GPUTextureSupportsFormat(sDev, SDL_GPU_TEXTUREFORMAT_D32_FLOAT_S8_UINT,
-        SDL_GPU_TEXTURETYPE_2D, SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER);
+    {   /* The flat shadows' stencil (depth D32S8 instead of D32, since 0.6.0). Setting "shadow_stencil": 0 automatic,
+           1 on, 2 off (depth alone, as before 0.6.0: overlapping parts of a flat shadow may show darker);
+           BT3_GPU_NO_STENCIL=1 off. Automatic is off on Adreno: measured on an Adreno 650 at 4x in a fight, 70.8 %
+           speed with it and 76.0 % without (the Mali-G57 MC4: no difference, 73 % either way). */
+        int want = Port_Setting("shadow_stencil", 0), adreno = 0;
+#if SDL_VERSION_ATLEAST(3, 4, 0)
+        if (sDev != NULL) {
+            const char *nm = SDL_GetStringProperty(SDL_GetGPUDeviceProperties(sDev), SDL_PROP_GPU_DEVICE_NAME_STRING, "");
+            adreno = nm != NULL && strstr(nm, "Adreno") != NULL;
+        }
+#endif
+        sShadowStencil = sDev != NULL && getenv("BT3_GPU_NO_STENCIL") == NULL && (want == 1 || (want == 0 && !adreno)) &&
+            SDL_GPUTextureSupportsFormat(sDev, SDL_GPU_TEXTUREFORMAT_D32_FLOAT_S8_UINT, SDL_GPU_TEXTURETYPE_2D,
+                                         SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER);
+        if (sDev != NULL && !sShadowStencil && (want == 2 || (want == 0 && adreno))) {
+            fprintf(stderr, "bt3: shadow stencil off (%s): depth alone\n", want == 2 ? "setting shadow_stencil" : "automatic on Adreno");
+        } else if (sDev != NULL && !sShadowStencil) {
+            fprintf(stderr, "bt3: shadow stencil unavailable; flat shadows may show overlapping model parts\n");
+        }
+    }
     sDepthFormat = sShadowStencil ? SDL_GPU_TEXTUREFORMAT_D32_FLOAT_S8_UINT : SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
-    if (sDev != NULL && !sShadowStencil) {
-        fprintf(stderr, "bt3: shadow stencil unavailable; flat shadows may show overlapping model parts\n");
+    if (sDev == NULL) {
+        /* (no window made: gs_draw.c tries OpenGL next, and Android has room for one window only. A custom driver
+           SDL_GPU refuses, such as MaliSX2 0.2.3 on the Mali-G57, left this one behind and the game ran unseen) */
+        return 0;
     }
     sWindow = GsDraw_WindowCreate(0); /* the shared window: shape, display and full screen decided there */    if (sWindow == NULL || !SDL_ClaimWindowForGPUDevice(sDev, sWindow)) {
         fprintf(stderr, "bt3: no GPU window: %s\n", SDL_GetError());
+        if (sWindow != NULL) {
+            SDL_DestroyWindow(sWindow);
+            sWindow = NULL;
+        }
+        SDL_DestroyGPUDevice(sDev);
+        sDev = NULL;
         return 0;
     }
     /* The game paces itself at 30 frames per second; waiting for the display's own refresh on top of that
@@ -565,11 +891,12 @@ static int vk_init(void) {
     sVs = shader(SHADER_CODE(kGsVert), SDL_GPU_SHADERSTAGE_VERTEX, 0, 0);
     sFs = shader(SHADER_CODE(kGsFrag), SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 1);
     sFsNz = shader(SHADER_CODE(kGsnzFrag), SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 1);
+    sFsWb = shader(SHADER_CODE(kGswbFrag), SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 1);
 #ifndef __APPLE__
     sFsNd = shader(SHADER_CODE(kGsNdFrag), SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 1);
     sFsNzNd = shader(SHADER_CODE(kGsnzNdFrag), SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 1);
 #endif
-    if (sVs == NULL || sFs == NULL || sFsNz == NULL) {
+    if (sVs == NULL || sFs == NULL || sFsNz == NULL || sFsWb == NULL) {
         fprintf(stderr, "bt3: shaders: %s\n", SDL_GetError());
         return 0;
     }
@@ -681,7 +1008,15 @@ static int vk_init(void) {
     if (!Ui_Init(sWindow, sDev, NULL, gpuName)) {
         fprintf(stderr, "bt3: the settings window could not be set up\n");
     }
-    fprintf(stderr, "bt3: GPU renderer: %s\n", SDL_GetGPUDeviceDriver(sDev));
+    {   /* which graphics chip draws the game, and its driver (as F1 > Video shows): on a laptop with two the slower
+           one can be the one used */
+        const char *name = gpuName != NULL ? gpuName : "", *driver = "";
+#if SDL_VERSION_ATLEAST(3, 4, 0)
+        driver = SDL_GetStringProperty(SDL_GetGPUDeviceProperties(sDev), SDL_PROP_GPU_DEVICE_DRIVER_INFO_STRING, "");
+#endif
+        fprintf(stderr, "bt3: GPU renderer: %s%s%s%s%s\n", SDL_GetGPUDeviceDriver(sDev), name[0] ? ", " : "", name,
+                driver[0] ? ", driver " : "", driver);
+    }
     {   /* which GPU and driver (for reports from other devices) */
         SDL_PropertiesID p = SDL_GetGPUDeviceProperties(sDev);
         fprintf(stderr, "bt3: GPU: %s, driver %s %s (%s)\n", SDL_GetStringProperty(p, SDL_PROP_GPU_DEVICE_NAME_STRING, "?"),
@@ -802,6 +1137,89 @@ static int sLastShown = -1; /* the target shown last (the paused picture) */
 
 /* The game's picture into the window: its shape kept (4:3 or 16:9), centred, the rest black. */
 /* A scissor inside the target (the game's may reach past its 512 x 512: nothing is drawn there anyway). */
+/* BT3_VK_AREA=1 (Android; the loader sets it in Lite mode on a Mali): the render area of a pass that goes on drawing into a target (load, not
+   clear) is the rectangle its draws stay in: their scissors, and a GS draw's vertices a pixel wider. The loader
+   (android/app/src/main/cpp/loader.c, Dr_VkNextRenderArea) hands it to vkCmdBeginRenderPass, so a tile-based GPU
+   loads and stores only those tiles. The run is taken up to the next step that ends the pass for certain (a
+   native step other than a DATE marker, a DATE copy, another target): a pass that ends sooner only gets a wider
+   area than it needs. */
+#ifdef __ANDROID__
+#include <dlfcn.h>
+static void (*sNextArea)(int x, int y, int w, int h);
+static void pass_area(uint32_t n, int target) {
+    static int on = -1;
+    int x0 = 1 << 30, y0 = 1 << 30, x1 = -(1 << 30), y1 = -(1 << 30), W = sTW * SCALE, H = sTH * SCALE;
+    uint32_t j;
+    if (on < 0) {
+        void *h = dlopen("libmain.so", RTLD_NOW | RTLD_NOLOAD);
+        sNextArea = h != NULL ? (void (*)(int, int, int, int))dlsym(h, "Dr_VkNextRenderArea") : NULL;
+        on = sNextArea != NULL && getenv("BT3_VK_AREA") != NULL && atoi(getenv("BT3_VK_AREA")) != 0;
+        fprintf(stderr, "bt3: vulkan: render areas %s\n", on ? "on" : "off");
+    }
+    if (!on) {
+        return;
+    }
+    for (j = n; j < gsDrawCount; j++) {
+        const GsDraw *d = &gsDraws[j];
+        int a0, b0, a1, b1;
+        if (d->target != target) {
+            break;
+        }
+        if (d->native) {
+            int rx, ry, rw, rh;
+            if (d->native == 5 && !(gsTargets[d->target].cleared && GsDraw_DateRegion(j, &rx, &ry, &rw, &rh))) {
+                continue; /* (a DATE marker with nothing to copy: the pass may go on) */
+            }
+            break;
+        }
+        a0 = d->scissor[0], b0 = d->scissor[1], a1 = d->scissor[0] + d->scissor[2], b1 = d->scissor[1] + d->scissor[3];
+        if (!d->vu && !d->wall) { /* the vertices' box, a GS pixel wider on every side */
+            float bx0 = 1e9f, by0 = 1e9f, bx1 = -1e9f, by1 = -1e9f;
+            uint32_t k;
+            for (k = 0; k < d->count; k++) {
+                const Vtx *v = &gsVerts[d->first + k];
+                if (!(v->x == v->x) || !(v->y == v->y)) { /* (not a number: the scissor) */
+                    bx0 = -1e9f, by0 = -1e9f, bx1 = 1e9f, by1 = 1e9f;
+                    break;
+                }
+                if (v->x < bx0) { bx0 = v->x; }
+                if (v->x > bx1) { bx1 = v->x; }
+                if (v->y < by0) { by0 = v->y; }
+                if (v->y > by1) { by1 = v->y; }
+            }
+            if (d->count > 0 && bx0 > -1e6f && bx1 < 1e6f && by0 > -1e6f && by1 < 1e6f) {
+                int c0 = (int)floorf(bx0 * (float)SCALE) - SCALE, e0 = (int)floorf(by0 * (float)SCALE) - SCALE;
+                int c1 = (int)ceilf(bx1 * (float)SCALE) + SCALE, e1 = (int)ceilf(by1 * (float)SCALE) + SCALE;
+                if (c0 > a0) { a0 = c0; }
+                if (e0 > b0) { b0 = e0; }
+                if (c1 < a1) { a1 = c1; }
+                if (e1 < b1) { b1 = e1; }
+            }
+        }
+        if (a1 <= a0 || b1 <= b0) {
+            continue; /* (draws nothing) */
+        }
+        if (a0 < x0) { x0 = a0; }
+        if (b0 < y0) { y0 = b0; }
+        if (a1 > x1) { x1 = a1; }
+        if (b1 > y1) { y1 = b1; }
+    }
+    /* whole tiles (16 x 16), inside the target */
+    x0 = x0 < 0 ? 0 : x0 & ~15, y0 = y0 < 0 ? 0 : y0 & ~15;
+    x1 = x1 > W ? W : (x1 + 15) & ~15, y1 = y1 > H ? H : (y1 + 15) & ~15;
+    if (x1 > W) { x1 = W; }
+    if (y1 > H) { y1 = H; }
+    if (x1 <= x0 || y1 <= y0) {
+        x0 = 0, y0 = 0, x1 = 16, y1 = 16; /* (nothing drawn: one tile) */
+    }
+    if (x0 > 0 || y0 > 0 || x1 < W || y1 < H) {
+        sNextArea(x0, y0, x1 - x0, y1 - y0);
+    }
+}
+#else
+static void pass_area(uint32_t n, int target) { (void)n, (void)target; }
+#endif
+
 static void clamp_scissor(SDL_Rect *r) {
     int w = (int)(sTW * SCALE), h = (int)(sTH * SCALE);
     if (r->x < 0) { r->w += r->x; r->x = 0; }
@@ -1033,6 +1451,195 @@ int GsGpu_PauseFrame(void) {
     return 1;
 }
 
+/* The frame's clear, as the game draws it: an untextured, unblended black rectangle over the whole of its scissor,
+   written whatever the depth test, at one depth (the first draw of a fight's picture: two triangles at the depth
+   just above the farthest). Drawn, it is a pass of colour, alpha byte and depth over the whole picture through the
+   shader that writes its own depth (8% of a fight frame on an integrated chip at 2x); the same values cleared by the
+   render pass cost next to nothing. `depth`: what gs.frag would have written (its rounding to the depth buffer's
+   whole numbers, worked out the same way). The whole texture is cleared, not only the scissor: nothing of a
+   picture lies outside it (every draw on it is held inside), and outside it only the depth differs, which nothing
+   reads. BT3_FAST_CLEAR=0: drawn as before. */
+static int clear_draw(const GsDraw *d, float *depth) {
+    static int on = -1;
+    uint32_t key, j;
+    const Vtx *v;
+    float x0, y0, x1, y1, z;
+
+    if (on < 0) { on = getenv("BT3_FAST_CLEAR") != NULL ? atoi(getenv("BT3_FAST_CLEAR")) : 1; }
+    if (!on || d->native || d->vu || d->wall || d->mode[0] != 0 || d->mode[3] != 0 || d->misc[1] != 0.0f || d->misc[2] != 0.0f ||
+        d->count != 6 || d->scissor[0] != 0 || d->scissor[1] != 0) {
+        return 0;
+    }
+    key = sPipes[d->pipeline].key;
+    /* no blending, depth test "always" (1), depth written, all four channels, GS vertices, no stencil */
+    if ((key & 0x3FFu) != 0 || ((key >> 10) & 3) != 1 || !((key >> 12) & 1) || ((key >> 16) & 0xF) != 0xF || ((key >> 20) & 3) != 0 ||
+        (key & (1u << 24)) != 0) {
+        return 0;
+    }
+    v = &gsVerts[d->first];
+    z = v[0].z;
+    x0 = y0 = 1e9f;
+    x1 = y1 = -1e9f;
+    for (j = 0; j < 6; j++) {
+        if (v[j].r != 0 || v[j].g != 0 || v[j].b != 0 || v[j].a != 0 || v[j].z != z) {
+            return 0;
+        }
+        if (v[j].x < x0) { x0 = v[j].x; }
+        if (v[j].x > x1) { x1 = v[j].x; }
+        if (v[j].y < y0) { y0 = v[j].y; }
+        if (v[j].y > y1) { y1 = v[j].y; }
+    }
+    /* the two triangles of the rectangle (0,0)..(x1,y1), and that rectangle is the scissor and the whole screen at
+       least (a view of the split screen clears its half: a clear of the texture would take the other half too) */
+    if (x0 != 0.0f || y0 != 0.0f || x1 < 512.0f || y1 < 448.0f ||
+        x1 * (float)SCALE != (float)d->scissor[2] || y1 * (float)SCALE != (float)d->scissor[3] ||
+        !(v[0].x != v[1].x || v[0].y != v[1].y) || (v[0].x == v[1].x && v[1].x == v[2].x) || (v[3].x == v[4].x && v[4].x == v[5].x)) {
+        return 0;
+    }
+    {   /* the area of the two triangles together is the rectangle's: they do not overlap and leave nothing out */
+        float a = 0.0f;
+        int t;
+        for (t = 0; t < 2; t++) {
+            const Vtx *p = &v[t * 3];
+            a += fabsf((p[1].x - p[0].x) * (p[2].y - p[0].y) - (p[2].x - p[0].x) * (p[1].y - p[0].y)) * 0.5f;
+        }
+        if (a != x1 * y1) {
+            return 0;
+        }
+    }
+    if (gsZMax > 0.0f && gsZMax < 2.0e7f) { /* (gs.frag, its end) */
+        float zn = floorf(z * gsZMax), zq = zn / gsZMax;
+        *depth = zq > z ? (zn - 1.0f) / gsZMax : zq;
+    } else {
+        *depth = z;
+    }
+    return 1;
+}
+
+/* The part of the alpha bytes that copy `k` (a native 4) has to hold: what the passes reading the copy (the table
+   passes, the outline and the see-through tint) read before the next copy is taken. Each of them draws inside its
+   scissor and reads its own place, the outline also up to 8 texels across and one PS2 pixel up and down: the
+   scissors together, with that much more on every side. The whole buffer was copied, 2048 x 2048 at 2x, for a
+   picture of 1024 x 896. 0 = no pass reads it: then the whole buffer, as before (BT3_AUX_COPY_WHOLE=1: always). */
+static int aux_region(uint32_t k, int *rx, int *ry, int *rw, int *rh) {
+    static int whole = -1;
+    int W = sTW * SCALE, H = sTH * SCALE, m = 8 + 2 * SCALE, x0 = W, y0 = H, x1 = 0, y1 = 0, any = 0;
+    uint32_t i;
+
+    if (whole < 0) { whole = getenv("BT3_AUX_COPY_WHOLE") != NULL; }
+    for (i = k + 1; !whole && i < gsDrawCount && gsDraws[i].native != 4; i++) {
+        const GsDraw *d = &gsDraws[i];
+        if (d->native == 3 || d->native == 1 || d->native == 2) {
+            if (d->scissor[0] < x0) { x0 = d->scissor[0]; }
+            if (d->scissor[1] < y0) { y0 = d->scissor[1]; }
+            if (d->scissor[0] + d->scissor[2] > x1) { x1 = d->scissor[0] + d->scissor[2]; }
+            if (d->scissor[1] + d->scissor[3] > y1) { y1 = d->scissor[1] + d->scissor[3]; }
+            any = 1;
+        }
+    }
+    if (whole || !any) {
+        return 0;
+    }
+    x0 = x0 - m < 0 ? 0 : x0 - m;
+    y0 = y0 - m < 0 ? 0 : y0 - m;
+    x1 = x1 + m > W ? W : x1 + m;
+    y1 = y1 + m > H ? H : y1 + m;
+    if (x1 <= x0 || y1 <= y0) {
+        return 0;
+    }
+    *rx = x0, *ry = y0, *rw = x1 - x0, *rh = y1 - y0;
+    return 1;
+}
+
+/* Where each draw's alpha bytes are read again (aux_plan). A draw writes them as the GS does, into their own
+   buffer next to the colour (sTgAux); they are read only by the copies a native 4 (for the outline and the
+   see-through tint) and a native 5 (the destination alpha test) take, each of a known part of the buffer
+   (aux_region, GsDraw_DateRegion). Past the last copy that covers a place, what a draw writes there is never
+   read: the next frame of that buffer begins with its clear. An ultimate's flash, its rays and the aura's
+   glow are drawn there, after the last copy of the whole screen (only the HUD's bars are tested later): some
+   fifty additive layers over the whole picture in the heaviest frames, each pixel of them read and written
+   again, the byte with it. So those draws, or the parts of them outside the places still read, are drawn with
+   a pipeline that leaves the byte alone (key bit 26). The picture is the same. sAuxNeed: the rectangle (at
+   SCALE) of each draw where its byte is read later, empty when nowhere. BT3_AUX_ALL=1: every draw writes it. */
+static int16_t sAuxNeed[MAX_DRAWS][4];
+static uint8_t sAuxBegan[MAX_TARGETS]; /* the previous frame of the buffer began with the clear */
+static int aux_plan_on(void) { static int on = -1; if (on < 0) { on = getenv("BT3_AUX_ALL") == NULL; } return on; }
+static void aux_plan(void) {
+    int W = sTW * SCALE, H = sTH * SCALE, u[MAX_TARGETS][4], first[MAX_TARGETS], t;
+    float z;
+    uint32_t i;
+
+    for (t = 0; t < MAX_TARGETS; t++) { first[t] = -1, u[t][0] = 0, u[t][1] = 0, u[t][2] = W, u[t][3] = H; }
+    for (i = 0; i < gsDrawCount; i++) {
+        const GsDraw *d = &gsDraws[i];
+        if (d->native == 0 && first[d->target] < 0) { first[d->target] = (int)i; }
+    }
+    /* A buffer that does not begin with the clear, or did not the frame before: its bytes may be read in a frame
+       to come before anything covers them, so everything is kept. */
+    for (t = 0; t < MAX_TARGETS; t++) {
+        int began;
+        if (first[t] < 0) { continue; }
+        began = clear_draw(&gsDraws[first[t]], &z);
+        if (began && sAuxBegan[t]) { u[t][0] = W, u[t][1] = H, u[t][2] = 0, u[t][3] = 0; }
+        sAuxBegan[t] = (uint8_t)began;
+    }
+    for (i = gsDrawCount; i-- > 0;) {
+        const GsDraw *d = &gsDraws[i];
+        int *r = u[d->target], x0, y0, x1, y1;
+        if (d->native == 4 || d->native == 5) {
+            int rx, ry, rw, rh;
+            if (d->native == 4 ? aux_region(i, &rx, &ry, &rw, &rh) : GsDraw_DateRegion(i, &rx, &ry, &rw, &rh)) {
+                if (rx < r[0]) { r[0] = rx; }
+                if (ry < r[1]) { r[1] = ry; }
+                if (rx + rw > r[2]) { r[2] = rx + rw; }
+                if (ry + rh > r[3]) { r[3] = ry + rh; }
+            } else if (d->native == 4 && getenv("BT3_AUX_COPY_WHOLE") != NULL) { /* (the whole buffer copied: aux_region) */
+                r[0] = 0, r[1] = 0, r[2] = W, r[3] = H;
+            }
+            continue;
+        }
+        if (d->native) {
+            continue;
+        }
+        x0 = d->scissor[0], y0 = d->scissor[1], x1 = d->scissor[0] + d->scissor[2], y1 = d->scissor[1] + d->scissor[3];
+        if (!d->vu) { /* its vertices' box (GS pixels), a pixel wider on every side */
+            float bx0 = 1e9f, by0 = 1e9f, bx1 = -1e9f, by1 = -1e9f;
+            uint32_t j;
+            for (j = 0; j < d->count; j++) {
+                const Vtx *v = &gsVerts[d->first + j];
+                if (v->x < bx0) { bx0 = v->x; }
+                if (v->x > bx1) { bx1 = v->x; }
+                if (v->y < by0) { by0 = v->y; }
+                if (v->y > by1) { by1 = v->y; }
+            }
+            if (d->count > 0 && bx0 > -1e6f && bx1 < 1e6f && by0 > -1e6f && by1 < 1e6f) {
+                int b0 = (int)floorf(bx0 * (float)SCALE) - SCALE, c0 = (int)floorf(by0 * (float)SCALE) - SCALE;
+                int b1 = (int)ceilf(bx1 * (float)SCALE) + SCALE, c1 = (int)ceilf(by1 * (float)SCALE) + SCALE;
+                if (b0 > x0) { x0 = b0; }
+                if (c0 > y0) { y0 = c0; }
+                if (b1 < x1) { x1 = b1; }
+                if (c1 < y1) { y1 = c1; }
+            }
+        }
+        if (r[0] > x0) { x0 = r[0]; }
+        if (r[1] > y0) { y0 = r[1]; }
+        if (r[2] < x1) { x1 = r[2]; }
+        if (r[3] < y1) { y1 = r[3]; }
+        if (x1 <= x0 || y1 <= y0) { x0 = y0 = x1 = y1 = 0; }
+        sAuxNeed[i][0] = (int16_t)x0, sAuxNeed[i][1] = (int16_t)y0, sAuxNeed[i][2] = (int16_t)x1, sAuxNeed[i][3] = (int16_t)y1;
+        if (clear_draw(d, &z)) { /* before the clear nothing of this buffer is read again */
+            r[0] = W, r[1] = H, r[2] = 0, r[3] = 0;
+        }
+    }
+}
+static int pipe_no_aux(int p) {
+    if (sPipes[p].noAux == 0) {
+        int q = pipe_get(sPipes[p].key | 1u << 26);
+        sPipes[p].noAux = q >= 0 && sPipes[q].key == (sPipes[p].key | 1u << 26) ? q + 1 : p + 1;
+    }
+    return sPipes[p].noAux - 1;
+}
+
 /* the heartbeat's sums (Android's "alive" line every 300 frames): frame-end times, frames, passes and copies */
 static uint64_t sHb[6], sHbPass, sHbCopy;
 static unsigned sHbN;
@@ -1047,7 +1654,13 @@ static void vk_frame_end(void) {
     int cur = -1, best = -1, bound = -1, i;
     bool acquired;
     uint64_t sEndT[6];
-    int lastPipe = -1, lastUni = -1, lastSampler = -1, haveFu = 0, haveScissor = 0; /* what the pass has set (the replay loop) */
+    int lastPipe = -1, lastUni = -1, lastSampler = -1, haveFu = 0, haveScissor = 0, pipe, split; /* what the pass has set (the replay loop) */
+    int broke = 0; /* what ended the last pass (sPassWhy) */
+    int shadowRef = 1; /* the stencil reference of the flat-shadow run being drawn */
+    int passStencil = 0; /* the pass began with its stencil cleared */
+    int passNoDepth = 0; /* the pass has no depth buffer (its draws take pipe_depthless) */
+    static int depthless = -1; /* BT3_GPU_DEPTHLESS=0/1, setting "depthless_passes" (0 automatic: on, 1 on, 2 off) */
+    static int shadowBreak = -1; /* BT3_GPU_SHADOW_BREAK=1: a new render pass for every run of shadows (as before) */
     SDL_GPUTexture *lastTex = NULL;
     struct { int32_t mode[4]; float misc[4]; float rect[4]; float orig[4]; float extra[4]; } lastFu;
     int lastScissor[4];
@@ -1055,9 +1668,20 @@ static void vk_frame_end(void) {
     uint32_t n;
 
     (void)ev;
+    fx_frame();
+    if (shadowBreak < 0) {
+        shadowBreak = getenv("BT3_GPU_SHADOW_BREAK") != NULL;
+    }
+    if (depthless < 0) {
+        const char *e = getenv("BT3_GPU_DEPTHLESS");
+        depthless = e != NULL ? atoi(e) != 0 : Port_Setting("depthless_passes", 0) != 2;
+        fprintf(stderr, "bt3: render passes without the depth buffer where it is not used: %s\n", depthless ? "on" : "off");
+    }
     poll_events();
 #ifdef __ANDROID__
-    if (gGsFrame % 300 == 0 && Port_Setting("perf_log", 1) != 0) { /* a heartbeat in the log (adb logcat -s bt3): is the game running, and drawing? (the launcher's Debug page: perf_log) */
+    static unsigned hbFrame = ~0u; /* (smooth motion shows a frame twice: one heartbeat for it) */
+    if (gGsFrame % 300 == 0 && gGsFrame != hbFrame && Port_Setting("perf_log", 1) != 0) {
+        hbFrame = gGsFrame; /* a heartbeat in the log (adb logcat -s bt3): is the game running, and drawing? (the launcher's Debug page: perf_log) */
         extern unsigned gPortVBlanks;
         extern int gPortInMenus; /* headless.c */
         static uint64_t lastNs;
@@ -1067,7 +1691,7 @@ static void vk_frame_end(void) {
                 gsDrawCount, gsVertCount + gsVuVertCount, gsTargetCount, gsTexCount);
         /* how fast the game runs (60 game blanks a second is full speed) and where a frame's end spends its time, over
            the last 300 frames: the numbers a report about slowness needs, without BT3_GS_VERBOSE */
-        if (lastNs != 0 && nowNs > lastNs && sHbN > 0) {
+        if (lastNs != 0 && nowNs > lastNs && sHbN > 0 && (int)(gPortVBlanks - lastBlank) >= 0) { /* (the count starts again online) */
             double secs = (double)(nowNs - lastNs) / 1e9, bps = (double)(gPortVBlanks - lastBlank) / secs;
             fprintf(stderr, "bt3: speed %.0f%% (%.1f game blanks/s, %.1f pictures/s over %.1f s%s); per frame, ms: uploads %.2f, "
                             "draws %.2f, to the driver %.2f, waiting for the screen %.2f, showing %.2f, presenting %.2f; "
@@ -1169,30 +1793,52 @@ static void vk_frame_end(void) {
         dst.size = gsVuIdxCount * sizeof(uint32_t);
         SDL_UploadToGPUBuffer(copy, &src, &dst, true);
     }
-    for (i = 0; i < sPendingCount; i++) {
-        SDL_GPUTransferBufferCreateInfo ti;
-        SDL_GPUTransferBuffer *tb;
-        SDL_GPUTextureTransferInfo src;
-        SDL_GPUTextureRegion dst;
-        void *p;
-        SDL_zero(ti);
-        ti.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
-        ti.size = sPending[i].bytes ? sPending[i].bytes : sPending[i].w * sPending[i].h * 4;
-        tb = SDL_CreateGPUTransferBuffer(sDev, &ti);
-        p = SDL_MapGPUTransferBuffer(sDev, tb, false);
-        memcpy(p, sPending[i].px, ti.size);
-        SDL_UnmapGPUTransferBuffer(sDev, tb);
-        SDL_zero(src);
-        src.transfer_buffer = tb;
-        SDL_zero(dst);
-        dst.texture = sPending[i].tex;
-        dst.mip_level = sPending[i].level;
-        dst.w = sPending[i].w;
-        dst.h = sPending[i].h;
-        dst.d = 1;
-        SDL_UploadToGPUTexture(copy, &src, &dst, false);
-        SDL_ReleaseGPUTransferBuffer(sDev, tb);
-        free(sPending[i].px);
+    if (sPendingCount != 0) {
+        /* The frame's textures through one upload buffer, each level at its own offset (16-byte aligned), mapped
+           once: a buffer made, mapped and let go for every level (a pack's picture has up to 11) cost the frame
+           and the driver's hand-over after it most of a large pack's time. The buffer stays and grows; SDL hands a
+           fresh one (cycle) while the last frame's is still being read. */
+        static SDL_GPUTransferBuffer *tb;
+        static uint32_t tbSize;
+        uint32_t total = 0, at = 0;
+        uint8_t *p;
+        for (i = 0; i < sPendingCount; i++) {
+            total += ((sPending[i].bytes ? sPending[i].bytes : sPending[i].w * sPending[i].h * 4) + 15) & ~15u;
+        }
+        if (tb == NULL || total > tbSize) {
+            SDL_GPUTransferBufferCreateInfo ti;
+            if (tb != NULL) {
+                SDL_ReleaseGPUTransferBuffer(sDev, tb);
+            }
+            SDL_zero(ti);
+            ti.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+            ti.size = tbSize = total > (4u << 20) ? (total + 0xFFFFF) & ~0xFFFFFu : 4u << 20;
+            tb = SDL_CreateGPUTransferBuffer(sDev, &ti);
+        }
+        p = tb != NULL ? SDL_MapGPUTransferBuffer(sDev, tb, true) : NULL;
+        for (i = 0; i < sPendingCount; i++) {
+            uint32_t bytes = sPending[i].bytes ? sPending[i].bytes : sPending[i].w * sPending[i].h * 4;
+            if (p != NULL) {
+                SDL_GPUTextureTransferInfo src;
+                SDL_GPUTextureRegion dst;
+                memcpy(p + at, sPending[i].px, bytes);
+                SDL_zero(src);
+                src.transfer_buffer = tb;
+                src.offset = at;
+                SDL_zero(dst);
+                dst.texture = sPending[i].tex;
+                dst.mip_level = sPending[i].level;
+                dst.w = sPending[i].w;
+                dst.h = sPending[i].h;
+                dst.d = 1;
+                SDL_UploadToGPUTexture(copy, &src, &dst, false);
+                at += (bytes + 15) & ~15u;
+            }
+            free(sPending[i].px);
+        }
+        if (p != NULL) {
+            SDL_UnmapGPUTransferBuffer(sDev, tb);
+        }
     }
     sPendingCount = 0;
     /* A picture the game uploaded straight into a display buffer (a movie frame): from GS memory into a 512 x 448
@@ -1244,6 +1890,9 @@ static void vk_frame_end(void) {
     sEndT[1] = gpu_now();
     /* replay the frame */
     lastPipe = lastUni = lastSampler = -1;
+    if (aux_plan_on()) {
+        aux_plan();
+    }
     for (n = 0; n < gsDrawCount; n++) {
         const GsDraw *d = &gsDraws[n];
         SDL_GPUBufferBinding vb;
@@ -1259,6 +1908,7 @@ static void vk_frame_end(void) {
                 pass = NULL;
             }
             cur = -1;
+            broke = 7;
             SDL_zero(bl);
             bl.source.texture = sFbTex[d->native - 100];
             bl.source.w = sTW;
@@ -1278,24 +1928,42 @@ static void vk_frame_end(void) {
         if (d->native == 5) { /* the alpha bytes as they are now, for the draws that test them (TEST.DATE) */
             SDL_GPUCopyPass *cp;
             SDL_GPUTextureLocation from, to;
-            int rx, ry, rw, rh;
+            int rx, ry, rw, rh, copy;
+            static int always = -1; /* BT3_GPU_DATE_BREAK=1: the pass ends here even with nothing to copy (as before) */
+            if (always < 0) {
+                always = getenv("BT3_GPU_DATE_BREAK") != NULL;
+            }
+            /* Only what the draws that follow read (gs_draw.c). With nothing to copy the pass goes on: ending it
+               cost a store and a load of every attachment for nothing (a tiled GPU's whole cost of a pass). */
+            copy = gsTargets[d->target].cleared && GsDraw_DateRegion(n, &rx, &ry, &rw, &rh);
+            {   /* BT3_GPU_NO_DATE_COPY=1: no copy at all (a wrong picture where DATE is tested: only for measuring what
+                   the copies cost) */
+                static int none = -1;
+                if (none < 0) {
+                    none = getenv("BT3_GPU_NO_DATE_COPY") != NULL;
+                }
+                if (none) {
+                    continue;
+                }
+            }
+            if (copy) {
+                if (rx + rw > (int)(sTW * SCALE)) { rw = (int)(sTW * SCALE) - rx; } /* (the targets may be 512 x 512: sTW) */
+                if (ry + rh > (int)(sTH * SCALE)) { rh = (int)(sTH * SCALE) - ry; }
+                copy = rw > 0 && rh > 0;
+            }
+            if (!copy && !always && !passNoDepth) { /* (a pass without depth ends: what follows may need it) */
+                continue;
+            }
             if (pass != NULL) {
                 SDL_EndGPURenderPass(pass);
                 pass = NULL;
             }
             cur = -1;
-            if (!gsTargets[d->target].cleared) {
+            broke = 3;
+            if (!copy) {
                 continue;
             }
             sCopyN++;
-            if (!GsDraw_DateRegion(n, &rx, &ry, &rw, &rh)) { /* only what the draws that follow read (gs_draw.c) */
-                continue;
-            }
-            if (rx + rw > (int)(sTW * SCALE)) { rw = (int)(sTW * SCALE) - rx; } /* (the targets may be 512 x 512: sTW) */
-            if (ry + rh > (int)(sTH * SCALE)) { rh = (int)(sTH * SCALE) - ry; }
-            if (rw <= 0 || rh <= 0) {
-                continue;
-            }
             cp = SDL_BeginGPUCopyPass(cmd);
             SDL_zero(from);
             SDL_zero(to);
@@ -1315,6 +1983,7 @@ static void vk_frame_end(void) {
                 pass = NULL;
             }
             cur = -1;
+            broke = 4;
             if (!gsTargets[d->target].cleared) {
                 continue;
             }
@@ -1324,7 +1993,16 @@ static void vk_frame_end(void) {
             SDL_zero(to);
             from.texture = sTgAux[d->target];
             to.texture = sAuxCopy;
-            SDL_CopyGPUTextureToTexture(cp, &from, &to, sTW * SCALE, sTH * SCALE, 1, false);
+            {
+                int rx, ry, rw, rh;
+                if (aux_region(n, &rx, &ry, &rw, &rh)) { /* only what the passes reading it read */
+                    from.x = to.x = (Uint32)rx;
+                    from.y = to.y = (Uint32)ry;
+                    SDL_CopyGPUTextureToTexture(cp, &from, &to, (Uint32)rw, (Uint32)rh, 1, false);
+                } else {
+                    SDL_CopyGPUTextureToTexture(cp, &from, &to, sTW * SCALE, sTH * SCALE, 1, false);
+                }
+            }
             SDL_EndGPUCopyPass(cp);
             continue;
         }
@@ -1339,6 +2017,7 @@ static void vk_frame_end(void) {
                 pass = NULL;
             }
             cur = -1;
+            broke = 5;
             if (!gsTargets[d->target].cleared) {
                 continue;
             }
@@ -1378,6 +2057,7 @@ static void vk_frame_end(void) {
                 pass = NULL;
             }
             cur = -1;
+            broke = 6;
             if (!gsTargets[d->target].cleared) {
                 continue;
             }
@@ -1391,7 +2071,7 @@ static void vk_frame_end(void) {
             fs.texture = sAuxCopy; /* the ids as copied by the game, not the live alpha (later passes overwrite it) */
             fs.sampler = sSamplers[6]; /* nearest, clamped */
             SDL_BindGPUFragmentSamplers(pass, 0, &fs, 1);
-            params[0] = 1.0f / (float)sTW;
+            params[0] = 1333.333f / (float)Port_PageAspectMilli() / (float)sTW; /* one PS2 pixel across, as wide as at 4:3 (outline.frag) */
             params[1] = 1.0f / (float)sTH;
             params[2] = 100.0f / 255.0f; /* the dark rectangle's 0x64 */
             params[3] = getenv("BT3_FX_DEBUG") != NULL ? 1.0f : 0.0f;
@@ -1404,9 +2084,66 @@ static void vk_frame_end(void) {
             pass = NULL;
             continue;
         }
+        {
+            float clearDepth;
+            if (clear_draw(d, &clearDepth)) { /* the frame's clear: the render pass clears instead (clear_draw) */
+                SDL_GPUColorTargetInfo cts[2];
+                SDL_GPUDepthStencilTargetInfo dt;
+                if (pass != NULL) {
+                    SDL_EndGPURenderPass(pass);
+                }
+                SDL_zero(cts);
+                SDL_zero(dt);
+                cts[0].texture = sTgCol[d->target];
+                cts[0].load_op = SDL_GPU_LOADOP_CLEAR;
+                cts[0].store_op = SDL_GPU_STOREOP_STORE;
+                cts[1] = cts[0];
+                cts[1].texture = sTgAux[d->target];
+                dt.texture = sTgDep[d->target];
+                dt.load_op = SDL_GPU_LOADOP_CLEAR;
+                dt.store_op = SDL_GPU_STOREOP_STORE;
+                dt.clear_depth = clearDepth;
+                /* the stencil cleared only where this pass draws flat shadows, as an ordinary pass's below */
+                passStencil = 0;
+                if (sShadowStencil && !shadowBreak) {
+                    uint32_t j;
+                    for (j = n + 1; j < gsDrawCount && !gsDraws[j].native && gsDraws[j].target == d->target; j++) {
+                        if (gsDraws[j].pipeline >= 0 && (sPipes[gsDraws[j].pipeline].key & (1u << 24)) != 0) {
+                            passStencil = 1;
+                            break;
+                        }
+                    }
+                }
+                dt.stencil_load_op = passStencil ? SDL_GPU_LOADOP_CLEAR : SDL_GPU_LOADOP_DONT_CARE;
+                dt.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
+                gsTargets[d->target].cleared = 1;
+                sPassN++;
+                sPassWhy[broke ? broke : cur >= 0 ? 1 : 0]++;
+                broke = 0;
+                passNoDepth = 0;
+                pass = SDL_BeginGPURenderPass(cmd, cts, 2, &dt);
+                {   /* the draws' 1024 x 1024 page (see sTW) */
+                    SDL_GPUViewport vp = {0.0f, 0.0f, 1024.0f * SCALE, 1024.0f * SCALE, 0.0f, 1.0f};
+                    SDL_SetGPUViewport(pass, &vp);
+                }
+                shadowRef = 1; /* (the stencil starts cleared to 0) */
+                if (sShadowStencil) { SDL_SetGPUStencilReference(pass, (Uint8)shadowRef); }
+                cur = d->target;
+                bound = -1;
+                lastPipe = lastUni = lastSampler = -1;
+                lastTex = NULL;
+                haveFu = haveScissor = 0;
+                lastBlend = -1.0f;
+                continue;
+            }
+        }
         shadowStart = (sPipes[d->pipeline].key & (1u << 24)) != 0 &&
             (n == 0 || gsDraws[n - 1].native || gsDraws[n - 1].target != d->target ||
              (sPipes[gsDraws[n - 1].pipeline].key & (1u << 24)) == 0);
+        if (shadowStart && pass != NULL && d->target == cur && passStencil && !shadowBreak && shadowRef < 255) {
+            SDL_SetGPUStencilReference(pass, (Uint8)++shadowRef); /* (the pass goes on: see pipeline_create) */
+            shadowStart = 0;
+        }
         if (shadowStart && pass != NULL) {
             SDL_EndGPURenderPass(pass);
             pass = NULL;
@@ -1431,17 +2168,60 @@ static void vk_frame_end(void) {
             dt.store_op = SDL_GPU_STOREOP_STORE;
             /* Shadow batches stay in this pass. The mask has no use after it, so avoid
                loading or storing stencil on all the other render passes. */
-            dt.stencil_load_op = shadowStart ? SDL_GPU_LOADOP_CLEAR : SDL_GPU_LOADOP_DONT_CARE;
+            /* cleared only where this pass draws flat shadows (the draws up to the next native step on this target):
+               a stencil clear on every pass cost the Adreno 650 a third of its speed at 4x */
+            passStencil = shadowStart;
+            if (sShadowStencil && !shadowBreak && !passStencil) {
+                uint32_t j;
+                for (j = n; j < gsDrawCount && !gsDraws[j].native && gsDraws[j].target == d->target; j++) {
+                    if (gsDraws[j].pipeline >= 0 && (sPipes[gsDraws[j].pipeline].key & (1u << 24)) != 0) {
+                        passStencil = 1;
+                        break;
+                    }
+                }
+            }
+            dt.stencil_load_op = passStencil ? SDL_GPU_LOADOP_CLEAR : SDL_GPU_LOADOP_DONT_CARE;
+            {   /* what the pass's draws use, up to the next native step on this target */
+                uint32_t j;
+                int useDepth = 0, useAlpha = 0;
+                for (j = n; j < gsDrawCount && !gsDraws[j].native && gsDraws[j].target == d->target; j++) {
+                    uint32_t k = sPipes[gsDraws[j].pipeline].key;
+                    useDepth |= ((k >> 10) & 3) != 1 || ((k >> 12) & 1) != 0 || (k & (1u << 24)) != 0;
+                    useAlpha |= ((k >> 16) & SDL_GPU_COLORCOMPONENT_A) != 0;
+                    if (useDepth && useAlpha) {
+                        break;
+                    }
+                }
+                /* (a target's first pass clears its depth: that one keeps it) */
+                passNoDepth = depthless && !useDepth && !passStencil && gsTargets[d->target].cleared;
+                for (j = n; passNoDepth && j < gsDrawCount && !gsDraws[j].native && gsDraws[j].target == d->target; j++) {
+                    int pj = gsDraws[j].pipeline, qj;
+                    passNoDepth = pipe_depthless(pj) != pj; /* (made before the pass) */
+                    /* (and of the variant without the alpha byte, which aux_plan may take: see the draws below) */
+                    if (passNoDepth && aux_plan_on() && (sPipes[pj].key >> 16 & SDL_GPU_COLORCOMPONENT_A) && (qj = pipe_no_aux(pj)) != pj) {
+                        passNoDepth = pipe_depthless(qj) != qj;
+                    }
+                }
+                sPassNoDepth += !useDepth;
+                sPassNoAlpha += !useAlpha;
+                sPassNoBoth += !useDepth && !useAlpha;
+            }
             dt.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
             gsTargets[d->target].cleared = 1;
             cts[0] = ct;
             sPassN++;
-            pass = SDL_BeginGPURenderPass(cmd, cts, 2, &dt);
+            sPassWhy[shadowStart ? 2 : broke ? broke : cur >= 0 ? 1 : 0]++;
+            broke = 0;
+            if (ct.load_op == SDL_GPU_LOADOP_LOAD && !passStencil) { /* (a pass that clears, all of it is cleared) */
+                pass_area(n, d->target);
+            }
+            pass = SDL_BeginGPURenderPass(cmd, cts, 2, passNoDepth ? NULL : &dt);
             {   /* the draws' 1024 x 1024 page (see sTW): larger than the target, which holds its top-left part */
                 SDL_GPUViewport vp = {0.0f, 0.0f, 1024.0f * SCALE, 1024.0f * SCALE, 0.0f, 1.0f};
                 SDL_SetGPUViewport(pass, &vp);
             }
-            if (sShadowStencil) { SDL_SetGPUStencilReference(pass, 0); }
+            shadowRef = 1; /* (the stencil starts cleared to 0) */
+            if (sShadowStencil && !passNoDepth) { SDL_SetGPUStencilReference(pass, (Uint8)shadowRef); }
             cur = d->target;
             bound = -1;
             lastPipe = lastUni = lastSampler = -1; /* a new pass: everything is set again */
@@ -1468,9 +2248,21 @@ static void vk_frame_end(void) {
             SDL_PushGPUVertexUniformData(cmd, 0, &gsVuUni[d->uniform], sizeof(Vu0Uniform));
             lastUni = (int)d->uniform;
         }
-        if ((int)d->pipeline != lastPipe) {
-            SDL_BindGPUGraphicsPipeline(pass, sPipes[d->pipeline].p);
-            lastPipe = (int)d->pipeline;
+        /* the alpha bytes: kept where they are read later, left alone elsewhere (aux_plan) */
+        pipe = (int)d->pipeline;
+        split = 0;
+        if (aux_plan_on() && (sPipes[pipe].key >> 16 & SDL_GPU_COLORCOMPONENT_A)) {
+            const int16_t *r = sAuxNeed[n];
+            if (r[2] <= r[0]) {
+                pipe = pipe_no_aux(pipe);
+            } else if (!d->vu && (r[0] > d->scissor[0] || r[1] > d->scissor[1] || r[2] < d->scissor[0] + d->scissor[2] ||
+                                  r[3] < d->scissor[1] + d->scissor[3]) && pipe_no_aux(pipe) != pipe) {
+                split = 1; /* (a vertex program's draw is not split: its vertices would be worked out again) */
+            }
+        }
+        if ((passNoDepth ? pipe_depthless(pipe) : pipe) != lastPipe) { /* (in a pass without depth, its variant) */
+            lastPipe = passNoDepth ? pipe_depthless(pipe) : pipe;
+            SDL_BindGPUGraphicsPipeline(pass, sPipes[lastPipe].p);
         }
         if ((SDL_GPUTexture *)(uintptr_t)d->tex != lastTex || (int)d->sampler != lastSampler) {
             SDL_GPUTextureSamplerBinding two[2];
@@ -1506,8 +2298,33 @@ static void vk_frame_end(void) {
             memcpy(lastScissor, d->scissor, sizeof(lastScissor));
             haveScissor = 1;
         }
+        if (fx_measure(d)) {
+            continue;
+        }
         if (d->vu) {
             SDL_DrawGPUIndexedPrimitives(pass, d->count, 1, d->first, 0, 0);
+        } else if (split) {
+            /* inside the part read later with the byte, the rest of its scissor without: four bands around it */
+            const int16_t *r = sAuxNeed[n];
+            int sx0 = d->scissor[0], sy0 = d->scissor[1], sx1 = sx0 + d->scissor[2], sy1 = sy0 + d->scissor[3], b;
+            SDL_Rect in = { r[0], r[1], r[2] - r[0], r[3] - r[1] }, out[4];
+            out[0] = (SDL_Rect){ sx0, sy0, sx1 - sx0, r[1] - sy0 };
+            out[1] = (SDL_Rect){ sx0, r[3], sx1 - sx0, sy1 - r[3] };
+            out[2] = (SDL_Rect){ sx0, r[1], r[0] - sx0, r[3] - r[1] };
+            out[3] = (SDL_Rect){ r[2], r[1], sx1 - r[2], r[3] - r[1] };
+            clamp_scissor(&in);
+            SDL_SetGPUScissor(pass, &in);
+            SDL_DrawGPUPrimitives(pass, d->count, 1, d->first, 0);
+            lastPipe = passNoDepth ? pipe_depthless(pipe_no_aux(pipe)) : pipe_no_aux(pipe);
+            SDL_BindGPUGraphicsPipeline(pass, sPipes[lastPipe].p);
+            for (b = 0; b < 4; b++) {
+                clamp_scissor(&out[b]);
+                if (out[b].w > 0 && out[b].h > 0) {
+                    SDL_SetGPUScissor(pass, &out[b]);
+                    SDL_DrawGPUPrimitives(pass, d->count, 1, d->first, 0);
+                }
+            }
+            haveScissor = 0;
         } else {
             SDL_DrawGPUPrimitives(pass, d->count, 1, d->first, 0);
         }
@@ -1543,9 +2360,12 @@ static void vk_frame_end(void) {
     }
     sEndT[3] = gpu_now();
 #ifdef __ANDROID__
-    if (gGsFrame % 300 == 0) { /* (with the heartbeat: why a frame would not reach the screen) */
-        fprintf(stderr, "bt3: present: acquired %d, swapchain %s %ux%u, main fbp %d, target %d, cleared %d, targets %d\n", (int)acquired,
-                swap != NULL ? "yes" : "NO", (unsigned)sw, (unsigned)sh, (int)gGsMainFbp, best,
+    if (gGsFrame % 300 == 0) { /* (with the heartbeat: why a frame would not reach the screen; a swapchain smaller
+                                    than the window is a picture the system stretches) */
+        int ww = 0, wh = 0;
+        SDL_GetWindowSizeInPixels(sWindow, &ww, &wh);
+        fprintf(stderr, "bt3: present: acquired %d, swapchain %s %ux%u (window %dx%d), main fbp %d, target %d, cleared %d, targets %d\n", (int)acquired,
+                swap != NULL ? "yes" : "NO", (unsigned)sw, (unsigned)sh, ww, wh, (int)gGsMainFbp, best,
                 best >= 0 ? (int)gsTargets[best].cleared : -1, gsTargetCount);
         if (!acquired) {
             fprintf(stderr, "bt3: present: %s\n", SDL_GetError());
@@ -1638,7 +2458,43 @@ static void vk_frame_end(void) {
         }
     }
     sEndT[4] = gpu_now();
-    SDL_SubmitGPUCommandBuffer(cmd); { extern void Port_LagMark(int what); Port_LagMark('S'); }
+    if (getenv("BT3_LAG_LOG") != NULL) { /* (and when the graphics chip has finished it: lag_fence) */
+        SDL_GPUFence *f = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
+        extern void Port_LagMark(int what);
+        Port_LagMark('S');
+        lag_fence(f);
+    } else {
+        SDL_SubmitGPUCommandBuffer(cmd); { extern void Port_LagMark(int what); Port_LagMark('S'); }
+    }
+    {   /* BT3_DRAW_LOG=<ms>: each picture whose drawing took longer, from the start of its list to the driver, in parts:
+           to find what makes a drawing slow now and then (a laptop: 1 in 10 took 10 to 20 ms instead of 2) */
+        static int limit = -1;
+        extern uint64_t gDrawStartNs, gDrawTexNs, gDrawPipeNs, gDrawUpBytes, gDrawImgNs, gDrawLookNs, gDrawVuNs, gDrawXferNs;
+        extern unsigned gDrawNewTex, gDrawImgMade, gDrawImgFreed, gDrawImgPooled, gGsFrame;
+        extern int gDrawLogged;
+        if (limit < 0) {
+            limit = getenv("BT3_DRAW_LOG") != NULL ? atoi(getenv("BT3_DRAW_LOG")) : 0;
+        }
+        if (limit > 0 && !gDrawLogged && gDrawStartNs != 0) {
+            uint64_t now = gpu_now(), total = now - gDrawStartNs;
+            gDrawLogged = 1;
+            if (total >= (uint64_t)limit * 1000000ull) {
+                uint64_t walk = sEndT[0] > gDrawStartNs ? sEndT[0] - gDrawStartNs : 0;
+                fprintf(stderr, "draw: frame %u: %.1f ms: the list %.1f (of it vertex programs %.1f, pictures into GS memory %.1f, texture lookups %.1f, %u new textures decoded %.1f, pipelines made %.1f), "
+                                "uploads %.1f, issuing the draws %.1f, waiting for the screen's buffer %.1f, showing %.1f, handing over %.1f; "
+                                "images made %u (%.1f ms) and %u spares taken, released %u, uploaded %u KB\n",
+                        gGsFrame, (double)total / 1e6, (double)walk / 1e6, (double)gDrawVuNs / 1e6, (double)gDrawXferNs / 1e6, (double)gDrawLookNs / 1e6, gDrawNewTex, (double)gDrawTexNs / 1e6, (double)gDrawPipeNs / 1e6,
+                        (double)(sEndT[1] - sEndT[0]) / 1e6, (double)(sEndT[2] - sEndT[1]) / 1e6, (double)(sEndT[3] - sEndT[2]) / 1e6,
+                        (double)(sEndT[4] - sEndT[3]) / 1e6, (double)(now - sEndT[4]) / 1e6, gDrawImgMade, (double)gDrawImgNs / 1e6, gDrawImgPooled, gDrawImgFreed,
+                        (unsigned)(gDrawUpBytes / 1024));
+            }
+        }
+    }
+    {   /* spare images for coming bursts, when this picture left time (the drawing from its list's start) */
+        extern uint64_t gDrawStartNs;
+        pool_refill(gDrawStartNs != 0 ? gpu_now() - gDrawStartNs : ~0ull);
+        targets_refill(gDrawStartNs != 0 ? gpu_now() - gDrawStartNs : ~0ull); /* (and spare render targets) */
+    }
     {   /* BT3_GS_VERBOSE: once a second, where the end of the frame spends its time */
         static uint64_t sum[6];
         static int count;
@@ -1665,8 +2521,16 @@ static void vk_frame_end(void) {
                         (double)sum[0] / 60e6, (double)sum[1] / 60e6, (double)sum[5] / 60e6, (double)sum[2] / 60e6, (double)sum[3] / 60e6,
                         (double)sum[4] / 60e6);
                 fprintf(stderr, "time:   per frame: %.1f render passes, %.1f copies\n", (double)sPassN / 60.0, (double)sCopyN / 60.0);
+                fprintf(stderr, "time:   passes per frame by cause: first %.1f, another target %.1f, shadow %.1f, after a DATE copy %.1f, "
+                                "after the ids' copy %.1f, after a table pass %.1f, after a native effect %.1f, after a movie picture %.1f\n",
+                        sPassWhy[0] / 60.0, sPassWhy[1] / 60.0, sPassWhy[2] / 60.0, sPassWhy[3] / 60.0, sPassWhy[4] / 60.0, sPassWhy[5] / 60.0,
+                        sPassWhy[6] / 60.0, sPassWhy[7] / 60.0);
+                fprintf(stderr, "time:   passes per frame whose draws never use depth %.1f, never write alpha %.1f, neither %.1f\n",
+                        sPassNoDepth / 60.0, sPassNoAlpha / 60.0, sPassNoBoth / 60.0);
             }
             sPassN = sCopyN = 0;
+            memset(sPassWhy, 0, sizeof(sPassWhy));
+            sPassNoDepth = sPassNoAlpha = sPassNoBoth = 0;
             count = 0;
             memset(sum, 0, sizeof(sum));
         }

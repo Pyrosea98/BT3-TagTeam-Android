@@ -2,6 +2,7 @@ package com.dfdx047.dragonrage.engine
 
 import android.app.AlertDialog
 import android.content.Intent
+import android.hardware.input.InputManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -41,21 +42,26 @@ import org.libsdl.app.SDLActivity
  * Over the game's surface: the on-screen controller ([TouchSurface]: the game-specific layout or the classic one), which feeds player 1's pad through
  * [TouchBridge] and steps aside while the engine's own window (settings, online) is open.
  */
-class GameActivity : SDLActivity() {
-    private lateinit var paths: GamePaths
+open class GameActivity : SDLActivity() {
+    protected lateinit var paths: GamePaths
     private lateinit var store: TouchStore
     private var pad: TouchSurface? = null
     private val handler = Handler(Looper.getMainLooper())
+    private var menu: GameMenu? = null
+    private var comboHeld = 0 // START (1) and SELECT (2) held on a controller
+
+    /** Which game this screen runs (the menu's look and pages). */
+    protected open val game: com.dfdx047.dragonrage.data.Game get() = com.dfdx047.dragonrage.data.Game.BT3
 
     private val watchMenu = object : Runnable {
         override fun run() {
-            pad?.suppressed = TouchBridge.menuOpen()
+            pad?.suppressed = TouchBridge.menuOpen() || menu?.isShown == true
             handler.postDelayed(this, 100)
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        paths = GamePaths(this).also { it.ensure() }
+        paths = gamePaths().also { it.ensure() }
         // the renderer for this start (Vulkan, or OpenGL ES for Mali when automatic): written before the engine reads it
         runCatching {
             val es = EngineSettings(paths.settings)
@@ -64,16 +70,46 @@ class GameActivity : SDLActivity() {
             val lang = when (resources.configuration.locales[0].language) { "pt" -> 1; "es" -> 2; else -> 0 }
             if (es.get(EngineSettings.LANG, -1) != lang) es.set(EngineSettings.LANG, lang)
             orientation = es.get(EngineSettings.ORIENTATION, 0)
+            sustained = es.get(EngineSettings.SUSTAINED, 0) != 0
         }
         requestedOrientation = orientationFlag()
         store = TouchStore(paths.root)
         installDataList()
         super.onCreate(savedInstanceState)
+        hideBars()
         addTouchPad()
+        if (sustained) { // (Settings: steady clocks the phone can hold, where it supports them)
+            runCatching {
+                val pm = getSystemService(POWER_SERVICE) as android.os.PowerManager
+                if (pm.isSustainedPerformanceModeSupported) window.setSustainedPerformanceMode(true)
+                android.util.Log.i("bt3", "sustained performance mode: ${pm.isSustainedPerformanceModeSupported}")
+            }
+        }
+    }
+
+    /**
+     * The system's bars go before the game's surface is made. SDL shows them at the start and hides them only when
+     * the engine makes its window, by when the surface exists without the room of the navigation bar (the RP5:
+     * 1920 x 972); in some starts the surface stayed at that size for the whole run and the system stretched the
+     * picture to the screen (16:9 with bars at the sides, everything 11% taller). The same flags as SDL's own
+     * fullscreen, so its state (it hides them again after a swipe) agrees.
+     */
+    @Suppress("DEPRECATION")
+    private fun hideBars() {
+        window.decorView.systemUiVisibility = android.view.View.SYSTEM_UI_FLAG_FULLSCREEN or
+            android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+            android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+            android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+            android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+            android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
+        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_FORCE_NOT_FULLSCREEN)
+        setWindowStyle(true)
     }
 
     /** The player's choice (launcher, Settings): 0 landscape, 1 portrait, 2 as the device is held. */
     private var orientation = 0
+    private var sustained = false
 
     private fun orientationFlag(): Int = when (orientation) {
         1 -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
@@ -92,10 +128,7 @@ class GameActivity : SDLActivity() {
         view.listener = object : TouchListener {
             override fun onPad(buttons: Int, lx: Int, ly: Int, rx: Int, ry: Int) = TouchBridge.setPad(buttons, lx, ly, rx, ry)
 
-            override fun onMenu() {
-                SDLActivity.onNativeKeyDown(KeyEvent.KEYCODE_BACK)
-                SDLActivity.onNativeKeyUp(KeyEvent.KEYCODE_BACK)
-            }
+            override fun onMenu() = toggleMenu()
 
             override fun onOptions() = showOptions()
 
@@ -107,15 +140,63 @@ class GameActivity : SDLActivity() {
         }
         layout.addView(view.view, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         pad = view
+        if (stickPadConnected()) padUsed() // (a handheld's own controller, or one paired before the game: no touch pad to start with)
+        menu = GameMenu(this, game, { EngineSettings(paths.settings) }, object : GameMenu.Actions {
+            override fun resumed() {
+                pad?.suppressed = TouchBridge.menuOpen()
+            }
+
+            override fun quit() = quitToApp()
+
+            override fun editTouchLayout() {
+                pad?.editing = true
+            }
+
+            override fun touchOptions() = showOptions()
+
+            override fun padButtons() = MenuBridge.action(MenuBridge.ACTION_PAD_BUTTONS)
+        })
+    }
+
+    /**
+     * The back key, the controller's MENU button and the engine's request: the touch menu (GameMenu) opens or closes.
+     * While the engine's own window is up (the controller's menu, START + SELECT, or the online window), the key goes to
+     * the engine and closes that window, as before; and when the engine cannot answer, the key opens its window.
+     */
+    private fun toggleMenu() {
+        val m = menu
+        when {
+            pad?.editing == true -> pad?.editing = false
+            m?.isShown == true -> m.close()
+            TouchBridge.menuOpen() -> backToEngine()
+            else -> {
+                TouchBridge.setPad(0, 128, 128, 128, 128)
+                val layout = SDLActivity.getContentView() as? ViewGroup
+                if (m == null || layout == null || !m.show(layout)) backToEngine() else pad?.suppressed = true
+            }
+        }
+    }
+
+    private fun backToEngine() {
+        SDLActivity.onNativeKeyDown(KeyEvent.KEYCODE_BACK)
+        SDLActivity.onNativeKeyUp(KeyEvent.KEYCODE_BACK)
+    }
+
+    /** The engine asks for the menu (Budokai Tenkaichi 4: START + SELECT; from its own thread). */
+    @Suppress("unused")
+    fun openGameMenu() {
+        runOnUiThread { if (menu?.isShown != true) toggleMenu() }
     }
 
     override fun onResume() {
         super.onResume()
         pad?.let { it.config = store.load() }
         handler.post(watchMenu)
+        runCatching { (getSystemService(INPUT_SERVICE) as InputManager).registerInputDeviceListener(devices, handler) }
     }
 
     override fun onPause() {
+        runCatching { (getSystemService(INPUT_SERVICE) as InputManager).unregisterInputDeviceListener(devices) }
         handler.removeCallbacks(watchMenu)
         TouchBridge.setPad(0, 128, 128, 128, 128)
         super.onPause()
@@ -186,12 +267,37 @@ class GameActivity : SDLActivity() {
         if (v.config.mode == TouchMode.AUTO && !v.editing) v.hiddenForPad = true
     }
 
+    /** A controller that is there: not a virtual device (some phones send their own sensors' or the system's key
+     *  events as a "gamepad", which hid the on-screen controls again and again). */
+    private fun realDevice(d: InputDevice?): Boolean =
+        d != null && !d.isVirtual && (d.sources and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD ||
+            d.sources and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK)
+
+    /** A real controller with sticks is connected (not only keys that call themselves a gamepad). */
+    private fun stickPadConnected(): Boolean = InputDevice.getDeviceIds().any { id ->
+        val d = InputDevice.getDevice(id)
+        realDevice(d) && d!!.getMotionRange(MotionEvent.AXIS_X) != null && d.getMotionRange(MotionEvent.AXIS_Y) != null
+    }
+
+    /** A controller connected while the game runs hides the touch pad; the last one gone brings it back. */
+    private val devices = object : InputManager.InputDeviceListener {
+        override fun onInputDeviceAdded(id: Int) {
+            if (stickPadConnected()) padUsed()
+        }
+
+        override fun onInputDeviceRemoved(id: Int) {
+            if (!stickPadConnected()) pad?.hiddenForPad = false
+        }
+
+        override fun onInputDeviceChanged(id: Int) {}
+    }
+
     private fun fromController(source: Int): Boolean =
         source and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD ||
             source and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK
 
     override fun dispatchGenericMotionEvent(ev: MotionEvent): Boolean {
-        if (fromController(ev.source)) padUsed()
+        if (fromController(ev.source) && realDevice(ev.device)) padUsed()
         return super.dispatchGenericMotionEvent(ev)
     }
 
@@ -229,7 +335,9 @@ class GameActivity : SDLActivity() {
             val text = stream?.bufferedReader()?.use { it.readText() } ?: ""
             // (in the log for a report about online play: the matchmaking's refusals, limits and outages)
             if (code !in 200..299) android.util.Log.w("bt3", "net: HTTP $code from ${url.substringAfterLast('/')}: ${text.take(200)}")
-            text
+            // A 429 is said in the answer, which the engine reads (net_match.c: it then asks nothing for a while). A
+            // Worker's own is JSON; Cloudflare's (error 1027, the daily requests) is not.
+            if (code == 429) """{"error":"${if (text.trimStart().startsWith("{") && text.contains("busy")) "busy" else "limit"}","http":429}""" else text
         } finally {
             c.disconnect()
         }
@@ -257,7 +365,10 @@ class GameActivity : SDLActivity() {
     }
 
     /** The list of where the game's data tables come from (made with the engine, android.py) next to the game's files. */
-    private fun installDataList() {
+    /** The game's folder: Budokai Tenkaichi 3's (Bt4Activity: Budokai Tenkaichi 4's). */
+    protected open fun gamePaths(): GamePaths = GamePaths(this)
+
+    protected open fun installDataList() {
         // the list of the game's data tables (libbt3.so.dat) and of the engine's own addresses (libbt3.so.rel, for
         // loading it elsewhere than its usual place), both made with the engine (android.py), next to the game's files
         // and of the game's own variables (libbt3.so.mem: what a saved state holds, for online play)
@@ -308,13 +419,21 @@ class GameActivity : SDLActivity() {
                 if (event.action == KeyEvent.ACTION_UP) pad?.editing = false
                 return true
             }
-            when (event.action) {
-                KeyEvent.ACTION_DOWN -> if (event.repeatCount == 0) SDLActivity.onNativeKeyDown(KeyEvent.KEYCODE_BACK)
-                KeyEvent.ACTION_UP -> SDLActivity.onNativeKeyUp(KeyEvent.KEYCODE_BACK)
-            }
+            if (event.action == KeyEvent.ACTION_UP) toggleMenu() // (the whole press: down and up are this one key)
             return true
         }
-        if (KeyEvent.isGamepadButton(event.keyCode) || fromController(event.source)) padUsed()
+        if (event.keyCode == KeyEvent.KEYCODE_BUTTON_START || event.keyCode == KeyEvent.KEYCODE_BUTTON_SELECT) {
+            // START + SELECT closes the touch menu as it opened it (Budokai Tenkaichi 4: openGameMenu). While the menu is
+            // up their presses stay here, so the game does not get a START of its own when it resumes; their releases
+            // go on (the engine saw the presses that opened the menu)
+            val bit = if (event.keyCode == KeyEvent.KEYCODE_BUTTON_START) 1 else 2
+            comboHeld = if (event.action == KeyEvent.ACTION_DOWN) comboHeld or bit else comboHeld and bit.inv()
+            if (menu?.isShown == true && event.action == KeyEvent.ACTION_DOWN) {
+                if (event.repeatCount == 0 && comboHeld == 3) menu?.close()
+                return true
+            }
+        }
+        if ((KeyEvent.isGamepadButton(event.keyCode) || fromController(event.source)) && realDevice(event.device)) padUsed()
         return super.dispatchKeyEvent(event)
     }
 
@@ -323,6 +442,13 @@ class GameActivity : SDLActivity() {
     /** The game folder, the app's native libraries (the engine, adrenotools' hooks) and the chosen GPU driver, if any. */
     override fun getArguments(): Array<String> {
         val driver = runCatching { GpuDrivers(this, contentResolver).selected() }.getOrNull()
-        return arrayOf(paths.root.path, applicationInfo.nativeLibraryDir, driver?.dir?.path ?: "", driver?.library ?: "")
+        // Lite mode on a Mali: the render passes' areas cut to what they draw (loader.c, area_driver)
+        val liteMali = game == com.dfdx047.dragonrage.data.Game.BT3 && runCatching {
+            EngineSettings(paths.settings).get(EngineSettings.LITE, 0) != 0 && Renderer.isMali(Renderer.gpuName(paths))
+        }.getOrDefault(false)
+        return arrayOf(
+            paths.root.path, applicationInfo.nativeLibraryDir, driver?.dir?.path ?: "", driver?.library ?: "",
+            if (liteMali) "1" else "0",
+        )
     }
 }
