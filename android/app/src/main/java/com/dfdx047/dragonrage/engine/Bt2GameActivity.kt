@@ -7,6 +7,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.dfdx047.dragonrage.data.Bt2Drivers
 import com.dfdx047.dragonrage.data.Bt2Engine
+import com.dfdx047.dragonrage.data.Bt2MenuItem
 import com.dfdx047.dragonrage.data.Bt2Settings
 import com.dfdx047.dragonrage.data.Game
 import com.dfdx047.dragonrage.data.GpuDriver
@@ -41,6 +42,7 @@ class Bt2GameActivity : GameActivity() {
     override fun prepareEngine() {
         // the GPU's name, found once and kept (Renderer.gpuName): the in-game menu offers OpenGL ES for Mali GPUs
         runCatching { Renderer.gpuName(paths) }
+        Bt2MenuItem.install(this, paths) // the pictures of the Online Mode item (engine reads <root>/bt2/user/menu-item)
     }
 
     override fun getLibraries(): Array<String> = arrayOf("SDL3", Game.BT2.library)

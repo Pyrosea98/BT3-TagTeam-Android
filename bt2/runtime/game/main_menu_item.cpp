@@ -10,6 +10,7 @@
 #include <functional>
 #include <initializer_list>
 #include <vector>
+#include <SDL3/SDL.h>
 
 // The main menu (overlay DBZP.BIN) as the game has it, read from its code (addresses BT2's, USA disc):
 // - its state, at *0x421380: +0x0C the guide's speech, +0x10/+0x38/+0x60 three layers (0x28 apart; the wheel and
@@ -75,6 +76,7 @@ std::uint32_t plate_entry=0; // the texture entry of the third sheet of plates, 
 // can hold item 10's plate: its texture entry (0x40 bytes: +0x08 the pixels' packet size, +0x30 TEX0), the last of
 // a file of three sheets of 512 wide (two of 256 lines, then this one), gets TH 8 instead of 7. Only what is drawn
 // changes; the upload is the game's own. The renderer fills the new lines (artSwap below).
+void buildPlate(std::uint8_t* rdram,std::uint32_t sheet_entry); // (below)
 void growPlateSheet(std::uint8_t* rdram,bool now) {
     static unsigned waited=0;
     if(plate_entry && (read64(rdram,plate_entry+0x30)>>30&15)==8)return;
@@ -90,6 +92,7 @@ void growPlateSheet(std::uint8_t* rdram,bool now) {
         write64(rdram,e+0x30,read64(rdram,e+0x30)&~(std::uint64_t{15}<<30)|std::uint64_t{8}<<30);
         plate_entry=e;
         std::fprintf(stderr,"Main menu item: the third sheet of plates (entry 0x%X) drawn with 256 lines\n",e);
+        buildPlate(rdram,e-0x80); // (the first sheet of the file: Dueling's plate is a row of it)
         return;
     }
 }
@@ -283,29 +286,96 @@ void drawMenu(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
     returnTo(g,ra);
 }
 
-// The item's pictures (512 x 64, RGBA as the GS has it: alpha 0x80 opaque) and the two sheets they go into, known
-// by the FNV-1a hash of their first 128 lines as the renderer decodes them.
-struct Art {std::vector<std::uint8_t> text,plate;std::uint64_t text_sheet=0,plate_sheet=0;};
-Art art;
-std::atomic<bool> art_ready{false};
-std::vector<std::uint8_t> readFile(const std::string& path,std::size_t size) {
-    std::ifstream in(path,std::ios::binary);std::vector<std::uint8_t> bytes(size);
-    if(!in.read(reinterpret_cast<char*>(bytes.data()),static_cast<std::streamsize>(size)))return {};
-    return bytes;
-}
-
-// The screen's pictures, RGBA with the GS's alpha (online/<name>.raw, their sizes in online/pictures.txt: "name w h"),
-// given to the renderer by slot (its lines of letters, gs/hw/bt3_host.c): the screen with Online chosen, with Ranked
-// chosen, the "coming soon" message, and the menu's description of the item (over its message window).
+// The item's pictures: PNGs of the app's assets in `folder` (bt2/tools/menu_item/make_menu_item.py: all drawn by the
+// project, none from the disc), read as RGBA with the GS's alpha (0x80 opaque): the item's name (a row of the sheet of
+// names), the word on its plate, the screen with Online chosen and with Ranked chosen, the "coming soon" message and
+// the menu's description of the item. The plate itself is the game's own Dueling plate, made into this one while the menu
+// is set up (buildPlate), so no picture of the game's is kept anywhere. The two sheets they go into are known by the
+// FNV-1a hash of their first 128 lines as the renderer decodes them (the USA disc's).
 enum Slot {online_picture,ranked_picture,soon_picture,description_picture,pictures};
 struct Picture {std::uint32_t w=0,h=0;std::vector<std::uint8_t> rgba;};
 std::array<Picture,pictures> picture;
 constexpr std::array<const char*,pictures> picture_names{"online","ranked","soon","description"};
-void readPictures(const std::string& folder) {
-    std::ifstream list(folder+"/online/pictures.txt");std::string name;std::uint32_t w,h;
-    while(list>>name>>w>>h)
-        for(std::size_t k=0;k<pictures;++k)
-            if(name==picture_names[k])picture[k]={w,h,readFile(folder+"/online/"+name+".raw",std::size_t{w}*h*4)};
+Picture name_picture,plate_word;
+std::vector<std::uint8_t> plate_row; // the plate: 512 x 64 RGBA
+constexpr std::uint64_t names_sheet_hash=0x838260d6bb66161aull,plates_sheet_hash=0x9cb5f2297eb6c82eull;
+std::atomic<bool> art_ready{false},plate_ready{false};
+
+Picture loadPicture(const std::string& path) {
+    SDL_Surface* png=SDL_LoadPNG(path.c_str());
+    SDL_Surface* rgba=png?SDL_ConvertSurface(png,SDL_PIXELFORMAT_RGBA32):nullptr;
+    if(png)SDL_DestroySurface(png);
+    if(!rgba)return {};
+    Picture p;p.w=std::uint32_t(rgba->w);p.h=std::uint32_t(rgba->h);p.rgba.resize(std::size_t{p.w}*p.h*4);
+    for(std::uint32_t y=0;y<p.h;++y) {
+        const auto* row=static_cast<const std::uint8_t*>(rgba->pixels)+std::size_t{y}*std::size_t(rgba->pitch);
+        for(std::uint32_t x=0;x<p.w;++x) {
+            std::uint8_t* out=p.rgba.data()+(std::size_t{y}*p.w+x)*4;
+            out[0]=row[x*4];out[1]=row[x*4+1];out[2]=row[x*4+2];out[3]=std::uint8_t((row[x*4+3]*128+127)/255);
+        }
+    }
+    SDL_DestroySurface(rgba);
+    return p;
+}
+
+// GS memory orders of the 32-bit upload and the 8-bit read (the hardware's tables).
+constexpr std::uint8_t kBlock32[4][8]={{0,1,4,5,16,17,20,21},{2,3,6,7,18,19,22,23},{8,9,12,13,24,25,28,29},{10,11,14,15,26,27,30,31}};
+constexpr std::uint8_t kCol32[8][8]={{0,1,4,5,8,9,12,13},{2,3,6,7,10,11,14,15},{16,17,20,21,24,25,28,29},{18,19,22,23,26,27,30,31},
+                                     {32,33,36,37,40,41,44,45},{34,35,38,39,42,43,46,47},{48,49,52,53,56,57,60,61},{50,51,54,55,58,59,62,63}};
+constexpr std::uint8_t kCol8First[4][16]={{0,4,16,20,32,36,48,52,2,6,18,22,34,38,50,54},{8,12,24,28,40,44,56,60,10,14,26,30,42,46,58,62},
+                                          {33,37,49,53,1,5,17,21,35,39,51,55,3,7,19,23},{41,45,57,61,9,13,25,29,43,47,59,63,11,15,27,31}};
+
+// A texture entry of the plates' file (0x40 bytes: +0x38 the pixels' packet, +0x3C the colour table's) to 512 x 256
+// RGBA with the GS's alpha: 8 bits through a 256-colour table, the pixels sent as a 256 x 128 image of 32 bits.
+bool decodeSheet(const std::uint8_t* rdram,std::uint32_t entry,std::vector<std::uint8_t>& out) {
+    const std::uint32_t pix_at=read32(rdram,entry+0x38),clut_at=read32(rdram,entry+0x3C);
+    const char* why=nullptr;
+    if(pix_at<0x100000 || clut_at<0x100000 || pix_at+0x60+512*256>=0x2000000 || clut_at+0x60+0x400>=0x2000000)why="pointers";
+    else {
+        const std::uint8_t* pix=rdram+pix_at,*clut=rdram+clut_at;
+        if(read32(pix,0x30)!=256 || read32(pix,0x34)!=128 || pix[0x38]!=0x52 || (read32(pix,0x50)&0x7FFF)!=512*256/16)why="pixel packet";
+        else if(read32(clut,0x30)!=16 || read32(clut,0x34)!=16 || clut[0x38]!=0x52 || (read32(clut,0x50)&0x7FFF)!=0x40)why="colour packet";
+    }
+    if(why){std::fprintf(stderr,"Main menu item: Dueling's plate is not as expected (%s: pixels 0x%X, colours 0x%X)\n",why,pix_at,clut_at);return false;}
+    const std::uint8_t* pix=rdram+pix_at+0x60,*clut=rdram+clut_at+0x60;
+    std::vector<std::uint8_t> mem(512*256);
+    for(std::uint32_t y=0;y<128;++y)
+        for(std::uint32_t x=0;x<256;++x) {
+            const std::uint32_t a=(((y&~0x1Fu)*4+((x>>1)&~0x1Fu)+kBlock32[(y>>3)&3][(x>>3)&7])<<6)+kCol32[y&7][x&7];
+            std::memcpy(mem.data()+a*4,pix+(y*256+x)*4,4);
+        }
+    out.resize(512*256*4);
+    for(std::uint32_t y=0;y<256;++y)
+        for(std::uint32_t x=0;x<512;++x) {
+            const std::uint32_t col=(y&15)>>2,sx=(col&1)?((x&15)^4):(x&15);
+            const std::uint32_t a=((((y>>1)&~0x1Fu)*4+((x>>2)&~0x1Fu)+kBlock32[(y>>4)&3][(x>>4)&7])<<8)+kCol8First[y&3][sx]+col*64;
+            std::uint32_t i=mem[a];
+            i=(i&0xE7)|((i&8)<<1)|((i&0x10)>>1); // (the table's own order: entries 8..15 and 16..23 of every 32 change places)
+            std::memcpy(out.data()+(std::size_t{y}*512+x)*4,clut+i*4,4);
+        }
+    return true;
+}
+
+// The plate of Online Mode: Dueling's (row 3 of the first sheet: its icon, the bar and its word), the word's place filled
+// from the bar to its right, our word over it.
+void buildPlate(std::uint8_t* rdram,std::uint32_t entry) {
+    if(plate_ready.load() || plate_word.rgba.empty())return;
+    std::vector<std::uint8_t> sheet;
+    if(!decodeSheet(rdram,entry,sheet))return;
+    std::vector<std::uint8_t> row(sheet.begin()+192*512*4,sheet.begin()+256*512*4);
+    for(std::uint32_t y=0;y<64;++y)
+        for(std::uint32_t x=44;x<146;++x)
+            std::memcpy(row.data()+(std::size_t{y}*512+x)*4,row.data()+(std::size_t{y}*512+x+106)*4,4);
+    for(std::size_t i=0;i<std::size_t{512}*64;++i) {
+        const std::uint8_t* w=plate_word.rgba.data()+i*4;std::uint8_t* d=row.data()+i*4;
+        const int sa=w[3],da=d[3],out_a=sa+da*(128-sa)/128;
+        if(!sa || !out_a)continue;
+        for(int c=0;c<3;++c)d[c]=std::uint8_t((w[c]*sa*128+d[c]*da*(128-sa))/(out_a*128));
+        d[3]=std::uint8_t(out_a);
+    }
+    plate_row=std::move(row);
+    plate_ready.store(true,std::memory_order_release);
+    std::fprintf(stderr,"Main menu item: the plate of Online Mode made from Dueling's\n");
 }
 }
 
@@ -360,27 +430,26 @@ extern "C" int Bt2MenuItem_ArtSwap(unsigned char* rgba,int w,int h) {
     std::uint64_t hash=14695981039346656037ull;
     for(int i=0;i<512*128*4;++i)hash=(hash^rgba[i])*1099511628211ull;
     static int logged=0;
-    const bool text=hash==art.text_sheet,plate=hash==art.plate_sheet;
+    const bool text=hash==names_sheet_hash,plate=hash==plates_sheet_hash;
     if(!text && !plate) {
         if(logged<24){++logged;std::fprintf(stderr,"Main menu item: a 512 x 256 sheet %016llx\n",static_cast<unsigned long long>(hash));}
         return 0;
     }
-    std::memcpy(rgba+512*128*4,(text?art.text:art.plate).data(),512*64*4);
+    if(plate && !plate_ready.load(std::memory_order_acquire))return 0; // (no plate of Dueling's to make it from yet)
+    std::memcpy(rgba+512*128*4,(text?name_picture.rgba:plate_row).data(),512*64*4);
     if(plate)std::memset(rgba+512*192*4,0,512*64*4); // (the lines past the upload: whatever GS memory holds there)
     return 1;
 }
 
 void installMainMenuItem(EeRuntime& runtime,const std::string& folder) {
-    art.text=readFile(folder+"/text.raw",512*64*4);
-    art.plate=readFile(folder+"/plate.raw",512*64*4);
-    std::ifstream sheets(folder+"/sheets.txt");
-    sheets>>std::hex>>art.text_sheet>>art.plate_sheet;
-    if(art.text.empty() || art.plate.empty() || !art.text_sheet || !art.plate_sheet) {
+    name_picture=loadPicture(folder+"/item_text.png");
+    plate_word=loadPicture(folder+"/plate_text.png");
+    for(std::size_t k=0;k<pictures;++k)picture[k]=loadPicture(folder+"/"+picture_names[k]+".png");
+    if(name_picture.w!=512 || name_picture.h!=64 || plate_word.w!=512 || plate_word.h!=64) {
         std::fprintf(stderr,"Main menu item: no pictures in %s, the menu stays the game's\n",folder.c_str());
         return;
     }
     art_ready.store(true,std::memory_order_release);
-    readPictures(folder);
     original_init=runtime.replaceFunction(init_menu,initMenu);
     runtime.replaceFunction(guides,guidesMenu);
     runtime.replaceFunction(moved_menu,movedMenu);
