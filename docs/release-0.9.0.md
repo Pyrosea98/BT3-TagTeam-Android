@@ -461,10 +461,50 @@ Imagem (8 quadros da luta, 6300 a 7350):
   1 nível de diferença. Não vêm da área de render pass nem da thread (os mesmos 11 com cada uma desligada):
   vêm do passe que soma o brilho com força 0, que ainda mexe 1 nível nesses pixels e que o Lite pula.
 
-**RP5 e a gravação.** A `fight_rp5.rec` deixou de sincronizar (também no APK 900): o jogo fica nos logos e na
-demonstração e a "luta" medida não é a luta (copies 3,9 em vez de 14,5; por isso VK 4x parecia 93%). As medições do
-RP5 acima usam a gravação do Cube (`fight.rec`), conferidas por captura de tela (seleção, "Fight!", golpes), e a
-coluna 900 foi medida de novo nela. A causa provável é a mudança de início de tela cheia (79ce685), não investigada.
+**RP5 e a gravação.** Nas rodadas das 19:59 às 20:14 a `fight_rp5.rec` perdeu a sincronia: o jogo ficou nos logos e
+na demonstração, e a "luta" medida não era a luta (3,9 cópias por quadro em vez de 13,4; por isso o VK 4x parecia
+93%). Isso aconteceu também com o APK 900, enquanto o RP5 estava em uso (o Geekbench estava aberto). Às 21:00, com
+o aparelho livre, a gravação voltou a sincronizar em todas as builds. Comparação do boot (a mesma gravação, os
+pares "quadro, blank do jogo" das linhas `alive` do log, sem a tela de luta):
+
+| Build | 300 | 900 | 1200 | 1500 | 1800 | janela | blanks atrasados no boot |
+|---|---|---|---|---|---|---|---|
+| swap1 (11:31, antes do 79ce685) | 304 | 904 | 1319 | 1861 | 2161 | 1920x972 | 1 |
+| tex1 (12:13, antes do 79ce685), 2 boots | 304 | 904 | 1319 | 1861 | 2161 | 1920x1080 | 1 |
+| 900 (tex3), 4 boots, com e sem pacote de textura | 304 | 904 | 1319 | 1861 | 2161 | 1920x1080 | 1 |
+| esta build (Lite desligado) | 304 | 904 | 1319 | 1861 | 2161 | 1920x1080 | 1 |
+| as rodadas sem sincronia (19:59 a 20:14) | 304 | 904 | 1204 | 1504 | 2004 | 1920x1080 | 1 a 6 |
+
+O 79ce685 não muda o ritmo: os mesmos blanks nos logos e o mesmo tempo até o menu, com a janela de 972 ou de 1080
+linhas. A gravação de pad só reproduz a sessão se o boot gastar os mesmos blanks. Nas rodadas sem sincronia, a
+divergência começa entre os quadros 900 e 1200 (o vídeo de abertura e o carregamento do título), e houve até 6
+blanks atrasados no boot contra 1 nas boas: o mais provável é o aparelho ocupado por outro app nessa hora (não
+provado). O jogo não é afetado; é uma limitação de uma gravação feita desde o boot. Ainda assim o 79ce685 não foi
+revertido.
+
+Luta à mão no RP5 com o APK 900 (Goku x Kid Gohan até o K.O., ajustes normais do aparelho, VK 2x): velocidade
+100%, blanks de 16,6 a 16,7 ms, blanks atrasados distribuídos como nas lutas gravadas de referência (até 30 em 60
+numa luta a 30), sem aviso novo no log (as linhas a mais são dos ajustes do aparelho: pular quadros, filtro de tela,
+tudo desbloqueado).
+
+Esta build nas condições exatas do relatório (`fight_rp5.rec`, luta conferida: 13,4 cópias por quadro): VK 4x
+**83,7%** (relatório 83,7%; draws 5,14 → 3,92 ms), VK 2x 100%, GL 2x 100%. As medições do RP5 na tabela acima, com
+a `fight.rec`, também valem (a coluna 900 foi medida nelas).
+
+**Diálogo do perfil de GPU, conferido nos aparelhos** (o nome da GPU trocado no `gpu_name.txt` para simular um
+G52; o `dr_gpu_tier` tirado só durante o teste):
+- RG Cube ("Mali-G57"): sem a linha do Lite. RP5 ("Adreno (TM) 650"): sem a linha do Lite. "Mali-G52 MC1" no Cube e
+  no RP5: com a linha "Modo Lite: thread de renderização, brilho e reflexo desligados".
+- Pela lógica (`GpuProfiles`, compilada e rodada à parte): o Lite é oferecido para Mali-G52 (MC1 a MC3 e sem número),
+  G57 MC1 e MC2, G31, G51, Adreno 610 e PowerVR GE8320; não para G57 MC3/MC4, "Mali-G57" sem número de núcleos,
+  G68, G76, G610, G710, Adreno 619 e 650.
+- Corrigido nesta rodada: no RP5 (paisagem, 1080 linhas) a lista do diálogo não rolava e cortava os últimos itens
+  (o filtro de tela já aparecia pela metade; num chip fraco, com 8 itens, a linha do Lite ficaria escondida). O
+  texto agora rola. Só launcher.
+
+**Achado, não corrigido:** com o ajuste `texture_pack=1` e a pasta `textures` vazia (criada pelo importador), o
+launcher mostra depois de uma luta "O pacote de textura não foi usado" e grava um log em Downloads, mesmo sem
+pacote nenhum (aconteceu nos dois aparelhos com o APK 900 e com esta build).
 
 **O que ficou de fora**
 - 30 quadros/s no G52 MC1: o Lite chega a ~77% (BT3). O resto do tempo de GPU está nas cópias DATE (~20%) e no
@@ -474,5 +514,33 @@ coluna 900 foi medida de novo nela. A causa provável é a mudança de início d
 - OpenGL com framebuffer fetch (93% só GPU, mas imagem errada no G57 e trava no G52, ver o device lab), shader em
   mediump (+3,7%), cópias DATE sem quebrar o pass e as ferramentas de medição (no commit dd4581d).
 
-**Aparelhos:** os dois voltaram ao estado da seção 8 (APK 900, ajustes do BT3, `bt3_env.txt` do Cube, sem
-gravações nem capturas, saves iguais, Cube sem limites de GPU e CPU).
+**Aparelhos:** os dois voltaram ao estado da seção 8: APK 900 (md5 conferido), ajustes do BT3, `bt3_env.txt` do
+Cube (o RP5 sem), `gpu_name.txt` original, sem gravações nem capturas, saves iguais, Downloads só com o que já
+havia, o último jogo de cada um como estava (BT4 no Cube, BT3 no RP5), Cube sem limites de GPU e CPU.
+
+**Commits locais (branch `lite`, a partir de `release-0.9.0`; nada enviado):**
+
+```
+(este)  Lite: report checks, GPU dialog scrolls
+2d6d053 Lite mode: dr_lite setting, SDL descriptor sets kept
+dd4581d Lite: measurements on a simulated Mali-G52 MC1 (WIP)
+49b9b4d Docs: fullscreen and texture packs in the 0.9.0 report   (release-0.9.0, seção 8)
+```
+
+O dd4581d tem as ferramentas de medição e o patch de TLS do BT4; o 2d6d053 os tira. Para publicar a 0.9.0 com o
+Lite (nada disso foi feito):
+
+```
+git switch release-0.9.0
+git merge --ff-only lite
+git push -u origin release-0.9.0
+git switch main
+git merge --no-ff release-0.9.0 -m "Dragon Rage 0.9.0"
+git push origin main
+# o push no main muda port/third_party/sdl3-patches e o toolchain.yml: o workflow "toolchain" recompila o SDL com
+# o patch e troca o asset do release toolchain-ndk. Esperar ele terminar antes da tag, senão o APK do CI sai com o
+# SDL de antes (funciona, só sem o ganho).
+gh run watch $(gh run list --workflow toolchain.yml --limit 1 --json databaseId -q '.[0].databaseId')
+git tag android-v0.9.0
+git push origin android-v0.9.0
+```
