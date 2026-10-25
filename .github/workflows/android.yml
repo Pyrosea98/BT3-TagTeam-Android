@@ -101,7 +101,8 @@ jobs:
       # Budokai Tenkaichi 2 (bt2/, libbt2.so): only where its code was generated from a disc image. That code never
       # goes into this public repository (bt2/docs/project/LEGAL.md); a private copy that holds bt2/game/generated
       # builds the APK with both games (libbt2.so makes its startup inputs from the player's disc). Without it
-      # this step is skipped and the app shows Budokai Tenkaichi 2 as not included.
+      # this step is skipped: the players import BT2's engine as a signed motor package shared outside GitHub
+      # (bt2/android/build.py package; the app's BT2 tab, data/Bt2Engine.kt).
       - name: Engine BT2 (when its generated code is present)
         if: hashFiles('bt2/game/generated/bt2/FUN_0032EEE0_0x32eee0.cpp') != ''
         working-directory: .

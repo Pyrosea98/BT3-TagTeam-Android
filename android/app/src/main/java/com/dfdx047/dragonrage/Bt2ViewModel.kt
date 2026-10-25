@@ -11,6 +11,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.dfdx047.dragonrage.data.ActivityLog
 import com.dfdx047.dragonrage.data.Bt2Drivers
+import com.dfdx047.dragonrage.data.Bt2Engine
 import com.dfdx047.dragonrage.data.Bt2Renderer
 import com.dfdx047.dragonrage.data.Bt2Settings
 import com.dfdx047.dragonrage.data.Bt2Unlock
@@ -63,7 +64,14 @@ class Bt2ViewModel(app: Application) : AndroidViewModel(app) {
     private val touchStore = TouchStore(paths.bt2Root)
     private val drivers = GpuDrivers(app, app.contentResolver)
 
-    val engineAvailable = EngineBridge.isAvailable(app, Game.BT2)
+    /** libbt2.so in this APK (a private build); the public ones leave it out and the player imports it (Bt2Engine). */
+    val enginePackaged = EngineBridge.isPackaged(app, Game.BT2)
+    private val _engine = MutableStateFlow(Bt2Engine.installed(app))
+    /** The motor package the player imported, if any (it may be one an app update no longer starts). */
+    val engine: StateFlow<Bt2Engine.Info?> = _engine.asStateFlow()
+    private val _engineBusy = MutableStateFlow(false)
+    val engineBusy: StateFlow<Boolean> = _engineBusy.asStateFlow()
+    val engineAvailable: Boolean get() = enginePackaged || _engine.value?.compatible == true
 
     private val _install = MutableStateFlow(installer.currentStateBt2())
     val install: StateFlow<InstallState> = _install.asStateFlow()
@@ -124,6 +132,7 @@ class Bt2ViewModel(app: Application) : AndroidViewModel(app) {
         _drivers.value = drivers.list()
         _driver.value = Bt2Drivers.selectedId(paths)
         _unlocked.value = Bt2Unlock.isOn(paths)
+        _engine.value = Bt2Engine.installed(getApplication())
         keepFinishedRun()
         _lastRun.value = runCatching { runLog.readLines().takeLast(40) }.getOrDefault(emptyList())
         _runs.value = runs.listFiles()?.sortedByDescending { it.name }.orEmpty()
@@ -161,6 +170,42 @@ class Bt2ViewModel(app: Application) : AndroidViewModel(app) {
         note("I", "image removed by the player")
         installer.uninstallBt2()
         _install.value = InstallState.NotInstalled
+    }
+
+    // ---- the engine (a motor package from outside GitHub, when the APK has none)
+
+    fun importEngine(uri: Uri) {
+        if (_engineBusy.value) return
+        _engineBusy.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            val app = getApplication<Application>()
+            note("I", "motor package from ${ActivityLog.describe(app.contentResolver, uri)}")
+            try {
+                val info = Bt2Engine.import(app, app.contentResolver, uri)
+                note("I", "motor imported: ${info.version} (ABI ${info.abi})")
+                say(str(R.string.bt2_engine_imported, info.version))
+            } catch (e: Bt2Engine.Refused) {
+                note("E", "motor refused: ${e.why} ${e.version}")
+                say(when (e.why) {
+                    Bt2Engine.Refusal.NOT_A_PACKAGE -> str(R.string.bt2_engine_not_package)
+                    Bt2Engine.Refusal.BAD_SIGNATURE -> str(R.string.bt2_engine_bad_signature)
+                    Bt2Engine.Refusal.DAMAGED -> str(R.string.bt2_engine_damaged)
+                    Bt2Engine.Refusal.OTHER_APP_VERSION -> str(R.string.bt2_engine_other_version, e.version)
+                })
+            } catch (e: Exception) {
+                note("E", "motor import failed: $e")
+                say(str(R.string.bt2_engine_damaged))
+            } finally {
+                _engine.value = Bt2Engine.installed(app)
+                _engineBusy.value = false
+            }
+        }
+    }
+
+    fun removeEngine() = viewModelScope.launch(Dispatchers.IO) {
+        note("I", "motor removed by the player")
+        Bt2Engine.remove(getApplication())
+        _engine.value = null
     }
 
     // ---- playing
@@ -265,7 +310,7 @@ class Bt2ViewModel(app: Application) : AndroidViewModel(app) {
             val text = buildString {
                 appendLine("Dragon Rage ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) - Budokai Tenkaichi 2")
                 appendLine("${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE}, GPU ${Renderer.gpuName(paths)}")
-                appendLine("engine included: $engineAvailable, image: ${_install.value}")
+                appendLine("engine in the APK: $enginePackaged, imported: ${_engine.value?.let { "${it.version} (ABI ${it.abi})" } ?: "none"}, image: ${_install.value}")
                 appendLine("\n== bt2/user/settings"); appendLine(runCatching { File(paths.bt2Root, "user/settings").readText() }.getOrDefault("(none)"))
                 appendLine("== bt2/user/android"); appendLine(runCatching { File(paths.bt2Root, "user/android").readText() }.getOrDefault("(none)"))
                 appendLine("== last run (bt2/user/last-run.log)"); appendLine(runCatching { runLog.readText() }.getOrDefault("(no run yet)"))

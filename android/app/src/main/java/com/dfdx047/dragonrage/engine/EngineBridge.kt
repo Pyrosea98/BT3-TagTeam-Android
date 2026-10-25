@@ -1,6 +1,7 @@
 package com.dfdx047.dragonrage.engine
 
 import android.content.Context
+import com.dfdx047.dragonrage.data.Bt2Engine
 import com.dfdx047.dragonrage.data.Game
 
 /**
@@ -13,8 +14,12 @@ import com.dfdx047.dragonrage.data.Game
 object EngineBridge {
     const val LIBRARY = "bt3"
 
+    /** Whether [game]'s engine can be started: BT2's imported by the player (Bt2Engine), or packaged in this APK. */
+    fun isAvailable(context: Context, game: Game = Game.BT3): Boolean =
+        game == Game.BT2 && Bt2Engine.usable(context) != null || isPackaged(context, game)
+
     /** Whether [game]'s engine library is packaged in this APK. Looked up without loading it. */
-    fun isAvailable(context: Context, game: Game = Game.BT3): Boolean {
+    fun isPackaged(context: Context, game: Game = Game.BT3): Boolean {
         // (the class loader also finds libraries kept uncompressed inside the APK, which is the default)
         val loader = context.classLoader as? dalvik.system.BaseDexClassLoader ?: return false
         return loader.findLibrary(game.library) != null

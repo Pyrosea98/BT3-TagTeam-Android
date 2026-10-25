@@ -105,4 +105,18 @@
     <string name="bt2_online_soon">Próximamente</string>
     <string name="bt2_online_text">El modo online de Budokai Tenkaichi 2 todavía no está disponible.</string>
     <string name="bt2_play_online">Jugar online</string>
+    <!-- el paquete del motor (data/Bt2Engine.kt) -->
+    <string name="bt2_engine_get">El motor de BT2 no viene en la app: descarga el paquete del motor (.zip) en el Discord de Dragon Rage e impórtalo aquí.</string>
+    <string name="bt2_engine_import">Importar motor (.zip)</string>
+    <string name="bt2_engine_import_other">Importar otro</string>
+    <string name="bt2_engine_importing">Verificando e instalando el motor…</string>
+    <string name="bt2_engine_installed">Motor instalado: versión %1$s.</string>
+    <string name="bt2_engine_outdated">El motor instalado (versión %1$s) es de otra versión de Dragon Rage. Descarga en el Discord el motor de esta versión e impórtalo.</string>
+    <string name="bt2_engine_imported">Motor de BT2 instalado (versión %1$s).</string>
+    <string name="bt2_engine_not_package">Este archivo no es un paquete del motor de BT2.</string>
+    <string name="bt2_engine_bad_signature">Este motor no es uno oficial de Dragon Rage (la firma no coincide) y no se instaló.</string>
+    <string name="bt2_engine_damaged">El paquete del motor está incompleto o dañado: descárgalo de nuevo.</string>
+    <string name="bt2_engine_other_version">Este motor (versión %1$s) es de otra versión de Dragon Rage: descarga el de esta versión.</string>
+    <string name="bt2_engine_remove_q">¿Quitar el motor de BT2?</string>
+    <string name="bt2_engine_remove_text">BT2 no se podrá jugar hasta importar un motor de nuevo. La imagen del disco, las partidas guardadas y los ajustes se conservan.</string>
 </resources>

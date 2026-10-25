@@ -401,11 +401,10 @@
     <string name="bt2_intro">Escolha a sua ISO de Budokai Tenkaichi 2 (versão USA, SLUS-21441). A imagem é copiada inteira para a pasta do app; os dados do BT3 continuam como estão.</string>
     <string name="bt2_ready">Imagem do disco no lugar (%1$s).</string>
     <string name="bt2_play">Jogar BT2</string>
-    <string name="bt2_engine_missing">O motor do Budokai Tenkaichi 2 não está incluído nesta versão.</string>
     <string name="bt2_remove_q">Remover a imagem do BT2?</string>
     <string name="bt2_remove_text">A imagem copiada é apagada. Os cartões de memória continuam.</string>
     <string name="step_copying_bt2">Copiando a imagem do BT2</string>
     <string name="err_bt2_program">Esta é uma imagem de Budokai Tenkaichi 2, mas o programa dela não é o da versão USA original (SLUS-21441), a partir da qual o motor foi construído. Imagens modificadas e outras versões não rodam.</string>
     <string name="msg_install_bt2_first">Escolha primeiro a sua ISO de Budokai Tenkaichi 2.</string>
-    <string name="msg_no_engine_bt2">O motor do Budokai Tenkaichi 2 não está incluído nesta versão.</string>
+    <string name="msg_no_engine_bt2">Importe primeiro o motor do BT2 (aba BT2, página Início).</string>
 </resources>

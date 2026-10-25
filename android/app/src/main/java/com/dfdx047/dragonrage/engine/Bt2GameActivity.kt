@@ -6,6 +6,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.dfdx047.dragonrage.data.Bt2Drivers
+import com.dfdx047.dragonrage.data.Bt2Engine
 import com.dfdx047.dragonrage.data.Bt2Settings
 import com.dfdx047.dragonrage.data.Game
 import com.dfdx047.dragonrage.data.GpuDriver
@@ -43,6 +44,17 @@ class Bt2GameActivity : GameActivity() {
     }
 
     override fun getLibraries(): Array<String> = arrayOf("SDL3", Game.BT2.library)
+
+    /** The engine the player imported (Bt2Engine: files/engines/bt2), else the APK's own (getLibraries). */
+    private val imported by lazy { Bt2Engine.usable(this) }
+
+    override fun loadLibraries() {
+        val engine = imported ?: return super.loadLibraries()
+        System.loadLibrary("SDL3")
+        System.load(engine.path)
+    }
+
+    override fun getMainSharedObject(): String = imported?.path ?: super.getMainSharedObject()
 
     /** BT2's own controller layout (<root>/bt2/touch_controls.json): what the BT2 tab sets, apart from BT3's. */
     override fun touchFolder(): File = paths.bt2Root
