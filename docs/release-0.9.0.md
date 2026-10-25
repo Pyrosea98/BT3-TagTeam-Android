@@ -521,7 +521,7 @@ havia, o último jogo de cada um como estava (BT4 no Cube, BT3 no RP5), Cube sem
 **Commits locais (branch `lite`, a partir de `release-0.9.0`; nada enviado):**
 
 ```
-(este)  Lite: report checks, GPU dialog scrolls
+2f3ff7b Lite: report checks, GPU dialog scrolls
 2d6d053 Lite mode: dr_lite setting, SDL descriptor sets kept
 dd4581d Lite: measurements on a simulated Mali-G52 MC1 (WIP)
 49b9b4d Docs: fullscreen and texture packs in the 0.9.0 report   (release-0.9.0, seção 8)
