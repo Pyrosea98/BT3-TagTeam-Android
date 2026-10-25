@@ -43,6 +43,19 @@ static SDL_GPUDevice *sDev;
    full 1024 x 1024, as before. */
 static int sTW = 512, sTH = 512;
 static unsigned sPassN, sCopyN; /* render passes and copies of the frames since the last report (BT3_GS_VERBOSE) */
+/* BT2's copy: the structure of a heavy frame's passes ("dump_frame" in BT2's renderer settings, three frames from it): each
+   pass or copy in the order the replay makes it, with why it began, and how many draws it holds. */
+static int sPassLog;
+static struct { uint32_t at; int target; char kind; } sPassRec[600];
+static int sPassRecN;
+static void pass_rec(uint32_t at, int target, char kind) {
+    if (sPassLog && sPassRecN < 600) {
+        sPassRec[sPassRecN].at = at;
+        sPassRec[sPassRecN].target = target;
+        sPassRec[sPassRecN].kind = kind;
+        sPassRecN++;
+    }
+}
 /* BT2's copy, a measurement (BT3_GS_VERBOSE): the alpha copies for TEST.DATE, and how many of them a copy before
    already covered (nothing wrote alpha into that buffer since, and the region needed lies inside the one copied):
    those could be left out without changing a pixel. Each copy ends a render pass and starts another, about a
@@ -1125,6 +1138,8 @@ static void vk_frame_end(void) {
         if (dumpAt == 0 && gsDrawCount > 1500) {
             dumpAt = (int)gGsFrame;
         }
+        sPassLog = dumpAt > 0 && (int)gGsFrame >= dumpAt && (int)gGsFrame < dumpAt + 3;
+        sPassRecN = 0;
         if (dumpAt > 0 && (int)gGsFrame >= dumpAt && (int)gGsFrame < dumpAt + 1) {
             uint32_t k;
             fprintf(stderr, "list: frame %u: %u draws\n", gGsFrame, gsDrawCount);
@@ -1380,6 +1395,7 @@ static void vk_frame_end(void) {
             bl.destination.h = sTH * SCALE;
             bl.load_op = SDL_GPU_LOADOP_DONT_CARE;
             bl.filter = SDL_GPU_FILTER_LINEAR;
+            pass_rec(n, d->target, 'U');
             if (sFbTex[d->native - 100] != NULL) {
                 SDL_BlitGPUTexture(cmd, &bl);
                 sCopyN++;
@@ -1418,6 +1434,7 @@ static void vk_frame_end(void) {
             if (rw <= 0 || rh <= 0) {
                 continue;
             }
+            pass_rec(n, d->target, '5');
             cp = SDL_BeginGPUCopyPass(cmd);
             SDL_zero(from);
             SDL_zero(to);
@@ -1441,6 +1458,7 @@ static void vk_frame_end(void) {
                 continue;
             }
             sCopyN++;
+            pass_rec(n, d->target, '4');
             cp = SDL_BeginGPUCopyPass(cmd);
             SDL_zero(from);
             SDL_zero(to);
@@ -1472,6 +1490,7 @@ static void vk_frame_end(void) {
             cts[1].texture = sTgAux[d->target];
             sAlphaSince[d->target] = 1; /* (the table pass writes the alpha attachment) */
             sPassN++;
+            pass_rec(n, d->target, '3');
             pass = SDL_BeginGPURenderPass(cmd, cts, 2, NULL);
             SDL_BindGPUGraphicsPipeline(pass, sPipes[d->pipeline].p);
             bc.r = bc.g = bc.b = bc.a = d->blendc;
@@ -1509,6 +1528,7 @@ static void vk_frame_end(void) {
             ft.load_op = SDL_GPU_LOADOP_LOAD;
             ft.store_op = SDL_GPU_STOREOP_STORE;
             sPassN++;
+            pass_rec(n, d->target, d->native == 2 ? 'K' : 'O');
             pass = SDL_BeginGPURenderPass(cmd, &ft, 1, NULL);
             SDL_BindGPUGraphicsPipeline(pass, d->native == 2 ? sKeyPipe : sOutlinePipe);
             fs.texture = sAuxCopy; /* the ids as copied by the game, not the live alpha (later passes overwrite it) */
@@ -1536,6 +1556,7 @@ static void vk_frame_end(void) {
             cur = -1;
         }
         if (d->target != cur) {
+            const int fromCur = cur;
             SDL_GPUColorTargetInfo ct, cts[2];
             SDL_GPUDepthStencilTargetInfo dt;
             if (pass != NULL) {
@@ -1579,6 +1600,7 @@ static void vk_frame_end(void) {
             gsTargets[d->target].cleared = 1;
             cts[0] = ct;
             sPassN++;
+            pass_rec(n, d->target, shadowStart ? 'S' : fromCur >= 0 ? 'T' : 'N');
             pass = SDL_BeginGPURenderPass(cmd, cts, 2, &dt);
             {   /* the draws' 1024 x 1024 page (see sTW): larger than the target, which holds its top-left part */
                 SDL_GPUViewport vp = {0.0f, 0.0f, 1024.0f * SCALE, 1024.0f * SCALE, 0.0f, 1.0f};
@@ -1660,6 +1682,18 @@ static void vk_frame_end(void) {
     }
     if (pass != NULL) {
         SDL_EndGPURenderPass(pass);
+    }
+    if (sPassLog && sPassRecN > 0) {
+        int k;
+        fprintf(stderr, "passes: frame %u: %u draws, %d passes and copies (T switch of target, S shadow batch, N after a copy or native pass, "
+                        "3 table, K key, O outline, 4 alpha-id copy, 5 DATE copy, U upload)\n", gGsFrame, gsDrawCount, sPassRecN);
+        for (k = 0; k < sPassRecN; k++) {
+            uint32_t to = k + 1 < sPassRecN ? sPassRec[k + 1].at : gsDrawCount;
+            fprintf(stderr, "passes:   %c fbp %03x%s draws %u..%u (%u)\n", sPassRec[k].kind,
+                    sPassRec[k].target >= 0 ? gsTargets[sPassRec[k].target].fbp : 0u,
+                    sPassRec[k].target >= 0 && gGsMainFbp >= 0 && gsTargets[sPassRec[k].target].fbp == (uint32_t)gGsMainFbp ? " (main)" : "",
+                    sPassRec[k].at, to, to - sPassRec[k].at);
+        }
     }
     /* Show the frame's own buffer: the one sceGsSwapDBuff set up for this frame. (Guessing "the buffer with the most
        draws" showed the shadow buffer, a grey fighter on black, on frames where it happened to receive more.) */
