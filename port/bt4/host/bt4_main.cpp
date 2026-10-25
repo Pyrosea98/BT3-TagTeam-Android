@@ -63,6 +63,7 @@ extern int gPortPadAlways;                                     /* gs_input.c: th
 void Bt4_OpenMenu(void);                                       /* (below) the app's touch menu */
 }
 void ps2Set60Fps(bool on, const char *sitesPath);              /* BT3-Recomp (ps2_stepcensus.cpp): 60 fps fights */
+uint64_t ps2FightTicks();                                      /* (the same): the fight's updates so far */
 
 // BT3-Recomp's pacing table of the 60 fps fights (games/bt3/fps60_sites.txt, which the mod keeps: it has the USA
 // layout), built into this library by CMakeLists.txt and written to the game folder for the runtime to load.
@@ -328,6 +329,50 @@ void fps60Prepare()
     std::fprintf(stderr, "bt4: fights at %d fps\n", on ? 60 : 30);
 }
 
+// The 60 fps fights stay on only where the device holds them: below 57 of the fight's updates a second for 3 s in
+// a row while a fight runs (more than 20 a second: not its pauses, not the menus), they go back to 30 (from the next
+// fight, as the runtime switches) and the app says so (Bt4Activity.fps60Dropped). bt4_fps60_dropped=1 keeps it known
+// for the settings; turning the option on again clears it. BT4_FPS60_KEEP=1: never (measuring).
+void fps60Watch()
+{
+    std::thread([] {
+        uint64_t last = ps2FightTicks();
+        auto at = std::chrono::steady_clock::now();
+        int slow = 0;
+        while (!g_quit)
+        {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            const uint64_t now = ps2FightTicks();
+            const auto t = std::chrono::steady_clock::now();
+            const double rate = (now - last) / std::chrono::duration<double>(t - at).count();
+            last = now;
+            at = t;
+            if (Port_Setting("bt4_fps60", 0) == 0 || std::getenv("BT4_FPS60_KEEP") != nullptr)
+            {
+                slow = 0;
+                continue;
+            }
+            slow = rate > 20.0 && rate < 57.0 ? slow + 1 : 0;
+            if (slow < 3)
+                continue;
+            std::fprintf(stderr, "bt4: 60 fps fights: %.1f updates a second for 3 s, back to 30\n", rate);
+            Port_SettingSave("bt4_fps60", 0);
+            Port_SettingSave("bt4_fps60_dropped", 1);
+            Port_SettingsWrite();
+            ps2Set60Fps(false, g_fps60Path.c_str());
+            JNIEnv *env = static_cast<JNIEnv *>(SDL_GetAndroidJNIEnv());
+            jobject act = env ? static_cast<jobject>(SDL_GetAndroidActivity()) : nullptr;
+            jclass cls = act ? env->GetObjectClass(act) : nullptr;
+            jmethodID m = cls ? env->GetMethodID(cls, "fps60Dropped", "()V") : nullptr;
+            if (m)
+                env->CallVoidMethod(act, m);
+            if (env && env->ExceptionCheck())
+                env->ExceptionClear();
+            slow = 0;
+        }
+    }).detach();
+}
+
 void menuSnapshot()
 {
     PortVideo v;
@@ -347,7 +392,8 @@ void menuSnapshot()
     g_menuSnap["glow"] = v.glow;
     g_menuSnap["bt4_aspect"] = Bt4_AspectMode();
     g_menuSnap["bt4_fps60"] = Port_Setting("bt4_fps60", 0);
-    g_menuSnap["bt4_renderer"] = Port_Setting("bt4_renderer", 0);
+    g_menuSnap["bt4_fps60_dropped"] = Port_Setting("bt4_fps60_dropped", 0);
+    g_menuSnap["bt4_renderer"] = Port_Setting("bt4_renderer", 1);
     g_menuGen++;
 }
 
@@ -388,6 +434,8 @@ void menuApply(const std::string &key, int value)
     else if (key == "bt4_fps60")
     {
         Port_SettingSave("bt4_fps60", value ? 1 : 0);
+        if (value)
+            Port_SettingSave("bt4_fps60_dropped", 0);
         Port_SettingsWrite();
         ps2Set60Fps(value != 0, g_fps60Path.c_str()); // (the runtime switches at its next frame)
         std::fprintf(stderr, "bt4: fights at %d fps (from the menu)\n", value ? 60 : 30);
@@ -666,6 +714,7 @@ static void startGame()
         std::fprintf(stderr, "bt4: the game ended (%d)\n", code);
         g_quit = true;
     }).detach();
+    fps60Watch();
 }
 
 // ps2_gs_live.cpp asks for the host once the ring is ready (in the browser build: the page): here it is this thread.
@@ -842,8 +891,9 @@ extern "C" __attribute__((visibility("default"))) int SDL_main(int argc, char *a
 
     fps60Prepare();
 
-    // the renderer: Dragon Rage's (0, the default) or ARMSX2's (1, bt4_renderer)
-    if (Port_Setting("bt4_renderer", 0) == 1)
+    // the renderer: ARMSX2's (1, the default since Dragon Rage 0.9.0) or Dragon Rage's (0, experimental for BT4:
+    // bt4_renderer). A build without libbt4gsx.so falls to Dragon Rage's below.
+    if (Port_Setting("bt4_renderer", 1) == 1)
     {
         startGame();
         if (runArmsx2())

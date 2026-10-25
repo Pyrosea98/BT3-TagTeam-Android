@@ -55,9 +55,9 @@ On the PC: git, cmake, ninja, make, a C/C++ compiler (the recompiler runs there)
   (`games/bt3/fps60_sites.txt`, built into libbt4.so by CMakeLists.txt and written to `runtime/` at start), as the
   mod's Windows and Mac builds offer it. Live from the touch menu.
 
-## The renderer "ARMSX2" (experimental, `port/bt4/gsx`)
+## The renderer "ARMSX2" (the default since Dragon Rage 0.9.0, `port/bt4/gsx`)
 
-`bt4_renderer` = 1 draws the game with the ARMSX2 emulator's GS instead of Dragon Rage's: PCSX2's hardware renderer
+`bt4_renderer` = 1 (the default; 0 is Dragon Rage's renderer, experimental for BT4) draws the game with the ARMSX2 emulator's GS instead of Dragon Rage's: PCSX2's hardware renderer
 with ARMSX2's Vulkan / OpenGL ES fixes for Mali and Adreno, reading exactly the live stream Dragon Rage's GS reads
 (it is a PCSX2 GS dump's format). It is what dbz-bt4-recomp does on Windows and macOS with `pcsx2-gsrunner` in a
 process of its own; here it is a library in the game's process, `libbt4gsx.so`:

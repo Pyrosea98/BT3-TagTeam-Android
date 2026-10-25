@@ -107,8 +107,14 @@ fun SettingsScreen(vm: AppViewModel) {
                     stringResource(R.string.bt4_aspect_hint),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                ToggleRow(stringResource(R.string.bt4_fps60), stringResource(R.string.bt4_fps60_text), get(EngineSettings.BT4_FPS60, 0) != 0) {
+                ToggleRow(
+                    stringResource(R.string.bt4_fps60),
+                    stringResource(R.string.bt4_fps60_text) +
+                        if (get(EngineSettings.BT4_FPS60_DROPPED, 0) != 0) "\n" + stringResource(R.string.bt4_fps60_dropped) else "",
+                    get(EngineSettings.BT4_FPS60, 0) != 0,
+                ) {
                     vm.setting(EngineSettings.BT4_FPS60, if (it) 1 else 0)
+                    if (it) vm.setting(EngineSettings.BT4_FPS60_DROPPED, 0)
                 }
             } else {
                 ChipRow(
@@ -198,8 +204,8 @@ fun SettingsScreen(vm: AppViewModel) {
             if (vm.game == com.dfdx047.dragonrage.data.Game.BT4 && EngineSettings.hasArmsx2Renderer(androidx.compose.ui.platform.LocalContext.current)) {
                 Text(stringResource(R.string.bt4_renderer), style = MaterialTheme.typography.titleSmall)
                 ChipRow(
-                    options = listOf("Dragon Rage" to 0, stringResource(R.string.bt4_renderer_armsx2) to 1),
-                    selected = get(EngineSettings.BT4_RENDERER, 0),
+                    options = listOf(stringResource(R.string.bt4_renderer_armsx2) to 1, stringResource(R.string.bt4_renderer_dr) to 0),
+                    selected = get(EngineSettings.BT4_RENDERER, 1),
                     onSelect = { vm.setting(EngineSettings.BT4_RENDERER, it) },
                 )
                 Text(

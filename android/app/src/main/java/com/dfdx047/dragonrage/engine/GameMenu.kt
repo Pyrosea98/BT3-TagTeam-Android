@@ -564,10 +564,10 @@ private fun VideoPage(l: L, game: Game, v: MenuValues) {
         if (game == Game.BT4 && com.dfdx047.dragonrage.data.EngineSettings.hasArmsx2Renderer(androidx.compose.ui.platform.LocalContext.current)) {
             Choice(
                 l.t("Renderer", "Renderizador", "Renderizador"),
-                l.t("ARMSX2: the PlayStation 2 emulator's renderer (experimental). From the next start of the game.",
-                    "ARMSX2: o renderizador do emulador de PlayStation 2 (experimental). Vale a partir da próxima vez que o jogo abrir.",
-                    "ARMSX2: el renderizador del emulador de PlayStation 2 (experimental). Desde el próximo inicio del juego."),
-                listOf("Dragon Rage" to 0, "ARMSX2" to 1), v.get("bt4_renderer", 0),
+                l.t("ARMSX2 (default): the PlayStation 2 emulator's renderer, the most faithful picture. Dragon Rage (experimental): Budokai Tenkaichi 3's, with faults in some of BT4's scenery. From the next start.",
+                    "ARMSX2 (padrão): o renderizador do emulador de PlayStation 2, a imagem mais fiel. Dragon Rage (experimental): o do Budokai Tenkaichi 3, com falhas em parte do cenário do BT4. Vale na próxima vez que o jogo abrir.",
+                    "ARMSX2 (predeterminado): el renderizador del emulador de PlayStation 2, la imagen más fiel. Dragon Rage (experimental): el de Budokai Tenkaichi 3, con fallos en parte del escenario de BT4. Desde el próximo inicio."),
+                listOf("ARMSX2" to 1, l.t("Dragon Rage (experimental)", "Dragon Rage (experimental)", "Dragon Rage (experimental)") to 0), v.get("bt4_renderer", 1),
             ) { v.set("bt4_renderer", it) }
         }
         val gpu = v.texts["gpu"].orEmpty()
@@ -605,10 +605,15 @@ private fun PerformancePage(l: L, game: Game, v: MenuValues) {
             ) { v.set("interp", it) }
         } else {
             SwitchRow(
-                l.t("60 fps in fights", "60 fps nas lutas", "60 fps en las peleas"),
-                l.t("The fight runs at 60 pictures a second (BT3-Recomp's mode, as in the mod's PC build). Heavier for the CPU and GPU; menus stay at their own rate.",
-                    "A luta roda a 60 quadros por segundo (o modo do BT3-Recomp, como na versão de PC do mod). Pesa mais na CPU e na GPU; os menus ficam no ritmo deles.",
-                    "La pelea va a 60 cuadros por segundo (el modo de BT3-Recomp, como en la versión de PC del mod). Pesa más en la CPU y la GPU; los menús siguen a su ritmo."),
+                l.t("60 fps in fights (experimental)", "60 fps nas lutas (experimental)", "60 fps en las peleas (experimental)"),
+                l.t("The fight runs at 60 pictures a second (BT3-Recomp's mode, as in the mod's PC build). Heavy for the CPU: where the device cannot hold 60, it goes back to 30 by itself.",
+                    "A luta roda a 60 quadros por segundo (o modo do BT3-Recomp, como na versão de PC do mod). Pesa muito na CPU: se o aparelho não aguentar 60, volta sozinho para 30.",
+                    "La pelea va a 60 cuadros por segundo (el modo de BT3-Recomp, como en la versión de PC del mod). Pesa mucho en la CPU: si el equipo no aguanta 60, vuelve solo a 30.") +
+                    if (v.get("bt4_fps60_dropped", 0) != 0)
+                        "\n" + l.t("This device could not hold 60 fps in BT4's fights; back to 30.",
+                            "Este aparelho não aguenta 60 fps nas lutas do BT4; voltando para 30.",
+                            "Este equipo no aguanta 60 fps en las peleas de BT4; volviendo a 30.")
+                    else "",
                 v.get("bt4_fps60", 0) != 0,
             ) { v.set("bt4_fps60", if (it) 1 else 0) }
         }

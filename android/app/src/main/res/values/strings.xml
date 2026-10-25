@@ -401,7 +401,7 @@
     <string name="online_log">Right after the problem, come back to the app and press Send log: it saves a report in Downloads (the device, the game\'s last three runs and everything the app did) and opens the share sheet. Send it on our Discord with a line about what you tried and against whom.</string>
     <string name="welcome_pick">Choose the game</string>
     <string name="welcome_bt3">The original game (USA disc). Online with Dragon Net, mods, stages, songs, cheats and custom drivers.</string>
-    <string name="welcome_bt4">Team BT4\'s mod: new characters, forms and stages. Experimental: its own engine (the mod recompiled), drawn by Dragon Rage\'s renderer.</string>
+    <string name="welcome_bt4">Team BT4\'s mod: new characters, forms and stages. Experimental: its own engine (the mod recompiled), drawn by ARMSX2\'s renderer (Dragon Rage\'s is an experimental option).</string>
     <string name="welcome_note">Each game keeps its own disc image, saves, textures and settings. You can switch from the menu (Game) at any time.</string>
     <string name="welcome_last">Last played</string>
     <string name="nav_switch_game">Game</string>
@@ -414,11 +414,13 @@
     <string name="sustained">Sustained performance</string>
     <string name="sustained_text">Asks Android for steady clocks the phone can hold for a long time, instead of the highest ones (where the phone supports it). Less heat and fewer drops in long sessions; the top speed can be a little lower.</string>
     <string name="bt4_aspect_hint">The mod draws its picture in 16:9: 16:9 shows it as Team BT4 made it. 4:3 is the PlayStation 2 frame as it is (people look thinner); Screen stretches it to the whole screen.</string>
-    <string name="bt4_fps60">60 fps in fights</string>
-    <string name="bt4_fps60_text">The fight runs at 60 pictures a second (BT3-Recomp\'s mode, as in the mod\'s PC build). Heavier for the CPU and the GPU.</string>
+    <string name="bt4_fps60">60 fps in fights (experimental)</string>
+    <string name="bt4_fps60_text">The fight runs at 60 pictures a second (BT3-Recomp\'s mode, as in the mod\'s PC build). Heavy for the CPU: where the device cannot hold 60 (below 57 a second for 3 s of a fight), it goes back to 30 by itself.</string>
+    <string name="bt4_fps60_dropped">This device could not hold 60 fps in BT4\'s fights; back to 30.</string>
     <string name="bt4_renderer">Renderer of Budokai Tenkaichi 4</string>
-    <string name="bt4_renderer_armsx2">ARMSX2 (experimental)</string>
-    <string name="bt4_renderer_text">Dragon Rage: the renderer of Budokai Tenkaichi 3. ARMSX2: the PlayStation 2 emulator\'s own (PCSX2\'s hardware renderer with ARMSX2\'s fixes for Mali and Adreno), drawing exactly what the game sends; it uses the resolution, the shape and the Vulkan or OpenGL ES choice above. From the next start.</string>
+    <string name="bt4_renderer_armsx2">ARMSX2 (default)</string>
+    <string name="bt4_renderer_dr">Dragon Rage (experimental)</string>
+    <string name="bt4_renderer_text">ARMSX2 (default): the PlayStation 2 emulator\'s renderer (PCSX2\'s, with ARMSX2\'s fixes for Mali and Adreno), the most faithful picture. Dragon Rage (experimental): Budokai Tenkaichi 3\'s renderer, with faults in some of BT4\'s scenery. Both use the resolution, the shape and the Vulkan or OpenGL ES choice above. From the next start.</string>
     <string name="bt4_err_not_bt4">This image is not Budokai Tenkaichi 4 (it has no SLUS_219.78). It needs Team BT4\'s mod, Beta 14 Rev2.</string>
     <string name="bt4_err_version">This image is another version of the mod: the game was recompiled for Beta 14 Rev2 (SLUS-219.78).</string>
     <string name="bt4_err_permission">Android did not let the app keep reading this image. Move it to Downloads or the phone\'s storage and pick it again.</string>

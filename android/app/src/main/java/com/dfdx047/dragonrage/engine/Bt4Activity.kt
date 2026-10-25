@@ -2,6 +2,8 @@ package com.dfdx047.dragonrage.engine
 
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
+import com.dfdx047.dragonrage.R
+import com.dfdx047.dragonrage.data.ActivityLog
 import com.dfdx047.dragonrage.data.Bt4Installer
 import com.dfdx047.dragonrage.data.Game
 import com.dfdx047.dragonrage.data.GamePaths
@@ -23,8 +25,9 @@ class Bt4Activity : GameActivity() {
     override fun installDataList() {} // (the BT3 engine's data lists: not this engine's)
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        ActivityLog.init(GamePaths(this, Game.BT4)) // (this process's lines in the same diary, for the exported log)
         image = runCatching { Bt4Installer(this, GamePaths(this, Game.BT4), contentResolver).openImage() }.getOrNull()
-        runCatching { copyGsxResources() }.onFailure { android.util.Log.w("bt4", "ARMSX2 renderer resources", it) }
+        runCatching { copyGsxResources() }.onFailure { ActivityLog.fail("bt4", "ARMSX2's renderer: its files could not be put in place", it) }
         super.onCreate(savedInstanceState)
     }
 
@@ -35,6 +38,22 @@ class Bt4Activity : GameActivity() {
         if ("version.txt" !in names) return
         val want = assets.open("bt4gsx/version.txt").use { it.readBytes().decodeToString().trim() }
         val dst = java.io.File(GamePaths(this, Game.BT4).root, "gsx") // (before GameActivity's onCreate sets `paths`)
+        // its Vulkan shaders compiled in advance (port/bt4/gsx/cache), where ARMSX2 keeps its cache, when there is none
+        // yet: the first start without them spends some 25 s compiling them. A cache already there stays (it has this
+        // device's own). A cache is two files, its index (.idx) and its data (.bin).
+        val cache = java.io.File(dst, "ARMSX2/cache")
+        val files = assets.list("bt4gsx/cache").orEmpty()
+        files.filter { it.endsWith(".bin") && it.removeSuffix(".bin") + ".idx" in files }.forEach { bin ->
+            val idx = bin.removeSuffix(".bin") + ".idx"
+            if (java.io.File(cache, bin).exists() || java.io.File(cache, idx).exists()) return@forEach
+            cache.mkdirs()
+            for (name in listOf(bin, idx)) {
+                val tmp = java.io.File(cache, "$name.part")
+                assets.open("bt4gsx/cache/$name").use { i -> tmp.outputStream().use { o -> i.copyTo(o) } }
+                tmp.renameTo(java.io.File(cache, name))
+            }
+            ActivityLog.info("bt4", "ARMSX2: its shaders compiled in advance installed (${bin.removeSuffix(".bin")}, ${java.io.File(cache, bin).length()} bytes)")
+        }
         val mark = java.io.File(dst, "version.txt")
         if (mark.exists() && mark.readText().trim() == want) return
         java.io.File(dst, "resources").deleteRecursively()
@@ -50,6 +69,13 @@ class Bt4Activity : GameActivity() {
         }
         copy("bt4gsx/resources", java.io.File(dst, "resources"))
         mark.writeText(want + "\n")
+    }
+
+    /** The engine (bt4_main.cpp, fps60Watch): the 60 fps fights went back to 30 on this device. From its thread. */
+    @Suppress("unused")
+    fun fps60Dropped() {
+        ActivityLog.warn("bt4", "60 fps fights: this device could not hold them (below 57 a second for 3 s); back to 30")
+        runOnUiThread { android.widget.Toast.makeText(this, R.string.bt4_fps60_dropped, android.widget.Toast.LENGTH_LONG).show() }
     }
 
     override fun onDestroy() {
