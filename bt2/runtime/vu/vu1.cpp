@@ -10,6 +10,7 @@
 #include <cfenv>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <immintrin.h>
@@ -43,11 +44,41 @@ unsigned viField(unsigned reg,std::uint32_t w,std::uint32_t at) {if(reg>15)refus
 // results flushed to zero. That is the model's treatment of denormals done by the processor; the
 // infinities and NaNs are clamped in code (`clamp`).
 constexpr unsigned vu_csr_mode=0x6000u|0x8000u|0x0040u;
+#if defined(__aarch64__)
+// AArch64: the same mode set in FPCR itself. The MXCSR calls go through the x86 intrinsics' emulation (sse2neon):
+// fegetround and fesetround in libm and several FPCR reads and writes each, at every run and around every XGKICK
+// (the EE's FPU had the same cost: ee/ps2_fpu.cpp). Only what MXCSR's emulation changes is changed here: the
+// rounding mode (RMode, bits 22-23) and flush-to-zero (FZ, bit 24, which stands for MXCSR's FZ and DAZ); the
+// register is put back whole. (BT2_PERF_BASELINE: through MXCSR, to measure against.)
+bool directFloatMode() {static const bool on=std::getenv("BT2_PERF_BASELINE")==nullptr;return on;}
+std::uint64_t readFpcr() {std::uint64_t v;__asm__ __volatile__("mrs %0, fpcr" : "=r"(v) :: "memory");return v;}
+void writeFpcr(std::uint64_t v) {__asm__ __volatile__("msr fpcr, %0" :: "r"(v) : "memory");}
+constexpr std::uint64_t fpcr_mode_bits=(std::uint64_t(3)<<22)|(std::uint64_t(1)<<24);
+// MXCSR's rounding control (bits 13-14: nearest, down, up, toward zero) and FZ/DAZ as FPCR's RMode (nearest, up,
+// down, toward zero) and FZ; and back, as sse2neon's _mm_getcsr reports them.
+std::uint64_t fpcrMode(unsigned csr) {
+    static constexpr std::uint64_t rmode[4]={0,2,1,3};
+    return rmode[(csr>>13)&3]<<22|((csr&0x8040u)?std::uint64_t(1)<<24:0);
+}
+unsigned csrOf(std::uint64_t fpcr) {
+    static constexpr unsigned rc[4]={0x0000u,0x4000u,0x2000u,0x6000u};
+    return rc[(fpcr>>22)&3]|(((fpcr>>24)&1)?0x8040u:0u);
+}
+struct ChopRounding {
+    unsigned saved;std::uint64_t fpcr=0;const bool direct=directFloatMode();
+    ChopRounding() {
+        if(direct) {fpcr=readFpcr();saved=csrOf(fpcr);writeFpcr((fpcr&~fpcr_mode_bits)|fpcrMode(vu_csr_mode));}
+        else {saved=_mm_getcsr();_mm_setcsr((saved&~0x6000u)|vu_csr_mode);}
+    }
+    ~ChopRounding() {if(direct)writeFpcr(fpcr);else _mm_setcsr(saved);}
+};
+#else
 struct ChopRounding {
     unsigned saved=_mm_getcsr();
     ChopRounding() {_mm_setcsr((saved&~0x6000u)|vu_csr_mode);}
     ~ChopRounding() {_mm_setcsr(saved);}
 };
+#endif
 enum : unsigned {Add,Sub,Madd,Msub,Mul};       // Arithmetic families.
 enum : unsigned {Vector,Field,RegisterQ,RegisterI}; // Second operand: ft, one field of ft, Q, I.
 // Codes 0x1C-0x2D, shared by the register forms and the accumulator forms (ADDq/ADDAq ...).
@@ -233,7 +264,13 @@ void Vu1::lower(std::uint32_t w,std::uint32_t at,const Kick& kick) {
             if(first+qwords>data_mask+1) {gifPacketInto(packet_,first);packet=packet_;}
             ++kicks;
             for(std::size_t n=0;n+8<=packet.size();n+=8) {std::uint64_t part;std::memcpy(&part,packet.data()+n,8);kick_hash=(kick_hash^part)*0x100000001B3ull;}
-            if(kick) {const unsigned mode=_mm_getcsr();_mm_setcsr(host_csr_);kick(packet);_mm_setcsr(mode);} // The GS runs with the host's float mode.
+            if(kick) { // The GS runs with the host's float mode.
+#if defined(__aarch64__)
+                if(directFloatMode()) {const auto mode=readFpcr();writeFpcr((mode&~fpcr_mode_bits)|fpcrMode(host_csr_));kick(packet);writeFpcr(mode);}
+                else
+#endif
+                {const unsigned mode=_mm_getcsr();_mm_setcsr(host_csr_);kick(packet);_mm_setcsr(mode);}
+            }
             return;
         }
         default:refuse("lower instruction",w,at);

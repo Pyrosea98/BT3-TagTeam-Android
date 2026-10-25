@@ -1,6 +1,7 @@
 #include "gs/hw/hw_gs_mirror.h"
 #include "gs/cpu/gs_command_sink.h"
 #include "host/sdl/sdl_viewer_window.h"
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -13,6 +14,7 @@ void Bt2Hw_FrameEnd(void);
 void Bt2Hw_Field(void);
 void Bt2Hw_SetLateUs(int us);
 extern int gGsMainFbp;
+extern int gsScale4; // (gs/hw/bt3/gs_draw.c: the internal resolution in quarters)
 }
 
 namespace {
@@ -24,6 +26,8 @@ extern "C" SDL_Window* Bt2Hw_ExistingWindow(void) {return viewer_window?viewer_w
 extern "C" void Bt2Hw_Event(const SDL_Event* event) {if(viewer_window && event)viewer_window->handle(*event);}
 
 namespace HwGs {
+double gif_seconds=0;
+
 bool wanted() {
     const char* renderer=std::getenv("BT2_RENDERER");
     return renderer && std::string_view(renderer)=="bt3";
@@ -37,11 +41,16 @@ bool attach(GsCommandSink& sink,ViewerWindow& viewer) {
         viewer_window=nullptr;
         return false;
     }
-    sink.on_accepted=[](std::span<const std::uint8_t> data) {Bt2Hw_Gif(data.data(),std::uint32_t(data.size()/16));};
+    sink.on_accepted=[](std::span<const std::uint8_t> data) {
+        const auto begin=std::chrono::steady_clock::now();
+        Bt2Hw_Gif(data.data(),std::uint32_t(data.size()/16));
+        gif_seconds+=std::chrono::duration<double>(std::chrono::steady_clock::now()-begin).count();
+    };
     std::fprintf(stderr,"BT3 renderer: drawing with the GPU's rasteriser\n");
     return true;
 }
 
+double scale() {return gsScale4*0.25;}
 void field() {Bt2Hw_Field();}
 void setLate(double seconds) {Bt2Hw_SetLateUs(int(seconds*1e6));}
 void flip(const std::array<std::uint64_t,15>& privileged) {

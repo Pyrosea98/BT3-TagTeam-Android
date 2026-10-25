@@ -26,6 +26,11 @@ void setLate(double seconds);
 // `privileged`: the GS's display registers as the game left them at this flip (PMODE 0, DISPFB1 7, DISPFB2 9):
 // the buffer they show is the frame's own, which BT3 learns from sceGsSwapDBuff.
 void flip(const std::array<std::uint64_t,15>& privileged);
+// Time spent so far taking the game's GIF packets (register writes, uploads, the vertices of each draw), for the
+// frame budget in the viewer statistics (BT2_VIEWER_STATS).
+extern double gif_seconds;
+// The internal resolution the renderer draws at (1.0 = the PS2's), for the same statistics.
+double scale();
 // Local->host transfers: the renderer keeps GS memory as the game wrote it (uploads), not its drawings.
 void readFifo(std::span<std::uint8_t> out);
 }

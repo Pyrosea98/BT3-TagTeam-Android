@@ -36,8 +36,8 @@
     <string name="bt2_set_ss_text">Native is the lightest. Smoothed keeps the resolution and softens edges; High and above draw at twice the resolution and need a strong GPU.</string>
     <string name="bt2_set_integer">Whole-multiple scaling</string>
     <string name="bt2_set_integer_text">Sharp pixels; off: the picture fills more of the screen.</string>
-    <string name="bt2_set_fps">Frame rate in the log</string>
-    <string name="bt2_set_fps_text">Written every few seconds (Debug page); not on the picture yet.</string>
+    <string name="bt2_set_fps">Performance panel</string>
+    <string name="bt2_set_fps_text">FPS, game speed, CPU and GPU over the game, live. Also in the in-game menu.</string>
     <string name="bt2_set_speed">Speed</string>
     <string name="bt2_set_light">Light blending</string>
     <string name="bt2_set_light_text">Simpler drawing of heavy see-through effects (fog, glows). Faster on weak GPUs; may change some effects slightly.</string>
@@ -94,4 +94,8 @@
     <string name="bt2_renderer_fast">Fast (BT3\'s)</string>
     <string name="bt2_renderer_exact">Exact (paraLLEl-GS)</string>
     <string name="bt2_renderer_text">Fast: Dragon Rage\'s BT3 renderer, with the GPU\'s own drawing; smooth on phones. Exact: the PS2\'s GS pixel by pixel; heavy.</string>
+    <string name="bt2_perf_line1">FPS %1$.1f · Speed %2$d%%</string>
+    <string name="bt2_perf_line2">CPU game %1$d%% · app %2$d%% (%3$d cores)</string>
+    <string name="bt2_perf_gpu">GPU %1$d%%</string>
+    <string name="bt2_perf_gpu_none">GPU —</string>
 </resources>

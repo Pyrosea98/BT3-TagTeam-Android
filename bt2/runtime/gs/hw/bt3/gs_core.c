@@ -40,6 +40,9 @@ typedef struct Target {
 
 GsState gGs;
 uint32_t gGsPageGen[512];
+/* BT2's copy: moves on with every change a draw's state can depend on (a GS register other than a vertex's own
+   data, a page of GS memory, the state put back); gs_draw.c keeps a primitive's draw_state while it stays. */
+uint32_t gGsStateGen;
 unsigned gGsFbUploads; /* bit 0 / 1: pixels were uploaded into display buffer 0 / 0x70 since the back end last looked */
 unsigned gGsFrame;
 #define gs gGs
@@ -214,6 +217,7 @@ void Gs_StateBack(void) {
     for (i = 0; i < 512; i++) {
         gGsPageGen[i] = sKept.gen[i] != 0 ? sKept.gen[i] + sMoved : 0;
     }
+    gGsStateGen++;
     GsVu1_StateKeep(1);
     if (sGpu) {
         extern void GsGpu_PagesMoved(uint32_t delta); /* gs_gpu.c */
@@ -334,6 +338,18 @@ uint32_t Gs_Expand(uint32_t c, uint32_t psm) {
    game can then reuse the memory. BT2 does: read from memory at draw time instead, its characters' palettes were
    the wrong ones. Until a palette is loaded this way, memory is read as before (sClutLoaded). */
 static uint32_t sClut[512], sClutGen, sCbp0, sCbp1;
+/* The pages palettes have been loaded from (CBP): drawing into one of them is drawing a palette (see palette_draw). */
+static uint8_t sClutPage[512];
+/* BT2's copy, a measurement of the texture path (BT3_GS_VERBOSE, the "tex:" line every 60 frames): palettes drawn
+   in GS memory by the software rasteriser (time, draws, pixels written), uploads into GS memory (time, bytes),
+   palette loads and how many the memo answered. */
+uint64_t gBt2PalNs, gBt2UpNs, gBt2UpBytes;
+unsigned gBt2PalDraws, gBt2PalPixels, gBt2ClutLoads, gBt2ClutMemo;
+static uint64_t now_ns(void); /* (below) */
+/* Palettes loaded before, by where they came from and the generations of the pages they were read from (clut_load). */
+typedef struct ClutMemo { uint32_t key, gen0, gen1, c[256], h[17]; } ClutMemo;
+static ClutMemo sClutMemo[32];
+static void clut_read(uint32_t cbp, uint32_t cpsm, uint32_t csa, uint32_t bits);
 static uint32_t sClutHash16[32], sClutHash256; /* hashes of each 16-entry part and of the first 256, made at each load */
 static int sClutLoaded;
 
@@ -347,13 +363,58 @@ static uint32_t clut_hash_of(uint32_t first, uint32_t count) {
 
 static void clut_load(uint64_t t0) {
     uint32_t cld = (uint32_t)((t0 >> 61) & 7), bits = (uint32_t)Gs_PsmBits((uint32_t)((t0 >> 20) & 0x3F));
-    uint32_t cbp = (uint32_t)((t0 >> 37) & 0x3FFF), cpsm = (uint32_t)((t0 >> 51) & 15), csa = (uint32_t)((t0 >> 56) & 31), n;
+    uint32_t cbp = (uint32_t)((t0 >> 37) & 0x3FFF), cpsm = (uint32_t)((t0 >> 51) & 15), csa = (uint32_t)((t0 >> 56) & 31);
 
     if (cld == 0 || bits > 8 || (cld == 4 && cbp == sCbp0) || (cld == 5 && cbp == sCbp1)) {
         return;
     }
+    sClutPage[(cbp / 32) & 511] = 1;
     if (cld == 2 || cld == 4) { sCbp0 = cbp; }
     if (cld == 3 || cld == 5) { sCbp1 = cbp; }
+    {   /* The same palette from the same unchanged memory as a load before: its entries and hashes as they were then.
+           BT2 loads its fighters' 256-entry cel ramps with every draw (about a thousand loads a frame, 256
+           addressed reads and 272 hashes each); the memory's pages say when it changed (uploads, local copies,
+           palettes drawn: gGsPageGen), so what is taken here is what reading it again gives. */
+        uint32_t page = (cbp / 32) & 511, g0 = gGsPageGen[page], g1 = gGsPageGen[(page + 1) & 511];
+        uint32_t key = 0x80000000u | cbp | cpsm << 14 | (bits == 8 ? 1u : 0u) << 18 | csa << 19;
+        uint32_t off = bits == 8 ? 0 : (cpsm == 0 ? (csa & 15) * 16 : csa * 16) & 511, count = bits == 8 ? 256 : 16;
+        ClutMemo *m = &sClutMemo[(key * 2654435761u) >> 27];
+        static int memo = -1; /* (BT2_PERF_BASELINE: read from memory every time, as before, to measure against) */
+        if (memo < 0) {
+            memo = getenv("BT2_PERF_BASELINE") == NULL;
+        }
+        gBt2ClutLoads++;
+        if (memo && m->key == key && m->gen0 == g0 && m->gen1 == g1) {
+            gBt2ClutMemo++;
+            memcpy(&sClut[off], m->c, count * 4);
+            if (bits == 8) {
+                memcpy(sClutHash16, m->h, 16 * 4);
+                sClutHash256 = m->h[16];
+            } else {
+                sClutHash16[off / 16] = m->h[0];
+                sClutHash256 = 0;
+            }
+            sClutGen++;
+            sClutLoaded = 1;
+            return;
+        }
+        clut_read(cbp, cpsm, csa, bits);
+        m->key = key; m->gen0 = g0; m->gen1 = g1;
+        memcpy(m->c, &sClut[off], count * 4);
+        if (bits == 8) {
+            memcpy(m->h, sClutHash16, 16 * 4);
+            m->h[16] = sClutHash256;
+        } else {
+            m->h[0] = sClutHash16[off / 16];
+        }
+    }
+    sClutGen++;
+    sClutLoaded = 1;
+}
+
+/* A palette read from GS memory into the buffer, with the hashes of what it changed (clut_load). */
+static void clut_read(uint32_t cbp, uint32_t cpsm, uint32_t csa, uint32_t bits) {
+    uint32_t n;
     if (bits == 8) {
         for (n = 0; n < 256; n++) { /* (the 256 entries lie in memory in the GS's order: bits 3 and 4 swapped) */
             uint32_t c = (n & 0xE7) | ((n & 8) << 1) | ((n & 0x10) >> 1);
@@ -375,8 +436,6 @@ static void clut_load(uint64_t t0) {
     } else {
         sClutHash256 = 0; /* (made again when a 256-entry palette asks: see Gs_ClutHash) */
     }
-    sClutGen++;
-    sClutLoaded = 1;
 }
 
 /* The palette entry `index` of a 4- or 8-bit texture as TEX0 `t0` draws it (stored colour, as in memory). */
@@ -631,10 +690,16 @@ static void draw_triangle(Target *sf, int ctx, const Vertex *a, const Vertex *b,
             /* weights in double precision and results rounded, not truncated: with float weights that sum to just
                under 1 a flat triangle's depth came out one unit low on some pixels, and the fighters' black outline
                hull (drawn at almost the same depth as the body) showed through as speckles */
-            double w0 = (double)edge(b, c, (float)x, (float)y) / (double)area, w1 = (double)edge(c, a, (float)x, (float)y) / (double)area, w2 = 1.0 - w0 - w1;
+            /* BT2's copy: taken a hair right of and below the pixel, so that a pixel exactly on an edge belongs to
+               one side only, as the GS's top-left rule has it: a rectangle of two triangles (BT2 draws its
+               palettes so, palette_draw) covers 0..63 and not column 64 of a 64-wide buffer (that is the next
+               page), and the shared diagonal is drawn once, not blended twice. (The two offsets differ, so no
+               45-degree edge passes through the point.) */
+            float px = (float)x + 1.0f / 256.0f, py = (float)y + 1.0f / 512.0f;
+            double w0 = (double)edge(b, c, px, py) / (double)area, w1 = (double)edge(c, a, px, py) / (double)area, w2 = 1.0 - w0 - w1;
             uint32_t col;
 
-            if (w0 < 0.0 || w1 < 0.0 || w2 < -1e-9) {
+            if (w0 < 0.0 || w1 < 0.0 || w2 < 0.0) {
                 continue;
             }
             if (gouraud) {
@@ -661,13 +726,67 @@ static void draw_line(Target *sf, int ctx, const Vertex *a, const Vertex *b) {
     }
 }
 
+/* BT2's copy: a primitive drawn into a page the game loads palettes from (sClutPage). BT2 makes its fighters'
+   palettes on the GS in every frame: a base palette drawn into the palette page, a second one mixed over it by FIX
+   (two triangles each), and then draws the fighter with CLD reading that page. The palettes are read from GS memory
+   (clut_load), so these draws are done in GS memory by the software rasteriser, as the rule for BT3's sprites below
+   does; on the GPU nothing would ever read them, and the fighters were drawn through all-zero palettes (black). */
+/* Only in the form a palette takes: a 64-pixel-wide 32-bit buffer (FBW 1, as BT3's rule for its sprites), drawn
+   from GS memory or untextured. A page palettes are loaded from can be a work buffer at another time of the frame
+   (BT2's 0x150: a stage palette, and later the 512-wide copies of the picture for the screen effects); those stay
+   on the GPU, where what they sample lives (taken here, they cost a fight its frame rate and the effects flickered). */
+static int palette_draw(int ctx) {
+    uint64_t fr = gs.frame[ctx];
+    uint32_t tbp = (uint32_t)(gs.tex0[ctx] & 0x3FFF);
+    extern int GsDraw_TargetGet(uint32_t fbp, int create);
+    return sGpu && sClutPage[fr & 0x1FF] && ((fr >> 16) & 0x3F) == 1 && ((fr >> 24) & 0x3F) == 0 &&
+           (!((gs.prim >> 4) & 1) || GsDraw_TargetGet(tbp / 32, 0) < 0 || (tbp & 0x1F) != 0);
+}
+
+/* The pages a palette draw of `n` vertices wrote: marked as an upload marks them, so palettes and textures are read
+   again (the rows of pages down to the lowest vertex, the buffer's width across). */
+static void palette_written(int ctx, const Vertex *v, int n) {
+    uint32_t fb = (uint32_t)(gs.frame[ctx] & 0x1FF), fbw = (uint32_t)((gs.frame[ctx] >> 16) & 0x3F), rows, i;
+    float maxy = 0.0f;
+    static int logged;
+    for (i = 0; i < (uint32_t)n; i++) {
+        if (v[i].y > maxy) { maxy = v[i].y; }
+    }
+    if (logged < 8) { /* the first few, in the log: which buffers are taken for palettes */
+        logged++;
+        fprintf(stderr, "BT3 renderer: palette drawn in GS memory: fbp %x fbw %u, %d vertices, down to y %.0f, tex0 tbp %x psm %x\n", fb, fbw, n, maxy,
+                (unsigned)(gs.tex0[ctx] & 0x3FFF), (unsigned)((gs.tex0[ctx] >> 20) & 0x3F));
+    }
+    rows = (uint32_t)maxy / 32 + 1;
+    for (i = 0; i < rows * (fbw ? fbw : 1); i++) {
+        gGsPageGen[(fb + i) & 511]++;
+    }
+    gGsStateGen++;
+}
+
+/* The triangle of the last three vertices: a palette in GS memory, else on the GPU or by the software rasteriser. */
+static void triangle(Target *sf, int ctx) {
+    if (palette_draw(ctx)) {
+        uint64_t t = now_ns();
+        unsigned before = sPix[3];
+        draw_triangle(sf, ctx, &gs.vtx[0], &gs.vtx[1], &gs.vtx[2]);
+        palette_written(ctx, gs.vtx, 3);
+        gBt2PalNs += now_ns() - t; gBt2PalDraws++; gBt2PalPixels += sPix[3] - before;
+    } else if (sGpu) {
+        GsGpu_Draw(3, ctx, gs.vtx);
+    } else {
+        draw_triangle(sf, ctx, &gs.vtx[0], &gs.vtx[1], &gs.vtx[2]);
+    }
+}
+
 /* A vertex arrives (XYZ2 / XYZF2 with kick = 1, XYZ3 / XYZF3 with kick = 0). */
 static void vertex(uint32_t x, uint32_t y, uint32_t z, int kick) {
     int ctx = (gs.prim >> 9) & 1, type = gs.prim & 7;
     Target *sf;
     Vertex v;
 
-    if (GS_NO_PICTURE && !(type == 6 && ((gs.frame[ctx] >> 16) & 0x3F) == 1)) {
+    /* (palettes are drawn in skipped frames too: the frames after them read them) */
+    if (GS_NO_PICTURE && !(type == 6 && ((gs.frame[ctx] >> 16) & 0x3F) == 1) && !palette_draw(ctx)) {
         /* A frame that is only being re-run draws nothing, so its vertices are not even collected: all but the
            sprites into TEXTURE memory (the rectangle case below, which changes what later frames read). */
         return;
@@ -742,11 +861,11 @@ static void vertex(uint32_t x, uint32_t y, uint32_t z, int kick) {
     case 0: if (kick) { if (sGpu) { GsGpu_Draw(0, ctx, &v); } else { pixel(sf, ctx, (int)v.x, (int)v.y, v.z, vcol(&v)); } } gs.vcount = 0; break;
     case 1: if (gs.vcount == 2) { if (kick) { if (sGpu) { GsGpu_Draw(1, ctx, gs.vtx); } else { draw_line(sf, ctx, &gs.vtx[0], &gs.vtx[1]); } } gs.vcount = 0; } break;
     case 2: if (gs.vcount == 2) { if (kick) { if (sGpu) { GsGpu_Draw(1, ctx, gs.vtx); } else { draw_line(sf, ctx, &gs.vtx[0], &gs.vtx[1]); } } gs.vtx[0] = gs.vtx[1]; gs.vcount = 1; } break;
-    case 3: if (gs.vcount == 3) { if (kick) { if (sGpu) { GsGpu_Draw(3, ctx, gs.vtx); } else { draw_triangle(sf, ctx, &gs.vtx[0], &gs.vtx[1], &gs.vtx[2]); } } gs.vcount = 0; } break;
-    case 4: if (gs.vcount == 3 && kick) { if (sGpu) { GsGpu_Draw(3, ctx, gs.vtx); } else { draw_triangle(sf, ctx, &gs.vtx[0], &gs.vtx[1], &gs.vtx[2]); } } break;
+    case 3: if (gs.vcount == 3) { if (kick) { triangle(sf, ctx); } gs.vcount = 0; } break;
+    case 4: if (gs.vcount == 3 && kick) { triangle(sf, ctx); } break;
     case 5:
         if (gs.vcount == 3) {
-            if (kick) { if (sGpu) { GsGpu_Draw(3, ctx, gs.vtx); } else { draw_triangle(sf, ctx, &gs.vtx[0], &gs.vtx[1], &gs.vtx[2]); } }
+            if (kick) { triangle(sf, ctx); }
             gs.vtx[1] = gs.vtx[2]; /* fan: keep the first vertex */
             gs.vcount = 2;
         }
@@ -761,6 +880,13 @@ static void vertex(uint32_t x, uint32_t y, uint32_t z, int kick) {
                 draw_sprite(sf, ctx, &gs.vtx[0], &gs.vtx[1]);
                 gGsPageGen[fb]++;
                 gGsPageGen[(fb + 1) & 511]++;
+                gGsStateGen++;
+            } else if (kick && palette_draw(ctx)) {
+                uint64_t t = now_ns();
+                unsigned before = sPix[3];
+                draw_sprite(sf, ctx, &gs.vtx[0], &gs.vtx[1]);
+                palette_written(ctx, gs.vtx, 2);
+                gBt2PalNs += now_ns() - t; gBt2PalDraws++; gBt2PalPixels += sPix[3] - before;
             } else if (kick) {
                 if (sGpu) { GsGpu_Draw(6, ctx, gs.vtx); } else { draw_sprite(sf, ctx, &gs.vtx[0], &gs.vtx[1]); }
             }
@@ -773,7 +899,6 @@ static void vertex(uint32_t x, uint32_t y, uint32_t z, int kick) {
 
 /* ------------------------------------------------------------------------------------------------ registers */
 
-static uint64_t now_ns(void); /* (below) */
 static void transfer_begin(void) {
     if (sDumpFrame == (int)sFrame && (gs.trxdir & 3) != 0) {
         fprintf(stderr, "  transfer dir %u: sbp %04x sbw %u spsm %02x -> dbp %04x dbw %u dpsm %02x, from %u,%u to %u,%u size %ux%u\n",
@@ -859,6 +984,7 @@ static void transfer_begin(void) {
             for (i = dfirst; i <= dlast; i++) {
                 gGsPageGen[i & 511]++;
             }
+            gGsStateGen++;
             dstGen = 0;
             for (i = dfirst; i <= dlast; i++) { dstGen += gGsPageGen[i & 511] * (i + 1); }
         }
@@ -883,7 +1009,13 @@ static void transfer_begin(void) {
     }
 }
 
+static void transfer_data_timed(const uint8_t *p, uint32_t bytes);
 static void transfer_data(const uint8_t *p, uint32_t bytes) {
+    uint64_t t = now_ns();
+    transfer_data_timed(p, bytes);
+    gBt2UpNs += now_ns() - t; gBt2UpBytes += bytes;
+}
+static void transfer_data_timed(const uint8_t *p, uint32_t bytes) {
     uint32_t dbp = (gs.bitbltbuf >> 32) & 0x3FFF, dbw = (gs.bitbltbuf >> 48) & 0x3F, dpsm = (gs.bitbltbuf >> 56) & 0x3F;
     uint32_t bits, total, i;
 
@@ -965,6 +1097,7 @@ static void transfer_data(const uint8_t *p, uint32_t bytes) {
         for (i = first; i <= last; i++) {
             gGsPageGen[i & 511]++;
         }
+        gGsStateGen++;
     }
 }
 
@@ -976,6 +1109,9 @@ static void prim_update(void) {
 
 static void reg_write(uint32_t addr, uint64_t d) {
     sStat[4]++;
+    if (addr == 0x00 || (addr > 0x05 && addr != 0x0C && addr != 0x0D)) { /* (not RGBAQ, ST, UV, XYZ2/3, XYZF2/3: a vertex's own data) */
+        gGsStateGen++;
+    }
     if (sDumpFrame == (int)sFrame && (addr == 0x4C || addr == 0x4D || addr == 0x18 || addr == 0x19 || addr == 0x40 || addr == 0x41 ||
                                        addr == 0x4E || addr == 0x4F || addr == 0x1A || addr == 0x1B)) {
         fprintf(stderr, "  reg %02x = %llx\n", addr, (unsigned long long)d);
@@ -1709,8 +1845,15 @@ void Bt2Hw_FrameEnd(void) {
         tex += gGpuNewTex; pixels += gGpuNewTexPixels; ns += gGpuTexNs;
         gGpuNewTex = gGpuNewTexPixels = 0; gGpuTexNs = 0;
         if (++n == 60) {
-            fprintf(stderr, "tex: per frame %.1f textures decoded (%.0f pixels), %.2f ms\n", tex / 60.0, pixels / 60.0, (double)ns / 60e6);
+            extern unsigned gBt2TexGets, gBt2States, gBt2StatesReused;
+            fprintf(stderr, "tex: per frame %.1f textures decoded (%.0f pixels), %.2f ms; palettes drawn in GS memory %.1f (%.0f pixels), %.2f ms; "
+                            "uploads %.0f KB, %.2f ms; palette loads %.0f, %.0f from the memo; textures looked up %.0f; primitives %.0f, their draw state reused %.0f\n",
+                    tex / 60.0, pixels / 60.0, (double)ns / 60e6, gBt2PalDraws / 60.0, gBt2PalPixels / 60.0, (double)gBt2PalNs / 60e6,
+                    (double)gBt2UpBytes / 60.0 / 1024.0, (double)gBt2UpNs / 60e6, gBt2ClutLoads / 60.0, gBt2ClutMemo / 60.0,
+                    gBt2TexGets / 60.0, gBt2States / 60.0, gBt2StatesReused / 60.0);
             n = tex = pixels = 0; ns = 0;
+            gBt2PalNs = gBt2UpNs = gBt2UpBytes = 0;
+            gBt2PalDraws = gBt2PalPixels = gBt2ClutLoads = gBt2ClutMemo = gBt2TexGets = gBt2States = gBt2StatesReused = 0;
         }
     }
     memset(sPix, 0, sizeof(sPix));

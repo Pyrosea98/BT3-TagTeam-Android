@@ -43,6 +43,22 @@ static SDL_GPUDevice *sDev;
    full 1024 x 1024, as before. */
 static int sTW = 512, sTH = 512;
 static unsigned sPassN, sCopyN; /* render passes and copies of the frames since the last report (BT3_GS_VERBOSE) */
+/* BT2's copy, a measurement (BT3_GS_VERBOSE): the alpha copies for TEST.DATE, and how many of them a copy before
+   already covered (nothing wrote alpha into that buffer since, and the region needed lies inside the one copied):
+   those could be left out without changing a pixel. Each copy ends a render pass and starts another, about a
+   tenth of a millisecond of the driver's time on Adreno 710 (measured: issuing the draws grows with the passes). */
+static unsigned sDateN, sDateCovered;
+static uint8_t sAlphaSince[MAX_TARGETS]; /* alpha written into the target since its last copy (this frame) */
+static int sDateLast[MAX_TARGETS][4];    /* the region of that copy */
+/* BT2's copy: which of a target's three layers anything uses. Every render pass loaded and stored all three (colour,
+   the alpha bytes, depth) at the target's whole size, 512 x 512 GS pixels times the scale, whatever the buffer: a
+   fight has about 60 passes a frame, most of them on the effects' small work buffers, which never test depth and
+   whose alpha bytes nothing reads. That traffic grows with the square of the internal resolution. A layer nothing
+   has used is neither loaded nor stored (its content is never read); when something first uses it, it is cleared
+   to what the target was made with, which is what it held, never having been written. Once used, a layer is kept
+   as before, for good. The frame's draw list is complete before it is replayed, so its uses are known first.
+   ("lean_passes = 0" in the app's file: every layer loaded and stored, to measure against.) */
+static uint8_t sDepthUsed[MAX_TARGETS], sAuxUsed[MAX_TARGETS], sDepthValid[MAX_TARGETS], sAuxValid[MAX_TARGETS];
 static SDL_GPUShader *sVs, *sFs, *sFsNd, *sFsNz, *sFsNzNd; /* Nd: gs.frag without its discards (key bit 25); Nz: without its depth output (bit 23) */
 static SDL_GPUTextureFormat sDepthFormat = SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
 static int sShadowStencil;
@@ -1112,6 +1128,15 @@ static void vk_frame_end(void) {
         if (dumpAt > 0 && (int)gGsFrame >= dumpAt && (int)gGsFrame < dumpAt + 1) {
             uint32_t k;
             fprintf(stderr, "list: frame %u: %u draws\n", gGsFrame, gsDrawCount);
+            {   /* which buffer each target is, and the next frame's fighter passes in detail (gs_draw.c, bt2_char_log) */
+                extern int gBt2CharLog;
+                int t;
+                for (t = 0; t < gsTargetCount; t++) {
+                    fprintf(stderr, "list: target %d fbp %x cleared %d stale %d draws %u%s\n", t, gsTargets[t].fbp, gsTargets[t].cleared,
+                            gsTargets[t].stale, gsTargets[t].draws, gGsMainFbp >= 0 && gsTargets[t].fbp == (uint32_t)gGsMainFbp ? " (shown)" : "");
+                }
+                gBt2CharLog = 40;
+            }
             {   /* what GS memory holds for the first 4-bit and the first 8-bit texture of the frame (their palettes as
                    32-bit pixels of the palette's block, and texels of the first rows) */
                 extern uint32_t Gs_VramRead(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t x, uint32_t y);
@@ -1305,6 +1330,32 @@ static void vk_frame_end(void) {
     sEndT[1] = gpu_now();
     /* replay the frame */
     lastPipe = lastUni = lastSampler = -1;
+    memset(sAlphaSince, 1, sizeof(sAlphaSince)); /* (what the frame begins with is not known to be copied) */
+    {   /* which layers this frame uses, before any pass is begun (see sDepthUsed) */
+        static int lean = -1;
+        if (lean < 0) {
+            lean = getenv("BT2_LEAN_PASSES_OFF") == NULL;
+        }
+        for (n = 0; n < gsDrawCount; n++) {
+            const GsDraw *u = &gsDraws[n];
+            int t = u->target;
+            if (t < 0 || t >= MAX_TARGETS) {
+                continue;
+            }
+            if (!lean || (gGsMainFbp >= 0 && gsTargets[t].fbp == (uint32_t)gGsMainFbp)) {
+                sDepthUsed[t] = sAuxUsed[t] = 1;
+            } else if (u->native == 3) {
+                sDepthUsed[t] = sAuxUsed[t] = 1; /* the table pass reads depth and writes the alpha bytes */
+            } else if (u->native == 4 || u->native == 5) {
+                sAuxUsed[t] = 1; /* the copies of the alpha bytes */
+            } else if (!u->native && u->pipeline >= 0) {
+                uint32_t key = sPipes[u->pipeline].key;
+                if (((key >> 10) & 3) != 1 || ((key >> 12) & 1) || (key & (1u << 24))) {
+                    sDepthUsed[t] = 1; /* a depth test other than "always", a depth write, the shadow's stencil */
+                }
+            }
+        }
+    }
     for (n = 0; n < gsDrawCount; n++) {
         const GsDraw *d = &gsDraws[n];
         SDL_GPUBufferBinding vb;
@@ -1351,6 +1402,16 @@ static void vk_frame_end(void) {
             sCopyN++;
             if (!GsDraw_DateRegion(n, &rx, &ry, &rw, &rh)) { /* only what the draws that follow read (gs_draw.c) */
                 continue;
+            }
+            sDateN++;
+            {
+                const int *l = sDateLast[d->target];
+                if (!sAlphaSince[d->target] && rx >= l[0] && ry >= l[1] && rx + rw <= l[0] + l[2] && ry + rh <= l[1] + l[3]) {
+                    sDateCovered++;
+                } else {
+                    sDateLast[d->target][0] = rx; sDateLast[d->target][1] = ry; sDateLast[d->target][2] = rw; sDateLast[d->target][3] = rh;
+                }
+                sAlphaSince[d->target] = 0;
             }
             if (rx + rw > (int)(sTW * SCALE)) { rw = (int)(sTW * SCALE) - rx; } /* (the targets may be 512 x 512: sTW) */
             if (ry + rh > (int)(sTH * SCALE)) { rh = (int)(sTH * SCALE) - ry; }
@@ -1409,6 +1470,7 @@ static void vk_frame_end(void) {
             cts[0].store_op = SDL_GPU_STOREOP_STORE;
             cts[1] = cts[0];
             cts[1].texture = sTgAux[d->target];
+            sAlphaSince[d->target] = 1; /* (the table pass writes the alpha attachment) */
             sPassN++;
             pass = SDL_BeginGPURenderPass(cmd, cts, 2, NULL);
             SDL_BindGPUGraphicsPipeline(pass, sPipes[d->pipeline].p);
@@ -1490,6 +1552,26 @@ static void vk_frame_end(void) {
             dt.texture = sTgDep[d->target];
             dt.load_op = gsTargets[d->target].cleared ? SDL_GPU_LOADOP_LOAD : SDL_GPU_LOADOP_CLEAR;
             dt.store_op = SDL_GPU_STOREOP_STORE;
+            if (!gsTargets[d->target].cleared) {
+                sDepthValid[d->target] = sAuxValid[d->target] = 1; /* (cleared now, as made) */
+            }
+            /* layers nothing uses: not loaded, not stored; a layer used for the first time: cleared as made */
+            if (!sDepthUsed[d->target]) {
+                dt.load_op = SDL_GPU_LOADOP_DONT_CARE;
+                dt.store_op = SDL_GPU_STOREOP_DONT_CARE;
+                sDepthValid[d->target] = 0;
+            } else if (!sDepthValid[d->target]) {
+                dt.load_op = SDL_GPU_LOADOP_CLEAR;
+                sDepthValid[d->target] = 1;
+            }
+            if (!sAuxUsed[d->target]) {
+                cts[1].load_op = SDL_GPU_LOADOP_DONT_CARE;
+                cts[1].store_op = SDL_GPU_STOREOP_DONT_CARE;
+                sAuxValid[d->target] = 0;
+            } else if (!sAuxValid[d->target]) {
+                cts[1].load_op = SDL_GPU_LOADOP_CLEAR;
+                sAuxValid[d->target] = 1;
+            }
             /* Shadow batches stay in this pass. The mask has no use after it, so avoid
                loading or storing stencil on all the other render passes. */
             dt.stencil_load_op = shadowStart ? SDL_GPU_LOADOP_CLEAR : SDL_GPU_LOADOP_DONT_CARE;
@@ -1566,6 +1648,9 @@ static void vk_frame_end(void) {
             SDL_SetGPUScissor(pass, &r);
             memcpy(lastScissor, d->scissor, sizeof(lastScissor));
             haveScissor = 1;
+        }
+        if ((sPipes[d->pipeline].key >> 16) & GS_CC_A) {
+            sAlphaSince[d->target] = 1;
         }
         if (d->vu) {
             SDL_DrawGPUIndexedPrimitives(pass, d->count, 1, d->first, 0, 0);
@@ -1725,9 +1810,11 @@ static void vk_frame_end(void) {
                                 "waiting for the screen's buffer %.2f, showing %.2f, presenting %.2f\n",
                         (double)sum[0] / 60e6, (double)sum[1] / 60e6, (double)sum[5] / 60e6, (double)sum[2] / 60e6, (double)sum[3] / 60e6,
                         (double)sum[4] / 60e6);
-                fprintf(stderr, "time:   per frame: %.1f render passes, %.1f copies\n", (double)sPassN / 60.0, (double)sCopyN / 60.0);
+                fprintf(stderr, "time:   per frame: %.1f render passes, %.1f copies; alpha copies for DATE %.1f, of them already covered %.1f\n",
+                        (double)sPassN / 60.0, (double)sCopyN / 60.0, (double)sDateN / 60.0, (double)sDateCovered / 60.0);
             }
             sPassN = sCopyN = 0;
+            sDateN = sDateCovered = 0;
             count = 0;
             memset(sum, 0, sizeof(sum));
         }

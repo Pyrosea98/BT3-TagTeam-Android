@@ -136,7 +136,7 @@ class Bt2Menu(
             chips(activity.getString(R.string.screen_filter), listOf(activity.getString(R.string.filter_bilinear), activity.getString(R.string.filter_sharp), "FXAA", "AMD FSR 1", "Snapdragon GSR"),
                 r.filter, activity.getString(R.string.screen_filter_hint)) { n -> changeR(r.copy(filter = n)) }
             toggle(activity.getString(R.string.bt2_patch_widescreen), later(activity.getString(R.string.bt2_patch_widescreen_text)), v.widescreen) { change(v.copy(widescreen = it)) }
-            toggle(activity.getString(R.string.bt2_set_fps), activity.getString(R.string.bt2_set_fps_text), v.showFrameRate) { change(v.copy(showFrameRate = it)); Bt2Bridge.reloadSettings() }
+            toggle(activity.getString(R.string.bt2_set_fps), activity.getString(R.string.bt2_set_fps_text), v.showFrameRate) { change(v.copy(showFrameRate = it)); Bt2Bridge.reloadSettings(); activity.refreshPerfOverlay() }
             return
         }
         chips(activity.getString(R.string.bt2_set_output), Bt2Settings.OUTPUT_SCALES.map { "$it%" }, Bt2Settings.OUTPUT_SCALES.indexOf(v.outputScale),
@@ -149,11 +149,12 @@ class Bt2Menu(
             later(activity.getString(R.string.bt2_set_ss_text))) { n -> change(v.copy(superSampling = steps[n].first)) }
         toggle(activity.getString(R.string.bt2_patch_widescreen), later(activity.getString(R.string.bt2_patch_widescreen_text)), v.widescreen) { change(v.copy(widescreen = it)) }
         toggle(activity.getString(R.string.bt2_set_integer), activity.getString(R.string.bt2_set_integer_text), v.integerScaling) { change(v.copy(integerScaling = it)); Bt2Bridge.reloadSettings() }
-        toggle(activity.getString(R.string.bt2_set_fps), activity.getString(R.string.bt2_set_fps_text), v.showFrameRate) { change(v.copy(showFrameRate = it)); Bt2Bridge.reloadSettings() }
+        toggle(activity.getString(R.string.bt2_set_fps), activity.getString(R.string.bt2_set_fps_text), v.showFrameRate) { change(v.copy(showFrameRate = it)); Bt2Bridge.reloadSettings(); activity.refreshPerfOverlay() }
     }
 
     private fun performance() {
         section(activity.getString(R.string.bt2_set_speed))
+        toggle(activity.getString(R.string.bt2_set_fps), activity.getString(R.string.bt2_set_fps_text), v.showFrameRate) { change(v.copy(showFrameRate = it)); Bt2Bridge.reloadSettings(); activity.refreshPerfOverlay() }
         if (r.bt3) {
             toggle(activity.getString(R.string.frame_skip), activity.getString(R.string.frame_skip_text), r.frameSkip) { changeR(r.copy(frameSkip = it)) }
             toggle(activity.getString(R.string.frag_depth), activity.getString(R.string.frag_depth_text), r.preciseDepth) { changeR(r.copy(preciseDepth = it)) }

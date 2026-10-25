@@ -85,6 +85,7 @@ private:
 #include "host/sdl/android_performance.h"
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <thread>
 
 // The same clock elsewhere (Android, Linux): the system's sleep is already fine-grained, so the wait
@@ -105,7 +106,16 @@ public:
         if(field_start_!=Clock::time_point{})
             hint_.report(std::chrono::duration_cast<std::chrono::nanoseconds>(now-field_start_-field_waited_).count());
         field_start_=now;field_waited_={};
-        if(!started_ || now-deadline_>4*period) {deadline_=now;started_=true;}
+        // More than four fields behind: the debt is held at four fields (no longer burst than that to catch up
+        // after a load), not dropped. Dropped, the fields after a slow one were paced as if the run were on time:
+        // in a fight's slow stretches the game thread slept 1 to 4 ms a frame while the game ran at 70 to 90% of
+        // its speed (measured), and the time dropped was never made up. Held, a slow field is followed by fields
+        // that do not wait until the run is back on the grid. The game's own timing is untouched: it still counts
+        // fields; only when the host waits changes. (BT2_PERF_BASELINE: the earlier rule, the debt dropped and the
+        // field due a whole field from now, to measure against.)
+        static const bool baseline=std::getenv("BT2_PERF_BASELINE")!=nullptr;
+        if(!started_) {deadline_=now-period;started_=true;}
+        else if(now-deadline_>4*period) deadline_=baseline?now:now-4*period;
         deadline_+=period;waited_=false;
     }
     // How far past the current field's deadline the run is now (0 when it is not due yet): BT3's renderer leaves

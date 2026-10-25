@@ -149,10 +149,13 @@ void* stallWatch(void*) {
 // llvm-symbolizer names with the unstripped library. simpleperf needs settings some phones refuse.
 std::atomic<pid_t> game_tid{0};
 constexpr std::size_t sample_ring=1<<15;
-std::uintptr_t samples[sample_ring];std::atomic<std::size_t> sample_count{0};
+// Each sample: where the game thread was, and where that code returns to (for time spent in the system's libraries:
+// which of ours called the sleep, the driver, the copy).
+std::uintptr_t samples[sample_ring],sample_callers[sample_ring];std::atomic<std::size_t> sample_count{0};
 void takeSample(int,siginfo_t*,void* context) {
     const auto pc=std::uintptr_t(static_cast<ucontext_t*>(context)->uc_mcontext.pc);
-    samples[sample_count.fetch_add(1,std::memory_order_relaxed)%sample_ring]=pc;
+    const std::size_t at=sample_count.fetch_add(1,std::memory_order_relaxed)%sample_ring;
+    samples[at]=pc;sample_callers[at]=std::uintptr_t(static_cast<ucontext_t*>(context)->uc_mcontext.regs[30]);
 }
 void* sampler(void*) {
     Dl_info self{};dladdr(reinterpret_cast<void*>(&takeSample),&self);
@@ -165,20 +168,40 @@ void* sampler(void*) {
             usleep(2000);
         }
         const std::size_t end=sample_count;
-        for(;read<end;++read)taken.push_back(samples[read%sample_ring]);
+        std::vector<std::uintptr_t> callers; // (of the samples outside libbt2.so)
+        for(;read<end;++read) {
+            taken.push_back(samples[read%sample_ring]);
+            Dl_info where{};
+            if(dladdr(reinterpret_cast<void*>(samples[read%sample_ring]),&where) && where.dli_fbase!=self.dli_fbase)callers.push_back(sample_callers[read%sample_ring]);
+        }
         if(taken.empty())continue;
         std::vector<std::pair<std::uintptr_t,unsigned>> counts;
         std::sort(taken.begin(),taken.end());
         for(std::size_t n=0;n<taken.size();) {std::size_t m=n;while(m<taken.size() && taken[m]==taken[n])++m;counts.push_back({taken[n],unsigned(m-n)});n=m;}
         std::sort(counts.begin(),counts.end(),[](auto& a,auto& b){return a.second>b.second;});
         std::string line="Samples ("+std::to_string(taken.size())+"):";
-        for(std::size_t n=0;n<counts.size() && n<60;++n) {
+        for(std::size_t n=0;n<counts.size() && n<400;++n) {
             char part[64];const auto pc=counts[n].first;
             Dl_info info{};
             if(dladdr(reinterpret_cast<void*>(pc),&info) && info.dli_fbase!=self.dli_fbase) {
                 const char* file=info.dli_fname?std::strrchr(info.dli_fname,'/'):nullptr;
                 std::snprintf(part,sizeof part," %s+0x%zx=%u",file?file+1:"?",std::size_t(pc-reinterpret_cast<std::uintptr_t>(info.dli_fbase)),counts[n].second);
             } else std::snprintf(part,sizeof part," 0x%zx=%u",std::size_t(pc-base),counts[n].second);
+            line+=part;
+        }
+        std::fprintf(stderr,"%s\n",line.c_str());
+        // Who called into the system's libraries (the return address of those samples, as offsets in libbt2.so)
+        std::sort(callers.begin(),callers.end());
+        std::vector<std::pair<std::uintptr_t,unsigned>> by;
+        for(std::size_t n=0;n<callers.size();) {std::size_t m=n;while(m<callers.size() && callers[m]==callers[n])++m;by.push_back({callers[n],unsigned(m-n)});n=m;}
+        std::sort(by.begin(),by.end(),[](auto& a,auto& b){return a.second>b.second;});
+        line="Callers ("+std::to_string(callers.size())+"):";
+        for(std::size_t n=0;n<by.size() && n<40;++n) {
+            char part[64];Dl_info info{};
+            if(dladdr(reinterpret_cast<void*>(by[n].first),&info) && info.dli_fbase!=self.dli_fbase) {
+                const char* file=info.dli_fname?std::strrchr(info.dli_fname,'/'):nullptr;
+                std::snprintf(part,sizeof part," %s+0x%zx=%u",file?file+1:"?",std::size_t(by[n].first-reinterpret_cast<std::uintptr_t>(info.dli_fbase)),by[n].second);
+            } else std::snprintf(part,sizeof part," 0x%zx=%u",std::size_t(by[n].first-base),by[n].second);
             line+=part;
         }
         std::fprintf(stderr,"%s\n",line.c_str());
@@ -305,6 +328,15 @@ extern "C" __attribute__((visibility("default"))) int SDL_main(int argc,char* ar
                 // "renderer = bt3": BT3's renderer (gs/hw/hw_gs_mirror.h) with its own settings file, "renderer"
                 if(line=="renderer = bt3")renderer="bt3";
                 if(line=="gs_verbose = 1")setenv("BT3_GS_VERBOSE","1",1); // (BT3's renderer's own timing in the log)
+                // "perf_baseline = 1": the frame pacer and the palette loads as before their fixes, to measure against
+                if(line=="perf_baseline = 1")setenv("BT2_PERF_BASELINE","1",1);
+                // "state_memo = 0": every primitive's draw state worked out again (gs/hw/bt3/gs_draw.c), to measure against
+                if(line=="state_memo = 0")setenv("BT2_STATE_MEMO_OFF","1",1);
+                // "lean_passes = 0": every layer of every render target loaded and stored (gs/hw/bt3/gs_gpu.c), to measure against
+                if(line=="lean_passes = 0")setenv("BT2_LEAN_PASSES_OFF","1",1);
+                // "pad_script = <steps>": the buttons played by field from the start (pad_script.h), over the touch
+                // controls: the same fight for every measurement (the gate's tools/gate/pad-fight.txt is one)
+                if(line.rfind("pad_script = ",0)==0) {setenv("BT2_PAD_SCRIPT",line.c_str()+13,1);setenv("BT2_PAD_SCRIPT_OVER_LIVE","1",1);}
                 // "vu1_census = 1": every VU1 program the run starts goes to user/vu1-census, to translate to native
                 // code on a PC (tools/vu1/translate_programs.py; the result is the game's, it stays local)
                 if(line=="vu1_census = 1") {fs::create_directories(user/"vu1-census",error);setenv("BT2_VU1_CENSUS",(user/"vu1-census").c_str(),1);}
@@ -356,3 +388,11 @@ extern "C" JNIEXPORT void JNICALL Java_com_dfdx047_dragonrage_engine_Bt2Bridge_n
     env->ReleaseStringUTFChars(list,text);
 }
 extern "C" JNIEXPORT jint JNICALL Java_com_dfdx047_dragonrage_engine_TouchBridge_nativePlayerTeamSize(JNIEnv*,jclass) {return -1;}
+// The app's performance panel (Bt2PerfOverlay): pictures shown and fields run so far, and the game thread's id (its
+// CPU time is read from /proc by the app).
+extern "C" JNIEXPORT jlongArray JNICALL Java_com_dfdx047_dragonrage_engine_Bt2Bridge_nativeStats(JNIEnv* env,jclass) {
+    const jlong values[3]={jlong(PlayerSession::pictures_total.load()),jlong(PlayerSession::fields_total.load()),jlong(game_tid.load())};
+    jlongArray out=env->NewLongArray(3);
+    if(out)env->SetLongArrayRegion(out,0,3,values);
+    return out;
+}

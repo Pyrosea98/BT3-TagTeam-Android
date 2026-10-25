@@ -14,6 +14,9 @@ object Bt2Bridge {
     /** How pictures reach the display (Bt2Settings.Values.presentMode), from the next picture. */
     @JvmStatic external fun nativeSetPresentMode(mode: Int)
 
+    /** The performance panel's running counts (Bt2PerfOverlay): pictures shown, fields run, the game thread's id. */
+    @JvmStatic external fun nativeStats(): LongArray
+
     fun setPresentMode(mode: Int) {
         runCatching { nativeSetPresentMode(mode) }
     }

@@ -390,6 +390,7 @@ static GsTex tbo_texture(uint32_t id) {
 
 /* GS memory -> an RGBA texture for the current TEX0 (alpha as stored: 0x80 is opaque). The back end makes
    the texture and takes the decoded pixels (freed after it has uploaded them). */
+unsigned gBt2TexGets; /* (BT2's copy: texture lookups, for gs_core.c's "tex:" line) */
 static GsTex texture_get(int ctx) {
     uint64_t t0 = gGs.tex0[ctx] & 0x1FFFFFFFFFFFFFFFull, texa = gGs.texa;
     uint32_t tbp = t0 & 0x3FFF, tbw = (t0 >> 14) & 0x3F, psm = (t0 >> 20) & 0x3F, tw = 1u << ((t0 >> 26) & 15), th = 1u << ((t0 >> 30) & 15);
@@ -988,6 +989,7 @@ static int draw_state(int ctx, int topo, int sprite, int vu, GsDraw *d, float *u
             *vs = th / (float)gsTargetH;
         } else {
             d->tex = texture_get(ctx);
+            gBt2TexGets++; /* (BT2's copy: counted for gs_core.c's "tex:" line; timing each lookup cost more than it showed) */
         }
     }
     d->sampler = (int)((gGs.tex1[ctx] >> 5) & 1) | ((cl & 3) ? 2 : 0) | (((cl >> 2) & 3) ? 4 : 0);
@@ -1211,6 +1213,74 @@ void GsGpu_PagesMoved(uint32_t delta) {
     }
 }
 
+/* BT2's copy, a diagnostic ("dump_frame = 0"): the 3D draws with a 4- or 8-bit texture of the frame after the first
+   fight frame (the fighters' colour pass and cel ramp pass), as the renderer takes them: blend and FIX, the colour and
+   depth buffers, the texture registers, the palette entries the decode uses and the texel under each vertex.
+   gs_gpu.c sets the count when it lists the fight frame. */
+int gBt2CharLog;
+static void bt2_char_log(int type, int ctx, const GsVertex *v, int n, const GsDraw *d) {
+    extern uint32_t Gs_VramRead(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t x, uint32_t y);
+    extern uint32_t Gs_ClutEntry(uint64_t t0, uint32_t index);
+    uint64_t t0 = gGs.tex0[ctx], fr = gGs.frame[ctx], zb = gGs.zbuf[ctx], al = gGs.alpha[ctx];
+    uint32_t psm = (uint32_t)((t0 >> 20) & 0x3F), tbp = (uint32_t)(t0 & 0x3FFF), tbw = (uint32_t)((t0 >> 14) & 0x3F);
+    uint32_t tw = 1u << ((t0 >> 26) & 15), th = 1u << ((t0 >> 30) & 15), bits = (uint32_t)Gs_PsmBits(psm), i;
+
+    /* (the fighters' two passes: colour (Cs - Cd) * FIX + Cd = 0x64, cel ramp (0 - Cs) * FIX + Cd = 0x62) */
+    if (gBt2CharLog <= 0 || type != 3 || !((gGs.prim >> 4) & 1) || ((gGs.prim >> 8) & 1) || bits > 8 ||
+        ((al & 0xFF) != 0x64 && (al & 0xFF) != 0x62)) {
+        return;
+    }
+    gBt2CharLog--;
+    fprintf(stderr, "char: frame %u %s ctx %d prim %03x alpha %02x fix %u | frame fbp %x fbw %u psm %x msk %08x -> target %d (fbp %x), shown fbp %x"
+                    " | zbuf zbp %x psm %x msk %u test %05x | tex0 tbp %x tbw %u psm %x %ux%u tcc %u tfx %u cbp %x cpsm %x csm %u csa %u cld %u"
+                    " tex1 %llx clamp %llx texa %llx\n",
+            gGsFrame, d != NULL ? "drawn" : "LEFT OUT", ctx, (unsigned)(gGs.prim & 0x7FF), (unsigned)(al & 0xFF), (unsigned)((al >> 32) & 0xFF),
+            (unsigned)(fr & 0x1FF), (unsigned)((fr >> 16) & 0x3F), (unsigned)((fr >> 24) & 0x3F), (unsigned)(fr >> 32), d != NULL ? d->target : -1,
+            d != NULL && d->target >= 0 ? gsTargets[d->target].fbp : 0u, (unsigned)gGsMainFbp, (unsigned)(zb & 0x1FF), (unsigned)((zb >> 24) & 15),
+            (unsigned)((zb >> 32) & 1), (unsigned)(gGs.test[ctx] & 0x7FFFF), tbp, tbw, psm, tw, th, (unsigned)((t0 >> 34) & 1),
+            (unsigned)((t0 >> 35) & 3), (unsigned)((t0 >> 37) & 0x3FFF), (unsigned)((t0 >> 51) & 15), (unsigned)((t0 >> 55) & 1),
+            (unsigned)((t0 >> 56) & 31), (unsigned)((t0 >> 61) & 7), (unsigned long long)gGs.tex1[ctx], (unsigned long long)gGs.clamp[ctx],
+            (unsigned long long)gGs.texa);
+    fprintf(stderr, "char:   palette");
+    for (i = 0; i < 16; i++) { /* 4 bits: all 16; 8 bits: every 16th of the 256 */
+        fprintf(stderr, " %08x", Gs_ClutEntry(t0, bits == 8 ? i * 16 : i));
+    }
+    fprintf(stderr, "\nchar:   in memory");
+    for (i = 0; i < 16; i++) { /* the same entries read straight from GS memory at CBP (CSM1, 32-bit) */
+        uint32_t c = bits == 8 ? i * 16 : i, cbp = (uint32_t)((t0 >> 37) & 0x3FFF);
+        if (bits == 8) {
+            c = (c & 0xE7) | ((c & 8) << 1) | ((c & 0x10) >> 1);
+            fprintf(stderr, " %08x", Gs_VramRead(cbp, 1, 0, c & 15, c >> 4));
+        } else {
+            fprintf(stderr, " %08x", Gs_VramRead(cbp, 1, 0, c & 7, c >> 3));
+        }
+    }
+    fprintf(stderr, "\n");
+    for (i = 0; i < (uint32_t)n; i++) {
+        float q = v[i].q != 0.0f ? v[i].q : 1.0f;
+        uint32_t x = (uint32_t)(int)floorf(v[i].s / q * (float)tw) & (tw - 1), y = (uint32_t)(int)floorf(v[i].t / q * (float)th) & (th - 1);
+        uint32_t index = Gs_VramRead(tbp, tbw, psm, x, y);
+        fprintf(stderr, "char:   v%u at %.1f,%.1f z %u rgba %u %u %u %u st/q %.4f %.4f q %g texel (%u,%u) index %u colour %08x\n", i, v[i].x,
+                v[i].y, v[i].z, v[i].r, v[i].g, v[i].b, v[i].a, v[i].s / q, v[i].t / q, v[i].q, x, y, index, Gs_ClutEntry(t0, index));
+    }
+}
+
+/* BT2's copy: the previous primitive's draw_state, taken again while nothing it reads has changed. BT2's models
+   reach the GS as triangle strips, one primitive per vertex, and draw_state (the target, the texture's lookup, the
+   pipeline's key) ran for each: about 45,000 times a frame in a fight's overworld for about 1,200 draws (measured).
+   Kept while: no GS register but a vertex's own data was written and no page of GS memory changed
+   (gs_core.c gGsStateGen), the same frame, context and kind of primitive, nothing else added to the draw list
+   since, and the texture is not a frame buffer (whose standing other draws change). The rest of the primitive's
+   work, which depends on its vertices, runs as before. ("state_memo = 0" in the app's file: off, to measure.) */
+unsigned gBt2StatesReused, gBt2States;
+static struct {
+    int valid, ctx, type, whole;
+    uint32_t gen;
+    unsigned frame, draws;
+    GsDraw d;
+    float us, vs;
+} sStateMemo;
+
 void GsGpu_Draw(int type, int ctx, const GsVertex *v) {
     if (GS_NO_PICTURE) { /* a frame that is only being re-run, or one that is skipped: nothing is drawn */
         return;
@@ -1227,8 +1297,43 @@ void GsGpu_Draw(int type, int ctx, const GsVertex *v) {
     if (gsVertCount + 6 > MAX_VERTS || gsDrawCount == MAX_DRAWS) {
         return;
     }
-    if (!draw_state(ctx, type == 1 ? 1 : type == 0 ? 2 : 0, type == 6, 0, &d, &us, &vs)) {
-        return;
+    {
+        extern uint32_t gGsStateGen;
+        static int memoOn = -1;
+        int ok;
+        if (memoOn < 0) {
+            memoOn = getenv("BT2_STATE_MEMO_OFF") == NULL;
+        }
+        gBt2States++;
+        if (memoOn && sStateMemo.valid && sStateMemo.gen == gGsStateGen && sStateMemo.frame == gGsFrame && sStateMemo.ctx == ctx &&
+            sStateMemo.type == type && sStateMemo.draws == gsDrawCount && gBt2CharLog <= 0) {
+            d = sStateMemo.d;
+            us = sStateMemo.us;
+            vs = sStateMemo.vs;
+            sWholeFrame = sStateMemo.whole;
+            ok = 1;
+            gBt2StatesReused++;
+        } else {
+            ok = draw_state(ctx, type == 1 ? 1 : type == 0 ? 2 : 0, type == 6, 0, &d, &us, &vs);
+            sStateMemo.valid = memoOn && ok && !d.tex_is_target;
+            if (sStateMemo.valid) {
+                sStateMemo.d = d;
+                sStateMemo.us = us;
+                sStateMemo.vs = vs;
+                sStateMemo.whole = sWholeFrame;
+                sStateMemo.gen = gGsStateGen;
+                sStateMemo.frame = gGsFrame;
+                sStateMemo.ctx = ctx;
+                sStateMemo.type = type;
+                sStateMemo.draws = ~0u; /* (set when this primitive is recorded, below) */
+            }
+        }
+        if (gBt2CharLog > 0) { /* (the diagnostic, only for the one frame it is armed for: nothing per draw otherwise) */
+            bt2_char_log(type, ctx, v, n, ok ? &d : NULL);
+        }
+        if (!ok) {
+            return;
+        }
     }
     int battleText = !d.tex_is_target && sLast != NULL && sLast->tex == d.tex && sLast->battleText;
     int tbo = (prim >> 4) & 1 && ((t0 >> 20) & 0x3F) == TBO_PSM; /* a Tenkaichi Budokai Online picture */
@@ -1461,6 +1566,7 @@ void GsGpu_Draw(int type, int ctx, const GsVertex *v) {
     } else {
         gsDraws[gsDrawCount++] = d;
     }
+    sStateMemo.draws = gsDrawCount;
 }
 
 /* Vertex program 6 as a shader: one strip of the ground under a fighter, textured with the shadow page (see

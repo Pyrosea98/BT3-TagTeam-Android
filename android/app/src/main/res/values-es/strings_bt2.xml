@@ -34,8 +34,8 @@
     <string name="bt2_set_ss_text">Nativa es la más ligera. Suavizada mantiene la resolución y suaviza los bordes; Alta en adelante dibujan al doble de resolución y piden una GPU potente.</string>
     <string name="bt2_set_integer">Escala en múltiplos enteros</string>
     <string name="bt2_set_integer_text">Píxeles nítidos; apagado: la imagen ocupa más de la pantalla.</string>
-    <string name="bt2_set_fps">Cuadros por segundo en el registro</string>
-    <string name="bt2_set_fps_text">Se escribe cada pocos segundos (página Depuración); todavía no aparece en la imagen.</string>
+    <string name="bt2_set_fps">Panel de rendimiento</string>
+    <string name="bt2_set_fps_text">FPS, velocidad del juego, CPU y GPU sobre la partida, en tiempo real. También en el menú del juego.</string>
     <string name="bt2_set_speed">Rendimiento</string>
     <string name="bt2_set_light">Blending ligero</string>
     <string name="bt2_set_light_text">Dibujo más simple de efectos transparentes pesados (niebla, brillos). Más rápido en GPUs débiles; puede cambiar un poco algunos efectos.</string>
@@ -92,4 +92,8 @@
     <string name="bt2_renderer_fast">Rápido (el de BT3)</string>
     <string name="bt2_renderer_exact">Preciso (paraLLEl-GS)</string>
     <string name="bt2_renderer_text">Rápido: el renderizador de BT3 de Dragon Rage, con el dibujo de la propia GPU; fluido en teléfonos. Preciso: el GS de PS2 píxel a píxel; pesado.</string>
+    <string name="bt2_perf_line1">FPS %1$.1f · Velocidad %2$d%%</string>
+    <string name="bt2_perf_line2">CPU juego %1$d%% · app %2$d%% (%3$d núcleos)</string>
+    <string name="bt2_perf_gpu">GPU %1$d%%</string>
+    <string name="bt2_perf_gpu_none">GPU —</string>
 </resources>

@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <cstdlib>
 #include <cmath>
 #include "ee_runtime.h"
 
@@ -16,6 +17,23 @@ void EeRuntime::registerKernelFunction(std::uint32_t address, RecompiledFunction
         throw std::runtime_error("Invalid copied kernel binding");
     kernel_code_bindings_.emplace(address, std::vector<std::uint8_t>(expected_payload.begin(), expected_payload.end()));
     functions_.emplace(address, function);
+}
+
+namespace {
+// The generated functions already found by address, in front of functions_ (an unordered_map searched at every
+// guest call: about 2.5% of the game thread in a fight on Android, measured). functions_ is only ever added to,
+// so a function found once stays the one for that address. Only hits are kept: interior entries, the interpreter
+// and the diagnostic modes take the map's path as before. (BT2_PERF_BASELINE: always the map, to measure against.)
+struct DispatchSlot {const EeRuntime* runtime=nullptr;std::uint32_t target=0;EeRuntime::RecompiledFunction function=nullptr;};
+DispatchSlot dispatch_slots[16384]; // (16384: with 4096 functions of the overlay and the main program shared slots)
+// verifyKernelBinding's "no binding here", by address slot: most calls are to functions with neither an overlay nor
+// a kernel binding, and both maps were searched for each (about 2% of the game thread in a fight). Valid while the
+// maps have the sizes they had (they are only ever added to); a function that has a binding is validated at every
+// call as before. (BT2_PERF_BASELINE: the maps searched every time.)
+struct UnboundSlot {const EeRuntime* runtime=nullptr;std::uint32_t target=0;std::size_t sizes=~std::size_t(0);};
+UnboundSlot unbound_slots[16384];
+// (read at the first call, after the Android settings file has set the environment)
+bool dispatchCacheOn() {static const bool on=std::getenv("BT2_PERF_BASELINE")==nullptr;return on;}
 }
 
 // A field's worth of main-thread work without an idle point: the VBLANK arrives anyway, once main runs
@@ -73,7 +91,9 @@ bool EeRuntime::dispatchGuestBranch(std::uint8_t* rdram, R5900Context* context, 
         main_context_=context;
         if((kind==GuestBranchKind::DirectCall || kind==GuestBranchKind::IndirectCall) && ++main_calls_since_field_>main_calls_per_field)busyMainField();
     }
-    const auto found = functions_.find(target);
+    DispatchSlot& slot = dispatch_slots[(target >> 2) & 16383];
+    const bool cached = dispatchCacheOn() && slot.runtime == this && slot.target == target && slot.function;
+    const auto found = cached ? functions_.end() : functions_.find(target);
     if(target==0x32FDA0 && source==0x315210 && sound_rpc_calls==1) {
         if(!sound_thread_start_supplied || sound_thread_checkpoint || current_thread_id!=1 || main_thread_priority!=2
             || threads.size()!=2 || threads[1].id!=3 || context->r[4].low!=3 || context->r[5].low
@@ -86,7 +106,8 @@ bool EeRuntime::dispatchGuestBranch(std::uint8_t* rdram, R5900Context* context, 
     // holding it, which resumes at the label the pc names.
     RecompiledFunction function;
     std::uint32_t counted = target;
-    if (found != functions_.end()) function = found->second;
+    if (cached) function = slot.function;
+    else if (found != functions_.end()) {function = found->second; if (dispatchCacheOn()) slot = {this, target, function};}
     else if (const auto entry = interior_entries_.find(target); entry != interior_entries_.end() && !interior_entries_disabled) {
         function = entry->second.function; counted = entry->second.owner; ++interior_entry_dispatches;
     } else if (!interpreter_handlers_.empty() && target < ram_size && !(target & 3)) {
@@ -125,6 +146,9 @@ bool EeRuntime::dispatchGuestBranch(std::uint8_t* rdram, R5900Context* context, 
 }
 
 void EeRuntime::verifyKernelBinding(std::uint32_t address) {
+    UnboundSlot& unbound = unbound_slots[(address >> 2) & 16383];
+    const std::size_t sizes = overlay_code_bindings_.size() * 65536 + kernel_code_bindings_.size();
+    if (dispatchCacheOn() && unbound.runtime == this && unbound.target == address && unbound.sizes == sizes) return;
     if (const auto overlay = overlay_code_bindings_.find(address); overlay != overlay_code_bindings_.end()) {
         if (memory_.size() < address + overlay->second.size()
                 || !std::equal(overlay->second.begin(), overlay->second.end(), memory_.begin() + address))
@@ -133,7 +157,10 @@ void EeRuntime::verifyKernelBinding(std::uint32_t address) {
         return;
     }
     const auto found = kernel_code_bindings_.find(address);
-    if (found == kernel_code_bindings_.end()) return;
+    if (found == kernel_code_bindings_.end()) {
+        if (dispatchCacheOn()) unbound = {this, address, sizes};
+        return;
+    }
     for (std::size_t offset = 0; offset < found->second.size(); offset += 4) {
         std::uint32_t expected;
         std::memcpy(&expected, found->second.data() + offset, 4);

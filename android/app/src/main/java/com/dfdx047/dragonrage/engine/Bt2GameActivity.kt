@@ -49,6 +49,7 @@ class Bt2GameActivity : GameActivity() {
     override fun onResume() {
         super.onResume()
         applyOutputScale(Bt2Settings(paths).load().outputScale)
+        refreshPerfOverlay()
         // The whole screen for the game: the status and navigation bars come back with a swipe.
         WindowCompat.getInsetsController(window, window.decorView).apply {
             hide(WindowInsetsCompat.Type.systemBars())
@@ -73,6 +74,19 @@ class Bt2GameActivity : GameActivity() {
             if (percent >= 100 || w <= 0 || h <= 0) surface.holder.setSizeFromLayout()
             else surface.holder.setFixedSize(w * percent / 100, h * percent / 100)
         }
+    }
+
+    override fun onPause() {
+        perf.hide()
+        super.onPause()
+    }
+
+    /** The performance panel (Bt2PerfOverlay) as the setting has it: the BT2 tab's or the in-game menu's switch. */
+    private val perf by lazy { Bt2PerfOverlay(this) }
+
+    fun refreshPerfOverlay() {
+        val layout = SDLActivity.getContentView() as? ViewGroup ?: return
+        if (Bt2Settings(paths).load().showFrameRate) perf.show(layout) else perf.hide()
     }
 
     /** BT2's menu over the game (Bt2Menu, laid out as BT3's), which stands still meanwhile. */

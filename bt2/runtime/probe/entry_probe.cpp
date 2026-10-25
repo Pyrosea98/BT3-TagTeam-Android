@@ -363,20 +363,43 @@ int main(int argc, char** argv) {
             runtime.gs_download_source = [](std::span<std::uint8_t> out) { HwGs::readFifo(out); };
             auto field_end = runtime.on_field_end;
             runtime.on_field_end = [field_end] { HwGs::field(); if (field_end) field_end(); };
+            // The GPU's load as the kernel driver reports it to apps (Adreno's kgsl "gpubusy": busy and total time of
+            // its last window), for the statistics; -1 where it cannot be read.
+            static const auto gpuBusyPercent = [] {
+                std::ifstream in("/sys/class/kgsl/kgsl-3d0/gpubusy");long long busy = 0, total = 0;
+                return in >> busy >> total && total > 0 ? int(busy * 100 / total) : -1;
+            };
             runtime.on_display_flip = [&runtime] {
+                using Clock = std::chrono::steady_clock;
+                const auto t0 = Clock::now();
                 HwGs::setLate(pacer ? pacer->lateSeconds() : 0); // (before the wait: how late the game itself is)
                 if (pacer) pacer->wait(); // The picture appears at the field's deadline.
+                const auto t1 = Clock::now();
                 if (player) player->shown(nullptr);
                 HwGs::flip(runtime.gs_privileged);
-                // BT2_VIEWER_STATS: every 120 flips, the rate of flips and fields.
+                const auto t2 = Clock::now();
+                // BT2_VIEWER_STATS: every 120 flips, the rate of flips and fields and where each flip's time went:
+                // the time between flips (median, 95th percentile, slowest), the pacer's sleep, the renderer ending
+                // the frame (its draws handed to the GPU) and taking the game's GIF packets; the rest is the game
+                // (EE, VU1, DMA) and everything else on its thread.
                 static const bool stats = std::getenv("BT2_VIEWER_STATS") != nullptr;
-                using Clock = std::chrono::steady_clock;
-                static Clock::time_point start = Clock::now();static unsigned fields_at_start = 0;
+                static Clock::time_point start = t0, last = t0;static unsigned fields_at_start = 0;
+                static double slept = 0, ended = 0, gif_at_start = 0;static std::vector<double> times;
+                if (stats) {
+                    times.push_back(std::chrono::duration<double>(t2 - last).count() * 1000);last = t2;
+                    slept += std::chrono::duration<double>(t1 - t0).count();ended += std::chrono::duration<double>(t2 - t1).count();
+                }
                 if (stats && runtime.gs_display_flips % 120 == 0) {
-                    const auto now = Clock::now();const double wall = std::chrono::duration<double>(now - start).count();
+                    const double wall = std::chrono::duration<double>(t2 - start).count(), n = double(times.size() ? times.size() : 1);
+                    std::sort(times.begin(), times.end());
+                    const auto at = [&](double q) { return times.empty() ? 0.0 : times[std::min(times.size() - 1, std::size_t(q * double(times.size())))]; };
                     std::cerr << std::dec << "Viewer stats at flip " << runtime.gs_display_flips << " (BT3 renderer): " << 120 / wall << " flips/s, "
-                        << (runtime.vblank_deliveries - fields_at_start) / wall << " fields/s" << std::endl;
-                    start = now;fields_at_start = runtime.vblank_deliveries;
+                        << (runtime.vblank_deliveries - fields_at_start) / wall << " fields/s; frame ms: median " << at(0.5) << ", 95% " << at(0.95)
+                        << ", slowest " << (times.empty() ? 0.0 : times.back()) << "; per flip, ms: slept " << slept / n * 1000 << ", renderer frame end "
+                        << ended / n * 1000 << ", GIF packets " << (HwGs::gif_seconds - gif_at_start) / n * 1000 << ", game and the rest "
+                        << (wall - slept - ended - (HwGs::gif_seconds - gif_at_start)) / n * 1000 << "; scale " << HwGs::scale()
+                        << ", GPU busy " << gpuBusyPercent() << "%" << std::endl;
+                    start = t2;fields_at_start = runtime.vblank_deliveries;slept = ended = 0;gif_at_start = HwGs::gif_seconds;times.clear();
                 }
                 if (viewer.closed()) {std::cerr << "Viewer closed; ending the run." << std::endl; std::exit(0);}
             };

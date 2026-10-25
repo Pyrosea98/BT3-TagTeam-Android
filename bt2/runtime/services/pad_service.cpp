@@ -79,8 +79,10 @@ bool EeRuntime::nativePadCall(std::uint8_t* rdram,R5900Context* context,const Si
 NativePadState& EeRuntime::nativePadState() {
     if(!native_pad_) {
         native_pad_=std::make_shared<NativePadState>();
-        // Repeatable input (pad_script.h); live input takes its place.
-        if(const char* script=std::getenv("BT2_PAD_SCRIPT");script && !on_pad_input)native_pad_->pad.script=PadScript::parse(script);
+        // Repeatable input (pad_script.h); live input takes its place, except on Android, where a script asked for
+        // ("pad_script" in the app's file: the same fight in every measurement) plays over the touch controls.
+        const bool over_live=std::getenv("BT2_PAD_SCRIPT_OVER_LIVE")!=nullptr;
+        if(const char* script=std::getenv("BT2_PAD_SCRIPT");script && (!on_pad_input || over_live))native_pad_->pad.script=PadScript::parse(script);
     }
     return *native_pad_;
 }
@@ -88,7 +90,8 @@ NativePadState& EeRuntime::nativePadState() {
 void EeRuntime::nativePadVblank(std::uint8_t* rdram) {
     auto& state=nativePadState();
     state.pad.advanceField(); // Scripted input changes at field starts; fields count every VBlank.
-    if(on_pad_input) {
+    if(on_pad_input && !state.pad.script.empty()) on_pad_input(); // (the session's pause and settings still run)
+    else if(on_pad_input) {
         const auto before=state.pad.buttons;state.pad.hold(on_pad_input());
         if(on_pad_change && state.pad.buttons!=before)on_pad_change(state.pad.field,std::uint16_t(~state.pad.buttons));
     }

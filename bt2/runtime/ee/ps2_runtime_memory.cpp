@@ -1,4 +1,6 @@
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include "ee/frame_profile.h"
 #include "ee_runtime.h"
 #include "dma_chain.h"
@@ -105,13 +107,30 @@ void EeRuntime::frameVif1Start(std::uint32_t value) {
     // DIRECT data (PATH2).
     const auto chain=walkDmaSourceChain(std::span<const std::uint8_t>(memory_.data(),ram_size),v.tadr,"VIF1");
     // The list's words and the first word index and address of each tag; the buffers are kept between lists.
+    // (Sized once and copied with memcpy: inserting the words one range at a time copied them one word at a time,
+    // about 2% of the game thread in a fight on Android, measured. BT2_PERF_BASELINE: as before, to measure against.)
     auto& words=vif1_list_words_;auto& tags=vif1_list_tags_;words.clear();tags.clear();
-    const auto append=[&](const std::uint8_t* bytes,std::size_t count) {
-        const auto* from=reinterpret_cast<const std::uint32_t*>(bytes);words.insert(words.end(),from,from+count);
-    };
-    for(const auto& c:chain.segments) {
-        tags.emplace_back(words.size(),c.tag);
-        append(c.tag_words,2);append(c.data.data(),c.data.size()/4);
+    static const bool baseline=std::getenv("BT2_PERF_BASELINE")!=nullptr;
+    if(baseline) {
+        const auto append=[&](const std::uint8_t* bytes,std::size_t count) {
+            const auto* from=reinterpret_cast<const std::uint32_t*>(bytes);words.insert(words.end(),from,from+count);
+        };
+        for(const auto& c:chain.segments) {
+            tags.emplace_back(words.size(),c.tag);
+            append(c.tag_words,2);append(c.data.data(),c.data.size()/4);
+        }
+    } else {
+        std::size_t total=0;
+        for(const auto& c:chain.segments)total+=2+c.data.size()/4;
+        words.resize(total);
+        std::size_t at=0;
+        for(const auto& c:chain.segments) {
+            tags.emplace_back(at,c.tag);
+            std::memcpy(words.data()+at,c.tag_words,8);at+=2;
+            const std::size_t count=c.data.size()/4;
+            if(count)std::memcpy(words.data()+at,c.data.data(),count*4);
+            at+=count;
+        }
     }
     if(!v.starts) {
         // The registers as the startup FIFO writes left them.

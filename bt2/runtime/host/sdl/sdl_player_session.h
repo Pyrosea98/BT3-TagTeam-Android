@@ -31,6 +31,9 @@ public:
     // a new `reload` reads the settings file again (volumes, scaling) from that field on. Any thread.
     inline static std::atomic<bool> paused{false};
     inline static std::atomic<unsigned> reload{0};
+    // Running counts for the Android app's performance panel (Bt2Bridge.nativeStats): pictures shown and fields the
+    // game ran; the app takes their rates.
+    inline static std::atomic<std::uint64_t> pictures_total{0},fields_total{0};
 
     PlayerSession(std::string path,ViewerWindow& window,HostInput& input,AudioMixer& mixer,FramePacer* pacer)
         :path_(std::move(path)),window_(window),input_(input),mixer_(mixer),pacer_(pacer) {
@@ -47,6 +50,7 @@ public:
             while(paused) {SDL_PumpEvents();std::this_thread::sleep_for(std::chrono::milliseconds(10));}
             std::fprintf(stderr,"Resumed.\n");
         }
+        ++fields_total;
         if(const unsigned wanted=reload;wanted!=reloaded_) {
             reloaded_=wanted;
             if(auto loaded=Settings::load(path_)) {settings=*loaded;apply();}
@@ -61,7 +65,7 @@ public:
     // Each picture shown: counted for the frame rate (written to the log while fast forward or the
     // frame rate display is on, as there is no text on the picture yet).
     void shown(const DisplayFrame* =nullptr) {
-        ++pictures_;
+        ++pictures_;++pictures_total;
         const auto now=std::chrono::steady_clock::now();
         const double seconds=std::chrono::duration<double>(now-window_start_).count();
         if(seconds>=5) {
