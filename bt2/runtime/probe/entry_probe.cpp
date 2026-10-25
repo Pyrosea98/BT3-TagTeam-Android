@@ -384,7 +384,8 @@ int main(int argc, char** argv) {
                 // (EE, VU1, DMA) and everything else on its thread.
                 static const bool stats = std::getenv("BT2_VIEWER_STATS") != nullptr;
                 static Clock::time_point start = t0, last = t0;static unsigned fields_at_start = 0;
-                static double slept = 0, ended = 0, gif_at_start = 0;static std::vector<double> times;
+                static double slept = 0, ended = 0, gif_at_start = 0, wait_at_start = 0;static std::vector<double> times;
+                static unsigned vu_runs_at = 0, vu_native_at = 0;static std::uint64_t vu_instructions_at = 0; // (VU1: interpreted work shows here)
                 if (stats) {
                     times.push_back(std::chrono::duration<double>(t2 - last).count() * 1000);last = t2;
                     slept += std::chrono::duration<double>(t1 - t0).count();ended += std::chrono::duration<double>(t2 - t1).count();
@@ -396,10 +397,17 @@ int main(int argc, char** argv) {
                     std::cerr << std::dec << "Viewer stats at flip " << runtime.gs_display_flips << " (BT3 renderer): " << 120 / wall << " flips/s, "
                         << (runtime.vblank_deliveries - fields_at_start) / wall << " fields/s; frame ms: median " << at(0.5) << ", 95% " << at(0.95)
                         << ", slowest " << (times.empty() ? 0.0 : times.back()) << "; per flip, ms: slept " << slept / n * 1000 << ", renderer frame end "
-                        << ended / n * 1000 << ", GIF packets " << (HwGs::gif_seconds - gif_at_start) / n * 1000 << ", game and the rest "
-                        << (wall - slept - ended - (HwGs::gif_seconds - gif_at_start)) / n * 1000 << "; scale " << HwGs::scale()
-                        << ", GPU busy " << gpuBusyPercent() << "%" << std::endl;
+                        << ended / n * 1000 << ", GIF packets " << (HwGs::gif_seconds - gif_at_start) / n * 1000
+                        << (HwGs::renderThread() ? " (their own thread), waited for at the flip " : "")
+                        << (HwGs::renderThread() ? std::to_string((HwGs::renderWaitSeconds() - wait_at_start) / n * 1000) : std::string())
+                        << ", game and the rest "
+                        << (wall - slept - ended - (HwGs::renderThread() ? 0.0 : HwGs::gif_seconds - gif_at_start)) / n * 1000 << "; scale " << HwGs::scale()
+                        << ", GPU busy " << gpuBusyPercent() << "%; VU1 per flip: " << (runtime.vif1.vu.runs - vu_runs_at) / n << " starts, "
+                        << (runtime.vif1.vu.native_runs - vu_native_at) / n << " native, " << double(runtime.vif1.vu.instructions - vu_instructions_at) / n
+                        << " instruction pairs (native and interpreted: the translations count theirs too)" << std::endl;
+                    vu_runs_at = runtime.vif1.vu.runs;vu_native_at = runtime.vif1.vu.native_runs;vu_instructions_at = runtime.vif1.vu.instructions;
                     start = t2;fields_at_start = runtime.vblank_deliveries;slept = ended = 0;gif_at_start = HwGs::gif_seconds;times.clear();
+                    wait_at_start = HwGs::renderWaitSeconds();
                 }
                 if (viewer.closed()) {std::cerr << "Viewer closed; ending the run." << std::endl; std::exit(0);}
             };

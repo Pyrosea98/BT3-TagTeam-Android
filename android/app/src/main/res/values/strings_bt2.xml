@@ -98,4 +98,8 @@
     <string name="bt2_perf_line2">CPU game %1$d%% · app %2$d%% (%3$d cores)</string>
     <string name="bt2_perf_gpu">GPU %1$d%%</string>
     <string name="bt2_perf_gpu_none">GPU —</string>
+    <string name="bt2_gpu_api">Graphics API</string>
+    <string name="bt2_gpu_api_text">Vulkan is the default and the fastest. OpenGL ES is an alternative for Mali GPUs whose Vulkan driver fails.</string>
+    <string name="bt2_render_thread">Renderer on its own thread</string>
+    <string name="bt2_render_thread_text">Shares the graphics work with another processor core: more FPS and speed. Turn it off if the game stutters or shows errors.</string>
 </resources>

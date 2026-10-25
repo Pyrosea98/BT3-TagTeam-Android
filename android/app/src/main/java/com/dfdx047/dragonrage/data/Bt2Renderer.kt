@@ -26,6 +26,8 @@ class Bt2Renderer(paths: GamePaths) {
         val fxOff: Int = 0,           // bits: 1 outline, 2 see-through tint, 4 depth tint, 8 glare and glow, 16 distance blur, 32 movement blur
         val glow: Int = 60,           // percent
         val smooth2d: Boolean = true,
+        val openGl: Boolean = false,  // "gpu_api" 1: BT3's renderer's OpenGL ES back end (offered for Mali GPUs; Vulkan is the default)
+        val renderThread: Boolean = true, // "render_thread" in <root>/bt2/user/android: the GIF packets on a thread of their own (Vulkan)
     )
 
     fun load(): Values {
@@ -34,18 +36,21 @@ class Bt2Renderer(paths: GamePaths) {
         val d = Values()
         return Values(
             bt3 = read(android)["renderer"]?.let { it == "bt3" } ?: d.bt3,
+            renderThread = read(android)["render_thread"]?.let { it != "0" } ?: d.renderThread,
             scale4 = n("scale4", d.scale4), filter = n("filter", d.filter), frameSkip = n("frame_skip", 1) != 0,
             preciseDepth = n("frag_depth", 0) != 0, smoothMotion = n("interp", d.smoothMotion), present = n("present", d.present),
             fxOff = n("fx_off", d.fxOff), glow = n("glow", d.glow), smooth2d = n("smooth_2d", 1) != 0,
+            openGl = n("gpu_api", 0) == 1,
         )
     }
 
     fun save(v: Values) {
-        write(android, mapOf("renderer" to if (v.bt3) "bt3" else "pgs"))
+        write(android, mapOf("renderer" to if (v.bt3) "bt3" else "pgs", "render_thread" to bit(v.renderThread)))
         write(file, mapOf(
             "scale4" to v.scale4.toString(), "filter" to v.filter.toString(), "frame_skip" to bit(v.frameSkip),
             "frag_depth" to bit(v.preciseDepth), "interp" to v.smoothMotion.toString(), "present" to v.present.toString(),
             "fx_off" to v.fxOff.toString(), "glow" to v.glow.toString(), "smooth_2d" to bit(v.smooth2d),
+            "gpu_api" to bit(v.openGl),
         ))
     }
 

@@ -96,4 +96,8 @@
     <string name="bt2_perf_line2">CPU juego %1$d%% · app %2$d%% (%3$d núcleos)</string>
     <string name="bt2_perf_gpu">GPU %1$d%%</string>
     <string name="bt2_perf_gpu_none">GPU —</string>
+    <string name="bt2_gpu_api">API gráfica</string>
+    <string name="bt2_gpu_api_text">Vulkan es la predeterminada y la más rápida. OpenGL ES es una alternativa para GPUs Mali cuyo driver Vulkan falle.</string>
+    <string name="bt2_render_thread">Renderizador en hilo propio</string>
+    <string name="bt2_render_thread_text">Reparte el trabajo gráfico con otro núcleo del procesador: más FPS y velocidad. Desactívalo si el juego se traba o muestra errores.</string>
 </resources>

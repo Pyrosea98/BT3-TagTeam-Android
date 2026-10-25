@@ -7,6 +7,7 @@
 // is behind, as BT3 does), and keeps its settings in BT2's own file (bt3_host.c: BT2_HW_SETTINGS).
 #pragma once
 #include <array>
+#include <atomic>
 #include <span>
 #include <cstdint>
 
@@ -28,7 +29,11 @@ void setLate(double seconds);
 void flip(const std::array<std::uint64_t,15>& privileged);
 // Time spent so far taking the game's GIF packets (register writes, uploads, the vertices of each draw), for the
 // frame budget in the viewer statistics (BT2_VIEWER_STATS).
-extern double gif_seconds;
+extern std::atomic<double> gif_seconds;
+// With "render_thread = 1": the game thread's waits for the GIF packets' thread at the flips, so far.
+double renderWaitSeconds();
+// Whether the GIF packets have a thread of their own ("render_thread = 1").
+bool renderThread();
 // The internal resolution the renderer draws at (1.0 = the PS2's), for the same statistics.
 double scale();
 // Local->host transfers: the renderer keeps GS memory as the game wrote it (uploads), not its drawings.

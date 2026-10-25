@@ -16,6 +16,7 @@ import android.widget.Switch
 import android.widget.TextView
 import com.dfdx047.dragonrage.R
 import com.dfdx047.dragonrage.data.Bt2Renderer
+import com.dfdx047.dragonrage.data.Renderer
 import com.dfdx047.dragonrage.data.Bt2Settings
 import com.dfdx047.dragonrage.data.Bt2Unlock
 import com.dfdx047.dragonrage.data.GamePaths
@@ -38,6 +39,7 @@ class Bt2Menu(
     private val store = Bt2Settings(paths)
     private var v = store.load()
     private val rstore = Bt2Renderer(paths)
+    private val gpu = runCatching { Renderer.gpuName(paths) }.getOrDefault("")
     private var r = rstore.load()
     private val dp = activity.resources.displayMetrics.density
     private val root = FrameLayout(activity)
@@ -131,6 +133,13 @@ class Bt2Menu(
         chips(activity.getString(R.string.bt2_renderer), listOf(activity.getString(R.string.bt2_renderer_fast), activity.getString(R.string.bt2_renderer_exact)),
             if (r.bt3) 0 else 1, later(activity.getString(R.string.bt2_renderer_text))) { n -> changeR(r.copy(bt3 = n == 0)) }
         if (r.bt3) {
+            // OpenGL ES: an option for Mali GPUs only (Vulkan stays the default everywhere: BT3 measured a Mali-G52's
+            // fights at 2 to 3 pictures a second in OpenGL ES against about 40 in Vulkan; OpenGL ES is for a driver
+            // whose Vulkan fails). From the next start: the window is made for it (bt2/runtime/android/android_main.cpp).
+            if (Renderer.isMali(gpu)) {
+                chips(activity.getString(R.string.bt2_gpu_api), listOf("Vulkan", "OpenGL ES"), if (r.openGl) 1 else 0,
+                    later(activity.getString(R.string.bt2_gpu_api_text))) { n -> changeR(r.copy(openGl = n == 1)) }
+            }
             chips(activity.getString(R.string.resolution), Bt2Renderer.SCALES.map { Bt2Renderer.scaleLabel(it) }, Bt2Renderer.SCALES.indexOf(r.scale4),
                 activity.getString(R.string.resolution_hint)) { n -> changeR(r.copy(scale4 = Bt2Renderer.SCALES[n])) }
             chips(activity.getString(R.string.screen_filter), listOf(activity.getString(R.string.filter_bilinear), activity.getString(R.string.filter_sharp), "FXAA", "AMD FSR 1", "Snapdragon GSR"),
@@ -156,6 +165,9 @@ class Bt2Menu(
         section(activity.getString(R.string.bt2_set_speed))
         toggle(activity.getString(R.string.bt2_set_fps), activity.getString(R.string.bt2_set_fps_text), v.showFrameRate) { change(v.copy(showFrameRate = it)); Bt2Bridge.reloadSettings(); activity.refreshPerfOverlay() }
         if (r.bt3) {
+            toggle(activity.getString(R.string.bt2_render_thread), later(activity.getString(R.string.bt2_render_thread_text)), r.renderThread) {
+                changeR(r.copy(renderThread = it))
+            }
             toggle(activity.getString(R.string.frame_skip), activity.getString(R.string.frame_skip_text), r.frameSkip) { changeR(r.copy(frameSkip = it)) }
             toggle(activity.getString(R.string.frag_depth), activity.getString(R.string.frag_depth_text), r.preciseDepth) { changeR(r.copy(preciseDepth = it)) }
             chips(activity.getString(R.string.fps60), listOf(activity.getString(R.string.off), "60", "120"), r.smoothMotion.coerceIn(0, 2),

@@ -9,6 +9,7 @@
 // next picture. The back key (Android's, or the on-screen controller's menu button) is kept for the
 // player's session (backPressed).
 #pragma once
+#include <cstdlib>
 #include "host/display_frame.h"
 #include "host/window_presenter.h"
 #include <SDL3/SDL.h>
@@ -143,7 +144,18 @@ private:
 #ifdef __ANDROID__
         // No SDL_WINDOW_VULKAN: the presenter makes the surface from the native window with the renderer's own
         // loader (a custom driver included), so SDL loads no Vulkan library of its own.
-        const SDL_WindowFlags flags=SDL_WINDOW_HIGH_PIXEL_DENSITY|SDL_WINDOW_RESIZABLE|SDL_WINDOW_FULLSCREEN;
+        SDL_WindowFlags flags=SDL_WINDOW_HIGH_PIXEL_DENSITY|SDL_WINDOW_RESIZABLE|SDL_WINDOW_FULLSCREEN;
+        // BT2_GL_WINDOW (android_main.cpp, BT3's renderer with "gpu_api = 1": its OpenGL ES back end, the option for
+        // Mali GPUs): the window is made for OpenGL ES 3.2, which on Android is part of the window's EGL
+        // configuration and has to be asked for before it is made (gs/hw/bt3/gs_gl.c then makes its context in it).
+        if(std::getenv("BT2_GL_WINDOW")) {
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,SDL_GL_CONTEXT_PROFILE_ES);
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION,3);
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION,2);
+            SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE,0);
+            SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE,0);
+            flags|=SDL_WINDOW_OPENGL;
+        }
 #else
         const SDL_WindowFlags flags=SDL_WINDOW_VULKAN|SDL_WINDOW_HIGH_PIXEL_DENSITY|SDL_WINDOW_RESIZABLE;
 #endif

@@ -320,7 +320,7 @@ extern "C" __attribute__((visibility("default"))) int SDL_main(int argc,char* ar
         // the settings file cannot hold: "gs_hacks = <list>", paraLLEl-GS's speed-for-accuracy options.
         {
             std::ifstream in(user/"android");std::string line,hacks;
-            bool sample=false;std::string renderer;
+            bool sample=false,render_thread=true;std::string renderer;
             while(std::getline(in,line)) {
                 if(line.rfind("gs_hacks = ",0)==0)hacks=line.substr(11);
                 if(line=="sample = 1")sample=true;
@@ -334,6 +334,9 @@ extern "C" __attribute__((visibility("default"))) int SDL_main(int argc,char* ar
                 if(line=="state_memo = 0")setenv("BT2_STATE_MEMO_OFF","1",1);
                 // "lean_passes = 0": every layer of every render target loaded and stored (gs/hw/bt3/gs_gpu.c), to measure against
                 if(line=="lean_passes = 0")setenv("BT2_LEAN_PASSES_OFF","1",1);
+                // "render_thread = 0": the GIF packets taken on the game's thread, as before (by default they have a thread of
+                // their own, gs/hw/hw_gs_mirror.cpp; Vulkan only: measured 27 -> 30 fps and 90 -> 100% speed in a fight at 1.5x)
+                if(line=="render_thread = 0")render_thread=false;
                 // "pad_script = <steps>": the buttons played by field from the start (pad_script.h), over the touch
                 // controls: the same fight for every measurement (the gate's tools/gate/pad-fight.txt is one)
                 if(line.rfind("pad_script = ",0)==0) {setenv("BT2_PAD_SCRIPT",line.c_str()+13,1);setenv("BT2_PAD_SCRIPT_OVER_LIVE","1",1);}
@@ -343,6 +346,14 @@ extern "C" __attribute__((visibility("default"))) int SDL_main(int argc,char* ar
             }
             setEnv("BT2_GS_HACKS",hacks);
             setEnv("BT2_RENDERER",renderer);
+            setEnv("BT2_RENDER_THREAD",render_thread?"1":"");
+            // BT3's renderer's OpenGL ES back end (the app offers it for Mali GPUs: "gpu_api = 1" in the renderer's
+            // settings, gs/hw/bt3/gs_draw.c): the window has to be made for OpenGL ES (host/sdl/sdl_viewer_window.h).
+            {
+                bool gl=false;std::ifstream settings(user/"renderer");std::string setting;
+                while(std::getline(settings,setting))if(setting=="gpu_api = 1")gl=true;
+                setEnv("BT2_GL_WINDOW",renderer=="bt3" && gl?"1":"");
+            }
             setEnv("BT2_HW_SETTINGS",renderer.empty()?"":(user/"renderer").string());
             if(sample) {startSampler();setenv("BT2_GPU_TIMESTAMPS","1",1);} // And the GPU's time by stage.
         }

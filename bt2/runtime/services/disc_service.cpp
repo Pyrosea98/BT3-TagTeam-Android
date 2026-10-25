@@ -29,7 +29,7 @@ bool EeRuntime::nativeDiscCall(std::uint8_t* rdram,R5900Context* context,const S
         if(end==in.begin()+292)throw UnsupportedSyscall(0x77,context->pc);
         const std::string path(in.begin()+36,end);std::uint32_t result_address;std::memcpy(&result_address,in.data()+292,4);
         std::optional<std::array<std::uint8_t,32>> record;
-        try{record=DiscMetadata(local_disc_path).lookup(path);}
+        try{record=lookup_disc_file(local_disc_path,path);}
         catch(const std::exception&){throw UnsupportedSyscall(0x77,context->pc);}
         if(record) {
             for(unsigned n=0;n<32;++n)write8(rdram,result_address+n,(*record)[n]);

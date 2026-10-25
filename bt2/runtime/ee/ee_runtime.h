@@ -798,9 +798,11 @@ public:
     // Distinct registered entry addresses; completion means a normal invocation return.
     std::set<std::uint32_t> entered_functions,completed_functions;
     // The targets last added to the two sets, by address slot: a call to a function already recorded skips the set.
-    std::array<std::uint32_t,4096> recently_entered_{},recently_completed_{};
-    void noteEntered(std::uint32_t target) {auto& slot=recently_entered_[(target>>2)&4095];if(slot!=target){slot=target;entered_functions.insert(target);}}
-    void noteCompleted(std::uint32_t target) {auto& slot=recently_completed_[(target>>2)&4095];if(slot!=target){slot=target;completed_functions.insert(target);}}
+    // (16384 slots: with 4096 the main program's and the overlay's functions shared slots, and each such call searched
+    // the set again: about 1% of the game thread in a fight on Android, measured)
+    std::array<std::uint32_t,16384> recently_entered_{},recently_completed_{};
+    void noteEntered(std::uint32_t target) {auto& slot=recently_entered_[(target>>2)&16383];if(slot!=target){slot=target;entered_functions.insert(target);}}
+    void noteCompleted(std::uint32_t target) {auto& slot=recently_completed_[(target>>2)&16383];if(slot!=target){slot=target;completed_functions.insert(target);}}
     std::uint64_t halfword_writes=0;
     std::uint64_t doubleword_writes = 0, word_writes = 0;
     std::uint64_t byte_writes = 0, quadword_writes = 0;

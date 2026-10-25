@@ -117,6 +117,7 @@ typedef void GLvoid; typedef ptrdiff_t GLsizeiptr; typedef ptrdiff_t GLintptr; t
     X(glDeleteFramebuffers, void, (GLsizei, const GLuint *), (GLsizei, const GLuint *)) \
     X(glDrawBuffers, void, (GLsizei, const GLenum *), (GLsizei, const GLenum *)) \
     X(glReadBuffer, void, (GLenum), (GLenum)) \
+    X(glInvalidateFramebuffer, void, (GLenum, GLsizei, const GLenum *), (GLenum, GLsizei, const GLenum *)) \
     X(glBlitFramebuffer, void, (GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLbitfield, GLenum), (GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLbitfield, GLenum)) \
     X(glReadPixels, void, (GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, void *), (GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, void *))
 
@@ -668,6 +669,62 @@ static void set_textures(GLuint t0, int s0, GLuint t1, int s1, GLuint t2, int s2
     }
 }
 
+/* BT2's copy: the layers of a target nothing uses (the Vulkan back end's rule, gs_gpu.c sDepthUsed). On the tiled GPUs
+   of phones (Mali, Adreno) binding a framebuffer loads every attachment into tile memory and leaving it stores
+   them back, at the target's whole size: most of a fight's passes draw into the effects' small work buffers, which
+   never test depth and whose alpha bytes nothing reads. Such a layer is invalidated when its target is bound (not
+   loaded) and when it is left (not stored); when something first uses it, it is cleared to what the target was made
+   with (what it held, never having been written). Once used, a layer is kept for good. ("lean_passes = 0": off.) */
+static uint8_t sGlDepthUsed[MAX_TARGETS], sGlAuxUsed[MAX_TARGETS], sGlDepthValid[MAX_TARGETS], sGlAuxValid[MAX_TARGETS];
+static int sGlLean = -1;
+
+static void lean_discard(int t) { /* (target t bound) its unused layers' content is not wanted */
+    GLenum att[2];
+    GLsizei n = 0;
+    if (!sGlLean || t < 0 || t >= MAX_TARGETS) {
+        return;
+    }
+    if (!sGlDepthUsed[t]) { att[n++] = GL_DEPTH_STENCIL_ATTACHMENT; sGlDepthValid[t] = 0; }
+    if (!sGlAuxUsed[t]) { att[n++] = GL_COLOR_ATTACHMENT1; sGlAuxValid[t] = 0; }
+    if (n) {
+        glInvalidateFramebuffer(GL_FRAMEBUFFER, n, att);
+    }
+}
+
+static void bind_target(int i, int clear);
+
+/* Leaves the bound target `from` (its unused layers not stored) and binds `to`: layers used for the first time
+   cleared as made, unused ones not loaded. */
+static void lean_switch(int from, int to, int clear) {
+    lean_discard(from);
+    bind_target(to, clear);
+    if (!sGlLean || to < 0 || to >= MAX_TARGETS) {
+        return;
+    }
+    if (clear) {
+        sGlDepthValid[to] = sGlAuxValid[to] = 1;
+    }
+    if (sGlDepthUsed[to] && !sGlDepthValid[to]) {
+        float dep = 0.0f;
+        glDisable(GL_SCISSOR_TEST);
+        glDepthMask(GL_TRUE);
+        glClearBufferfv(GL_DEPTH, 0, &dep);
+        glEnable(GL_SCISSOR_TEST);
+        sCurPipe = -1;
+        sGlDepthValid[to] = 1;
+    }
+    if (sGlAuxUsed[to] && !sGlAuxValid[to]) {
+        float aux[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+        glDisable(GL_SCISSOR_TEST);
+        if (sHasIndexed) { glColorMaski(1, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE); } else { glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE); }
+        glClearBufferfv(GL_COLOR, 1, aux);
+        glEnable(GL_SCISSOR_TEST);
+        sCurPipe = -1;
+        sGlAuxValid[to] = 1;
+    }
+    lean_discard(to);
+}
+
 static void bind_target(int i, int clear) {
     GLenum bufs[2] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1};
     glBindFramebuffer(GL_FRAMEBUFFER, sTgFbo[i]);
@@ -1145,12 +1202,40 @@ static void frame_end(void) {
        back on for the frame's own draws, or every partial scissor (the split screen's halves, the HUD, the
        fighters' shadows) is ignored and the two views overlap across the whole screen. */
     glEnable(GL_SCISSOR_TEST);
+    {   /* which layers this frame uses (see sGlDepthUsed) */
+        if (sGlLean < 0) {
+            sGlLean = getenv("BT2_LEAN_PASSES_OFF") == NULL;
+        }
+        for (n = 0; n < gsDrawCount; n++) {
+            const GsDraw *u = &gsDraws[n];
+            int t = u->target;
+            if (t < 0 || t >= MAX_TARGETS) {
+                continue;
+            }
+            if (!sGlLean || (gGsMainFbp >= 0 && gsTargets[t].fbp == (uint32_t)gGsMainFbp)) {
+                sGlDepthUsed[t] = sGlAuxUsed[t] = 1;
+            } else if (u->native == 3) {
+                sGlDepthUsed[t] = sGlAuxUsed[t] = 1; /* the table pass reads depth and writes the alpha bytes */
+            } else if (u->native == 4 || u->native == 5) {
+                sGlAuxUsed[t] = 1; /* the alpha bytes copied, or read through framebuffer fetch (DATE) */
+            } else if (!u->native && u->pipeline >= 0) {
+                uint32_t key = sPipes[u->pipeline].key;
+                if (((key >> 10) & 3) != 1 || ((key >> 12) & 1) || sPipes[u->pipeline].shadow) {
+                    sGlDepthUsed[t] = 1; /* a depth test other than "always", a depth write, the shadow's stencil */
+                }
+                if (u->misc[1] != 0.0f) {
+                    sGlAuxUsed[t] = 1; /* (a destination alpha test reads them) */
+                }
+            }
+        }
+    }
     for (n = 0; n < gsDrawCount; n++) {
         const GsDraw *d = &gsDraws[n];
         int shadowStart;
         if (d->native >= 100) {
             GLenum one[1] = {GL_COLOR_ATTACHMENT0};
             if (sFbTex[d->native - 100] == 0) { continue; }
+            lean_discard(cur);
             glDisable(GL_SCISSOR_TEST); /* glBlitFramebuffer honours the scissor test: the copy must be whole */
             glBindFramebuffer(GL_READ_FRAMEBUFFER, sFbFbo[d->native - 100]);
             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, sTgFbo[d->target]);
@@ -1169,6 +1254,7 @@ static void frame_end(void) {
             if (!gsTargets[d->target].cleared) { continue; }
             /* the DATE copy: only what the draws that follow read (gs_draw.c); rows as in the Vulkan back end */
             if (d->native == 5 && (sHasFetch || !GsDraw_DateRegion(n, &rx, &ry, &rw, &rh))) { continue; } /* (fetch: no copy) */
+            lean_discard(cur);
             /* The copy of the frame's alpha ids (the outline and the DATE passes read it). glBlitFramebuffer is
                clipped by the scissor test, so with a partial scissor in force (the split screen's halves) only
                part of the alpha would be copied and the outline would draw a stale silhouette; turn it off for
@@ -1191,7 +1277,7 @@ static void frame_end(void) {
         if (d->native == 3) {
             float params[4] = {(float)d->src, d->misc[0], 0.0f, 0.0f};
             if (!gsTargets[d->target].cleared) { continue; }
-            if (cur != d->target) { bind_target(d->target, 0); cur = d->target; }
+            if (cur != d->target) { lean_switch(cur, d->target, 0); cur = d->target; }
             sWantFetch = 0;
             set_pipe(d->pipeline);
             set_textures(sTgDep[d->target], 6, sAuxCopy, 6, (GLuint)d->tex, 6);
@@ -1205,7 +1291,7 @@ static void frame_end(void) {
         if (d->native) {
             float params[4];
             if (!gsTargets[d->target].cleared) { continue; }
-            if (cur != d->target) { bind_target(d->target, 0); cur = d->target; }
+            if (cur != d->target) { lean_switch(cur, d->target, 0); cur = d->target; }
             set_native(d->native);
             set_textures(sAuxCopy, 6, 0, 6, 0, 6);
             params[0] = 1.0f / (float)GS_W;
@@ -1223,7 +1309,7 @@ static void frame_end(void) {
             (n == 0 || gsDraws[n - 1].native || gsDraws[n - 1].target != d->target ||
              !sPipes[gsDraws[n - 1].pipeline].shadow);
         if (cur != d->target) {
-            bind_target(d->target, !gsTargets[d->target].cleared);
+            lean_switch(cur, d->target, !gsTargets[d->target].cleared);
             gsTargets[d->target].cleared = 1;
             cur = d->target;
             haveFu = 0;
@@ -1266,6 +1352,7 @@ static void frame_end(void) {
             glDrawArrays(sPipes[d->pipeline].topo == 0 ? GL_TRIANGLES : sPipes[d->pipeline].topo == 1 ? GL_LINES : GL_POINTS, (GLint)d->first, (GLsizei)d->count);
         }
     }
+    lean_discard(cur); /* (the last target: its unused layers not stored either) */
 
     /* the shown buffer: the one sceGsSwapDBuff set up for this frame, else the first target */
     best = gGsMainFbp >= 0 ? GsDraw_TargetGet((uint32_t)gGsMainFbp, 0) : -1;

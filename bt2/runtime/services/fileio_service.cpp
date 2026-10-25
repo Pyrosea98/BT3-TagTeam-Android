@@ -1,5 +1,6 @@
 #include "ee/ee_runtime.h"
 #include "services/devices/disc_metadata.h"
+#include "services/devices/disc_sectors.h"
 #include <array>
 #include <cstring>
 #include <fstream>
@@ -38,7 +39,7 @@ bool EeRuntime::nativeFileioCall(std::uint8_t* rdram,R5900Context* context,const
         std::string name;for(unsigned n=20;n<r.send_size;++n){const auto ch=read8(rdram,r.send_source+n);if(!ch)break;name+=static_cast<char>(ch);}
         if(name.rfind("cdrom0:",0))throw UnsupportedSyscall(0x77,context->pc);
         std::optional<std::array<std::uint8_t,32>> found;
-        try{found=DiscMetadata(local_disc_path).lookup(name.substr(7));}catch(const std::exception&){throw UnsupportedSyscall(0x77,context->pc);}
+        try{found=lookup_disc_file(local_disc_path,name.substr(7));}catch(const std::exception&){throw UnsupportedSyscall(0x77,context->pc);}
         if(!found){result=static_cast<std::uint32_t>(-2);break;} // ENOENT
         NativeFile f;std::memcpy(&f.lba,found->data(),4);std::memcpy(&f.size,found->data()+4,4);
         result=native_next_fd_++;native_files_[result]=f;break;
@@ -59,8 +60,9 @@ bool EeRuntime::nativeFileioCall(std::uint8_t* rdram,R5900Context* context,const
         auto& f=file->second;const auto dest=in(4);const auto count=std::min(in(5),f.size-f.position);
         if(count) {
             checkMemory(rdram,dest,count);
-            std::ifstream iso(local_disc_path,std::ios::binary);iso.seekg(static_cast<std::streamoff>(std::uint64_t(f.lba)*2048+f.position));
-            if(!iso.read(reinterpret_cast<char*>(memory_.data()+dest),count))throw UnsupportedSyscall(0x77,context->pc);
+            // (the image kept open: services/devices/disc_sectors.h)
+            if(!read_iso_bytes(local_disc_path,std::uint64_t(f.lba)*2048+f.position,reinterpret_cast<char*>(memory_.data()+dest),count))
+                throw UnsupportedSyscall(0x77,context->pc);
         }
         // The aligned middle travels by DMA; the bytes before the first and after the last 16-byte
         // boundary travel in the completion payload, which the EE handler copies into place.

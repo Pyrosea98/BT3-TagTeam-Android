@@ -9,6 +9,7 @@ import com.dfdx047.dragonrage.data.Bt2Drivers
 import com.dfdx047.dragonrage.data.Bt2Settings
 import com.dfdx047.dragonrage.data.Game
 import com.dfdx047.dragonrage.data.GpuDriver
+import com.dfdx047.dragonrage.data.Renderer
 import java.io.File
 import org.libsdl.app.SDLActivity
 
@@ -36,7 +37,10 @@ import org.libsdl.app.SDLActivity
 class Bt2GameActivity : GameActivity() {
     /** BT2's runtime reads its disc image and settings itself and makes its startup inputs from the image
      *  (bt2/runtime/game/startup_inputs.h): nothing of BT3's to put in place. */
-    override fun prepareEngine() {}
+    override fun prepareEngine() {
+        // the GPU's name, found once and kept (Renderer.gpuName): the in-game menu offers OpenGL ES for Mali GPUs
+        runCatching { Renderer.gpuName(paths) }
+    }
 
     override fun getLibraries(): Array<String> = arrayOf("SDL3", Game.BT2.library)
 

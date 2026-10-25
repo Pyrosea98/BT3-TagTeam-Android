@@ -65,3 +65,15 @@ public:
         return out;
     }
 };
+
+// A file's directory record looked up in the disc image kept open (opened again for every lookup before: on Android's
+// shared storage, behind FUSE, an open costs milliseconds; see disc_sectors.h). Same results and failures as a new
+// DiscMetadata(path).lookup(name).
+#include <memory>
+#include <mutex>
+inline std::optional<std::array<std::uint8_t,32>> lookup_disc_file(const std::string& image,const std::string& name) {
+    static std::mutex lock;static std::unique_ptr<DiscMetadata> disc;static std::string disc_path;
+    std::lock_guard<std::mutex> hold(lock);
+    if(!disc || disc_path!=image) {disc.reset();disc=std::make_unique<DiscMetadata>(image);disc_path=image;}
+    return disc->lookup(name);
+}
