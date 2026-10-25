@@ -2,6 +2,7 @@ package com.dfdx047.dragonrage.ui.screens.bt2
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -23,6 +25,8 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -38,6 +42,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
@@ -70,6 +75,7 @@ fun Bt2HomeScreen(vm: Bt2ViewModel) {
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Bt2Hero()
+        Bt2OnlineCard()
 
         Button(
             onClick = vm::play, enabled = installed && vm.engineAvailable,
@@ -137,6 +143,33 @@ fun Bt2HomeScreen(vm: Bt2ViewModel) {
             confirmButton = { TextButton(onClick = { confirmRemove = false; vm.removeImage() }) { Text(stringResource(R.string.remove)) } },
             dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text(stringResource(R.string.cancel)) } },
         )
+    }
+}
+
+/**
+ * Online play, as BT3's Home shows it (HomeScreen's OnlineBanner), for BT2: Dragon Net 2 is not there yet, so the
+ * card says so and the button to play online is switched off.
+ */
+@Composable
+private fun Bt2OnlineCard() {
+    val color = MaterialTheme.colorScheme.outline
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.13f)),
+        border = androidx.compose.foundation.BorderStroke(1.5.dp, color.copy(alpha = 0.6f)),
+    ) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(12.dp).clip(CircleShape).background(color))
+                Spacer(Modifier.size(10.dp))
+                Text(stringResource(R.string.bt2_online_banner_title).uppercase(), style = MaterialTheme.typography.labelLarge, color = color)
+            }
+            Text(stringResource(R.string.bt2_online_name), style = MaterialTheme.typography.titleLarge)
+            Text(stringResource(R.string.bt2_online_soon), style = MaterialTheme.typography.titleMedium, color = Dbz.GiOrange)
+            Text(stringResource(R.string.bt2_online_text), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            FilledTonalButton(onClick = {}, enabled = false) { Text(stringResource(R.string.bt2_play_online)) }
+        }
     }
 }
 

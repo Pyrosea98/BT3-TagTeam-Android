@@ -102,4 +102,9 @@
     <string name="bt2_gpu_api_text">Vulkan is the default and the fastest. OpenGL ES is an alternative for Mali GPUs whose Vulkan driver fails.</string>
     <string name="bt2_render_thread">Renderer on its own thread</string>
     <string name="bt2_render_thread_text">Shares the graphics work with another processor core: more FPS and speed. Turn it off if the game stutters or shows errors.</string>
+    <string name="bt2_online_banner_title">Online</string>
+    <string name="bt2_online_name">Dragon Net 2</string>
+    <string name="bt2_online_soon">Coming soon</string>
+    <string name="bt2_online_text">Online play for Budokai Tenkaichi 2 is not available yet.</string>
+    <string name="bt2_play_online">Play online</string>
 </resources>
