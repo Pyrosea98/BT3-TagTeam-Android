@@ -48,6 +48,7 @@ open class GameActivity : SDLActivity() {
     private var pad: TouchSurface? = null
     private val handler = Handler(Looper.getMainLooper())
     private var menu: GameMenu? = null
+    private var comboHeld = 0 // START (1) and SELECT (2) held on a controller
 
     /** Which game this screen runs (the menu's look and pages). */
     protected open val game: com.dfdx047.dragonrage.data.Game get() = com.dfdx047.dragonrage.data.Game.BT3
@@ -397,6 +398,17 @@ open class GameActivity : SDLActivity() {
             }
             if (event.action == KeyEvent.ACTION_UP) toggleMenu() // (the whole press: down and up are this one key)
             return true
+        }
+        if (event.keyCode == KeyEvent.KEYCODE_BUTTON_START || event.keyCode == KeyEvent.KEYCODE_BUTTON_SELECT) {
+            // START + SELECT closes the touch menu as it opened it (Budokai Tenkaichi 4: openGameMenu). While the menu is
+            // up their presses stay here, so the game does not get a START of its own when it resumes; their releases
+            // go on (the engine saw the presses that opened the menu)
+            val bit = if (event.keyCode == KeyEvent.KEYCODE_BUTTON_START) 1 else 2
+            comboHeld = if (event.action == KeyEvent.ACTION_DOWN) comboHeld or bit else comboHeld and bit.inv()
+            if (menu?.isShown == true && event.action == KeyEvent.ACTION_DOWN) {
+                if (event.repeatCount == 0 && comboHeld == 3) menu?.close()
+                return true
+            }
         }
         if ((KeyEvent.isGamepadButton(event.keyCode) || fromController(event.source)) && realDevice(event.device)) padUsed()
         return super.dispatchKeyEvent(event)
