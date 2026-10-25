@@ -2274,9 +2274,12 @@ static void vk_frame_end(void) {
     }
     sEndT[3] = gpu_now();
 #ifdef __ANDROID__
-    if (gGsFrame % 300 == 0) { /* (with the heartbeat: why a frame would not reach the screen) */
-        fprintf(stderr, "bt3: present: acquired %d, swapchain %s %ux%u, main fbp %d, target %d, cleared %d, targets %d\n", (int)acquired,
-                swap != NULL ? "yes" : "NO", (unsigned)sw, (unsigned)sh, (int)gGsMainFbp, best,
+    if (gGsFrame % 300 == 0) { /* (with the heartbeat: why a frame would not reach the screen; a swapchain smaller
+                                    than the window is a picture the system stretches) */
+        int ww = 0, wh = 0;
+        SDL_GetWindowSizeInPixels(sWindow, &ww, &wh);
+        fprintf(stderr, "bt3: present: acquired %d, swapchain %s %ux%u (window %dx%d), main fbp %d, target %d, cleared %d, targets %d\n", (int)acquired,
+                swap != NULL ? "yes" : "NO", (unsigned)sw, (unsigned)sh, ww, wh, (int)gGsMainFbp, best,
                 best >= 0 ? (int)gsTargets[best].cleared : -1, gsTargetCount);
         if (!acquired) {
             fprintf(stderr, "bt3: present: %s\n", SDL_GetError());

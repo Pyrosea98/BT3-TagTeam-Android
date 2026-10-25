@@ -76,6 +76,7 @@ open class GameActivity : SDLActivity() {
         store = TouchStore(paths.root)
         installDataList()
         super.onCreate(savedInstanceState)
+        hideBars()
         addTouchPad()
         if (sustained) { // (Settings: steady clocks the phone can hold, where it supports them)
             runCatching {
@@ -84,6 +85,26 @@ open class GameActivity : SDLActivity() {
                 android.util.Log.i("bt3", "sustained performance mode: ${pm.isSustainedPerformanceModeSupported}")
             }
         }
+    }
+
+    /**
+     * The system's bars go before the game's surface is made. SDL shows them at the start and hides them only when
+     * the engine makes its window, by when the surface exists without the room of the navigation bar (the RP5:
+     * 1920 x 972); in some starts the surface stayed at that size for the whole run and the system stretched the
+     * picture to the screen (16:9 with bars at the sides, everything 11% taller). The same flags as SDL's own
+     * fullscreen, so its state (it hides them again after a swipe) agrees.
+     */
+    @Suppress("DEPRECATION")
+    private fun hideBars() {
+        window.decorView.systemUiVisibility = android.view.View.SYSTEM_UI_FLAG_FULLSCREEN or
+            android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+            android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+            android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+            android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+            android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
+        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_FORCE_NOT_FULLSCREEN)
+        setWindowStyle(true)
     }
 
     /** The player's choice (launcher, Settings): 0 landscape, 1 portrait, 2 as the device is held. */
