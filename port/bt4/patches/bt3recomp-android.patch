@@ -150,3 +150,146 @@ index 79258a2..cbd6f3b 100644
          ps2TraceGuestRangeWrite(rdram, dstAddr, totalImageBytes, "storeimg", nullptr);
          {   // [storeimg] every VRAM->RAM download: the un-hooked guest-RAM writer class (found 2026-09-01)
              static const bool s_si = [](){ const char *v = std::getenv("PS2X_STOREIMG"); return v && v[0] && v[0] != '0'; }();
+diff --git a/ps2xRuntime/src/lib/ps2_iop.cpp b/ps2xRuntime/src/lib/ps2_iop.cpp
+--- a/ps2xRuntime/src/lib/ps2_iop.cpp
++++ b/ps2xRuntime/src/lib/ps2_iop.cpp
+@@ -15,6 +15,40 @@
+ #include <algorithm>
+ #include <atomic>
+ #include <iostream>
++#include <cstdlib>
++#include <sys/stat.h>
++#include <unistd.h>
++
++// [android] The disc image comes as /proc/self/fd/<n>: the app opens it through the system's file picker. Opening
++// that path again repeats the storage's permission check, which an app without storage permission fails (the image
++// in Download/, through MediaStore), so the image is read through the descriptor itself, with pread (no shared offset).
++int ps2xImageFd(const std::string &path)
++{
++    static const char kPrefix[] = "/proc/self/fd/";
++    if (path.compare(0, sizeof(kPrefix) - 1, kPrefix) != 0) return -1;
++    char *end = nullptr;
++    const long fd = std::strtol(path.c_str() + sizeof(kPrefix) - 1, &end, 10);
++    return end != path.c_str() + sizeof(kPrefix) - 1 && *end == '\0' && fd >= 0 ? static_cast<int>(fd) : -1;
++}
++
++bool ps2xImageRead(int fd, uint64_t offset, uint8_t *dst, size_t bytes)
++{
++    while (bytes > 0)
++    {
++        const ssize_t n = pread(fd, dst, bytes, static_cast<off_t>(offset));
++        if (n <= 0) return false;
++        dst += n; offset += static_cast<uint64_t>(n); bytes -= static_cast<size_t>(n);
++    }
++    return true;
++}
++
++bool ps2xImageSize(int fd, uint64_t &size)
++{
++    struct stat st{};
++    if (fstat(fd, &st) != 0) return false;
++    size = static_cast<uint64_t>(st.st_size);
++    return true;
++}
+ 
+ // [r3000] Native IOP RPC delivery (defined in ps2_runtime.cpp).
+ extern bool ps2xInvokeIopRpc(PS2Runtime *rt, uint32_t sid, uint32_t command, uint8_t *eeRam,
+@@ -28,10 +62,16 @@
+     bool iso9660Resolve(const std::string &imagePath, const std::string &guestPath,
+                         uint32_t &lbnOut, uint32_t &sizeOut)
+     {
+-        std::ifstream f(imagePath, std::ios::binary);
+-        if (!f.is_open()) return false;
++        const int fd = ps2xImageFd(imagePath);
++        std::ifstream f;
++        if (fd < 0)
++        {
++            f.open(imagePath, std::ios::binary);
++            if (!f.is_open()) return false;
++        }
+         auto readSector = [&](uint32_t lbn, std::vector<uint8_t> &buf) -> bool {
+             buf.resize(2048);
++            if (fd >= 0) return ps2xImageRead(fd, static_cast<uint64_t>(lbn) * 2048, buf.data(), 2048);
+             f.seekg(static_cast<std::streamoff>(lbn) * 2048);
+             f.read(reinterpret_cast<char *>(buf.data()), 2048);
+             return f.good() || f.gcount() > 0;
+diff --git a/ps2xRuntime/src/lib/ps2_iop_sdrdrv.cpp b/ps2xRuntime/src/lib/ps2_iop_sdrdrv.cpp
+--- a/ps2xRuntime/src/lib/ps2_iop_sdrdrv.cpp
++++ b/ps2xRuntime/src/lib/ps2_iop_sdrdrv.cpp
+@@ -10,6 +10,11 @@
+ #include <fstream>
+ #include <iostream>
+ 
++// [android] The disc image read through its descriptor (ps2_iop.cpp).
++int ps2xImageFd(const std::string &path);
++bool ps2xImageRead(int fd, uint64_t offset, uint8_t *dst, size_t bytes);
++bool ps2xImageSize(int fd, uint64_t &size);
++
+ namespace
+ {
+     constexpr uint32_t kImgHeaderAddr = 0x012F0000u;
+@@ -76,6 +81,13 @@
+ 
+         std::memset(dst, 0, byteCount);
+ 
++        const int fd = ps2xImageFd(path.string());
++        if (fd >= 0)
++        {   // [android] (a short read leaves zeros, as below)
++            ps2xImageRead(fd, offsetBytes, dst, byteCount);
++            return true;
++        }
++
+         std::ifstream file(path, std::ios::binary);
+         if (!file.is_open())
+         {
+diff --git a/ps2xRuntime/src/lib/Kernel/Stubs/Helpers/Support.h b/ps2xRuntime/src/lib/Kernel/Stubs/Helpers/Support.h
+--- a/ps2xRuntime/src/lib/Kernel/Stubs/Helpers/Support.h
++++ b/ps2xRuntime/src/lib/Kernel/Stubs/Helpers/Support.h
+@@ -15,6 +15,11 @@
+ #include <vector>
+ extern "C" void ps2xGsDisplayFlipHook(unsigned long long dispfb);   // [displatch] ps2_gs_gpu.cpp
+ 
++// [android] The disc image read through its descriptor (ps2_iop.cpp).
++int ps2xImageFd(const std::string &path);
++bool ps2xImageRead(int fd, uint64_t offset, uint8_t *dst, size_t bytes);
++bool ps2xImageSize(int fd, uint64_t &size);
++
+ namespace
+ {
+     constexpr uint32_t kCdSectorSize = 2048;
+@@ -252,9 +257,19 @@
+         if (!g_cdImageSizeValid || g_cdImageSizePath != imagePath)
+         {
+             std::error_code ec;
+-            g_cdImageSizeBytes = static_cast<uint64_t>(std::filesystem::file_size(imagePath, ec));
++            const int fd = ps2xImageFd(imagePath.string());
++            if (fd >= 0)
++            {   // [android]
++                uint64_t size = 0;
++                g_cdImageSizeValid = ps2xImageSize(fd, size);
++                g_cdImageSizeBytes = size;
++            }
++            else
++            {
++                g_cdImageSizeBytes = static_cast<uint64_t>(std::filesystem::file_size(imagePath, ec));
++                g_cdImageSizeValid = !ec;
++            }
+             g_cdImageSizePath = imagePath;
+-            g_cdImageSizeValid = !ec;
+         }
+         if (!g_cdImageSizeValid)
+         {
+@@ -776,6 +791,13 @@
+         }
+ 
+         std::memset(dst, 0, byteCount);
++        const int fd = ps2xImageFd(path.string());
++        if (fd >= 0)
++        {   // [android] (a short read leaves zeros, as below)
++            ps2xImageRead(fd, offsetBytes, dst, byteCount);
++            g_lastCdError = 0;
++            return true;
++        }
+         std::ifstream file(path, std::ios::binary);
+         if (!file.is_open())
+         {

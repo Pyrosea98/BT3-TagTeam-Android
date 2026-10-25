@@ -31,6 +31,10 @@
 
 #include "ps2_live_ring.h"
 
+// the runtime's disc image reader (ps2_iop.cpp, our patch): the image through its descriptor
+int ps2xImageFd(const std::string &path);
+bool ps2xImageRead(int fd, uint64_t offset, uint8_t *dst, size_t bytes);
+
 extern "C" {
 void Gs_Gif(const uint8_t *p, uint32_t qwc);                   /* gs_core.c: GIF data, whole quadwords */
 void Port_GsGifChannel(uint32_t addr, uint32_t qwc, int chain); /* gs_core.c: (here only to start the GS) */
@@ -819,7 +823,10 @@ extern "C" __attribute__((visibility("default"))) int SDL_main(int argc, char *a
         }
         std::fclose(fp);
     }
-    if (g_image.empty() || access(g_image.c_str(), R_OK) != 0)
+    // (the image comes open, as /proc/self/fd/<n>: opening it again by its path may be refused, see ps2xImageFd)
+    const int imageFd = ps2xImageFd(g_image);
+    uint8_t probe = 0;
+    if (g_image.empty() || (imageFd >= 0 ? !ps2xImageRead(imageFd, 0, &probe, 1) : access(g_image.c_str(), R_OK) != 0))
     {
         std::fprintf(stderr, "bt4: the disc image cannot be read (%s): set it up again in the launcher\n", g_image.c_str());
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Budokai Tenkaichi 4",
