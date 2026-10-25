@@ -23,12 +23,14 @@
 ---
 
 > [!IMPORTANT]
-> **Status (0.8.0): the whole game runs natively on Android arm64**: menus, story mode and full battles at the game's
+> **Status (0.9.0): the whole game runs natively on Android arm64**: menus, story mode and full battles at the game's
 > 30 fps on Snapdragon and on Mali, Xclipse and PowerVR GPUs. The launcher now **detects your GPU** and offers settings
 > made to keep fights at a steady 30 fps; online play (PC and Android in the same rooms), HD texture packs, a new
 > in-game menu made for touch, the new **Dragon** on-screen controller and **driver downloads** for Adreno are in.
 > 0.7.0 brings the PC port's release 0.1.37 (online works again), an **online status banner** in the launcher, a
-> touch-made **Dragon Net Battle** page, ASTC texture packs (experimental). English, Portuguese and Spanish.
+> touch-made **Dragon Net Battle** page, ASTC texture packs (experimental). 0.9.0 brings the PC port's 0.1.38.7
+> (faster at 2x and above, most on Mali), **Budokai Tenkaichi 4** drawn by ARMSX2's renderer by default, and the
+> online that waits when its free servers reach their daily limit. English, Portuguese and Spanish.
 > See [Roadmap](#roadmap).
 
 This repository contains **no game data**. You need your own copy of the **USA release (SLUS-21678)** as an
@@ -136,6 +138,11 @@ were offered), `perf_log`, `frag_depth`. The on-screen controller is in `touch_c
 - [x] **0.8.0**: **Dragon Net**: online with the Nintendo Switch port (DBT-NX) on a service of our own (rooms, quick match,
       Ranked with Elo, general chat, players online), apart from the PC port's releases; a new Dragon Net Battle
       screen; online against PC kept as an option (`port/dragonnet`, `docs/DRAGON_NET.md`)
+- [x] **0.8.1**: Dragon Net on three servers (a backup one, Ranked on its own), fewer requests to them
+- [x] **0.9.0**: the PC port's 0.1.38.7; Budokai Tenkaichi 4 with ARMSX2's renderer by default (its shaders compiled
+      in advance), 60 fps fights (experimental, back to 30 where the device cannot hold them); the online pauses on
+      HTTP 429 and says the server is busy; the classic touch pad fits square screens; measured on an RG Cube and a
+      Retroid Pocket 5 (`docs/release-0.9.0.md`)
 
 ### Next
 - [ ] More GPUs measured for the tiers (send your log!)
