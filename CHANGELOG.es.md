@@ -14,6 +14,9 @@ comparación de imagen píxel a píxel.
 - **Adreno**: el stencil de las sombras planas queda apagado por defecto, más rápido en estos chips.
 - **Perfiles de GPU** medidos para Mali-G57 MC4 y Adreno 650: el launcher sugiere la resolución que mantiene la pelea a
   30.
+- **Modo Lite** (Ajustes > Rendimiento; lo ofrece el perfil de GPU en chips del nivel del Mali-G52): el renderizador en
+  su propio hilo, y el brillo y el reflejo del cielo dejados fuera. En un Mali-G52 MC1 simulado, la pelea a 1x pasó del
+  53% al 77% de la velocidad.
 - **Del PC**: menos tirones la primera vez que aparece un especial o una transformación (las texturas nuevas se
   preparan mucho más rápido, en varios núcleos), buffers de dibujo preparados antes del primer gran efecto de la
   pelea, y el contorno de los personajes dibujado solo donde hay línea.

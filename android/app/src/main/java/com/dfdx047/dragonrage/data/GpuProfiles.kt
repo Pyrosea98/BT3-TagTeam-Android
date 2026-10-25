@@ -23,6 +23,7 @@ object GpuProfiles {
         val frameSkip: Int,     // skip pictures instead of slowing down
         val fxOffAdd: Int,      // PS2 effects switched off (bits: 16 distance blur, 32 movement blur)
         val filter: Int,        // screen filter: 0 bilinear
+        val lite: Boolean = false, // Lite mode (render thread, glow and glare at 0 and left out): weakChip
     )
 
     /** [family]: a regular expression over the lower-case name; [from]..[to]: its three-digit model number (0..0: any). */
@@ -78,6 +79,15 @@ object GpuProfiles {
         return -1
     }
 
+    /** The weakest GPUs measured (Mali-G52, a Mali-G57 with one or two cores, docs/lite-notes.md: a G52 MC1 at about
+     *  50 % at 1x) and the others of their tier but a Mali-G57 with more cores (the RG Cube's MC4 holds 1.5x):
+     *  Lite mode is offered to them, and Budokai Tenkaichi 4 warns that it will run slow. */
+    fun weakChip(gpu: String): Boolean {
+        if (tierOf(gpu) != 0) return false
+        val n = gpu.lowercase()
+        return !(Regex("mali-g57(?!\\d)").containsMatchIn(n) && maliCores(gpu) !in 1..2)
+    }
+
     fun profile(gpu: String): Profile? {
         val t = tierOf(gpu)
         return when (t) {
@@ -89,7 +99,7 @@ object GpuProfiles {
             else -> null
         }?.let { p ->
             val n = gpu.lowercase().replace(Regex("\\s+"), " ")
-            measured.firstOrNull { n.contains(it.first) }?.let { p.copy(scale4 = it.second) } ?: p
+            (measured.firstOrNull { n.contains(it.first) }?.let { p.copy(scale4 = it.second) } ?: p).copy(lite = weakChip(gpu))
         }
     }
 
@@ -102,6 +112,11 @@ object GpuProfiles {
         s.set(EngineSettings.FRAME_SKIP, p.frameSkip)
         s.set(EngineSettings.FX_OFF, s.get(EngineSettings.FX_OFF, 0) or p.fxOffAdd)
         s.set(EngineSettings.FILTER, p.filter)
+        if (p.lite) {
+            s.set(EngineSettings.LITE, 1)
+            s.set(EngineSettings.GLOW, 0)
+            s.set(EngineSettings.GLARE, 0)
+        }
         s.set(EngineSettings.GPU_TIER, p.tier)
     }
 }

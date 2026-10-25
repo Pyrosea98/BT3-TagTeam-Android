@@ -53,14 +53,17 @@ Limitado pela CPU (A55): seria preciso 3x. GameThread: dispatchGuestBranch 18%, 
 (thread_local numa biblioteca carregada por dlopen), getenv 3%. O agrupamento dos thread_local do despachante
 (`port/bt4/patches/bt3recomp-lite.patch`, aplicado pelo `build_bt4.py`) compila, mas **não foi medido**.
 
-## Ferramentas de medição no código (todas desligadas por padrão, por variável de ambiente)
+## O que virou o Modo Lite (fechado em 25/10, ver docs/release-0.9.0.md, seção 9)
+
+- `dr_lite` (Ajustes › Desempenho; o perfil de GPU o oferece para os chips fracos, `GpuProfiles.weakChip`): thread de
+  renderização, cadeias de brilho e glare puladas quando estão em 0 (`Port_GlowSkip`), área de render pass só em
+  Mali (o `GameActivity` passa a flag ao loader, que liga `BT3_VK_AREA`).
+- SDL com os conjuntos de descritores mantidos entre pipelines do mesmo layout: vale para todos (empate no Adreno,
+  0 pixels); `DR_SDL_KEEP_SETS=0` desliga.
+- Fora: TLS agrupado do BT4 (não medido; o patch está no commit dd4581d), GL com fetch, cópias DATE sem quebra de
+  pass, shader mediump, ferramentas de medição (estão no dd4581d).
+
+## Ferramentas de medição (só no commit dd4581d; tiradas da versão)
 
 `BT3_DRAW_STAT`, `BT3_PASS_LOG`, `BT3_DATE_LOG`, `BT3_PIPE_STAT`, `BT3_GLOW_SKIP`, `BT3_FS_TRIVIAL`
 (shaders/trivial.frag), `BT3_DRAW_DUP`, `BT3_VK_AREA`.
-
-## Pela metade
-
-- Modo Lite (`dr_lite`) no mesmo APK: a fazer (este commit ainda tem o pacote separado `.lite`, a desfazer).
-- SDL modificado: medir no RP5 (Adreno) e comparar pixels.
-- TLS do BT4: medir.
-- Cópias DATE sem quebra de pass (stencil ou reordenação do HUD): não feito.

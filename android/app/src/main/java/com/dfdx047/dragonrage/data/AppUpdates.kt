@@ -5,8 +5,6 @@ import org.json.JSONObject
 
 const val REPO = "dfdx047/Tenkaichi3DecompAndroid"
 const val REPO_URL = "https://github.com/$REPO"
-/** Dragon Rage Lite (branch lite) follows its own releases, `android-lite-vX.Y.Z`: the normal app's APK is another package. */
-private val TAG_PREFIX = if (com.dfdx047.dragonrage.BuildConfig.APPLICATION_ID.endsWith(".lite")) "android-lite-v" else "android-v"
 
 data class UpdateInfo(val version: String, val notes: String, val apkUrl: String, val size: Long, val nightly: Boolean)
 
@@ -36,16 +34,16 @@ object AppUpdates {
             if (r.optBoolean("draft")) continue
             val tag = r.optString("tag_name")
             val (apkUrl, size) = apkAsset(r) ?: continue
-            if (dev && TAG_PREFIX == "android-v") {
+            if (dev) {
                 if (tag != "android-nightly") continue
                 val run = Regex("""dev\.(\d+)""").find(r.optString("body"))?.groupValues?.get(1)?.toIntOrNull() ?: return null
                 return if (run > currentCode) UpdateInfo("0.0.0-dev.$run", "", apkUrl, size, true) else null
             }
-            if (!tag.startsWith(TAG_PREFIX) || r.optBoolean("prerelease")) continue
-            val v = parse(tag.removePrefix(TAG_PREFIX)) ?: continue
+            if (!tag.startsWith("android-v") || r.optBoolean("prerelease")) continue
+            val v = parse(tag.removePrefix("android-v")) ?: continue
             if (bestV == null || compare(v, bestV) > 0) {
                 bestV = v
-                best = UpdateInfo(tag.removePrefix(TAG_PREFIX), r.optString("body").trim().take(8000), apkUrl, size, false)
+                best = UpdateInfo(tag.removePrefix("android-v"), r.optString("body").trim().take(8000), apkUrl, size, false)
             }
         }
         val mine = parse(currentName) ?: listOf(0)
@@ -53,7 +51,7 @@ object AppUpdates {
         // The notes: the changelog in the repository as it is at that version's tag (CHANGELOG.md / .pt.md / .es.md
         // since 0.7.3, which hold the latest version's notes; CHANGELOG-vX.Y.Z.md before), else the release's own text.
         val lang = java.util.Locale.getDefault().language
-        val tag = "https://raw.githubusercontent.com/$REPO/$TAG_PREFIX${found.version}"
+        val tag = "https://raw.githubusercontent.com/$REPO/android-v${found.version}"
         suspend fun fetch(url: String) = runCatching { Net.getText(url).trim().take(8000) }.getOrDefault("")
         suspend fun notes(base: String) = (if (lang == "pt" || lang == "es") fetch("$base.$lang.md") else "").ifBlank { fetch("$base.md") }
         val file = notes("$tag/CHANGELOG").ifBlank { notes("$tag/CHANGELOG-v${found.version}") }

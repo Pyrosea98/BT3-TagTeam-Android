@@ -1,5 +1,5 @@
 diff --git a/src/gpu/vulkan/SDL_gpu_vulkan.c b/src/gpu/vulkan/SDL_gpu_vulkan.c
-index ae19a13..e317ffd 100644
+index ae19a13..8628647 100644
 --- a/src/gpu/vulkan/SDL_gpu_vulkan.c
 +++ b/src/gpu/vulkan/SDL_gpu_vulkan.c
 @@ -8092,6 +8092,7 @@ static void VULKAN_BindGraphicsPipeline(
@@ -10,7 +10,7 @@ index ae19a13..e317ffd 100644
  
      renderer->vkCmdBindPipeline(
          vulkanCommandBuffer->commandBuffer,
-@@ -8117,6 +8118,15 @@ static void VULKAN_BindGraphicsPipeline(
+@@ -8117,6 +8118,20 @@ static void VULKAN_BindGraphicsPipeline(
          }
      }
  
@@ -18,7 +18,12 @@ index ae19a13..e317ffd 100644
 +       their counts) keeps the descriptor sets that are bound: they stay valid under the same pipeline layout. New
 +       sets for every pipeline change cost a weak phone's driver most of a frame where neighbouring draws alternate
 +       between two pipelines. */
-+    if (previous != NULL && previous->resourceLayout == pipeline->resourceLayout &&
++    static int keepSets = -1; /* DR_SDL_KEEP_SETS=0 (the loader, or bt3_env.txt): as SDL does it */
++    if (keepSets < 0) {
++        const char *e = SDL_getenv("DR_SDL_KEEP_SETS");
++        keepSets = e == NULL || SDL_atoi(e) != 0;
++    }
++    if (keepSets && previous != NULL && previous->resourceLayout == pipeline->resourceLayout &&
 +        vulkanCommandBuffer->vertexUniformDescriptorSet != VK_NULL_HANDLE) {
 +        return;
 +    }

@@ -668,6 +668,16 @@ class AppViewModel @JvmOverloads constructor(app: Application, val game: Game = 
 
     // ---- settings
 
+    /** Lite mode: on, it also sets the glow and the glare to 0 (the chains at 0 are left out); off, it leaves them. */
+    fun setLite(on: Boolean) = viewModelScope.launch(Dispatchers.IO) {
+        settings.set(EngineSettings.LITE, if (on) 1 else 0)
+        if (on) {
+            settings.set(EngineSettings.GLOW, 0)
+            settings.set(EngineSettings.GLARE, 0)
+        }
+        _settings.value = settings.snapshot()
+    }
+
     fun setting(name: String, value: Int) {
         viewModelScope.launch(Dispatchers.IO) {
             settings.set(name, value)
@@ -694,6 +704,9 @@ class AppViewModel @JvmOverloads constructor(app: Application, val game: Game = 
     // ---- launch
 
     fun play() {
+        if (game == Game.BT4 && _install.value is InstallState.Installed && GpuProfiles.weakChip(_gpuName.value)) {
+            android.widget.Toast.makeText(getApplication(), str(R.string.bt4_weak_cpu), android.widget.Toast.LENGTH_LONG).show()
+        }
         when {
             _install.value !is InstallState.Installed -> say(str(R.string.msg_install_first))
             !engineAvailable -> say(str(R.string.msg_no_engine))

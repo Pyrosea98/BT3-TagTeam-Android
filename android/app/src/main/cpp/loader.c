@@ -414,7 +414,7 @@ static void *watchdog(void *arg) {
 typedef void (*VkVoidFn)(void);
 static VkVoidFn (*sDriverGipa)(void *instance, const char *name);
 
-/* The render area of the engine's next render pass (Dragon Rage Lite, BT3_VK_AREA): gs_gpu.c names the rectangle its
+/* The render area of the engine's next render pass (Lite mode on a Mali, BT3_VK_AREA): gs_gpu.c names the rectangle its
    draws stay in, and vkCmdBeginRenderPass gets it instead of the whole attachment. A tile-based GPU (Mali) then loads
    and stores only those tiles: a pass that draws a life bar, or a 64 x 64 step of the glow, no longer moves the
    whole 512 x 512 picture through memory twice. The pixels outside are kept as they are (Vulkan: load and store act
@@ -674,6 +674,10 @@ int SDL_main(int argc, char *argv[]) {
     }
     if (argc > 4 && argv[3][0] != '\0' && argv[4][0] != '\0') {
         custom_driver(libdir, argv[3], argv[4]); /* (chosen in the app: GameActivity passes its folder and file) */
+    }
+    if (argc > 5 && strcmp(argv[5], "1") == 0) {
+        setenv("BT3_VK_AREA", "1", 0); /* Lite mode on a Mali (GameActivity): the render areas below and in gs_gpu.c */
+        say("lite mode on a Mali");
     }
     area_driver(libdir);
     setenv("SDL_VIDEO_DRIVER", "android", 0);

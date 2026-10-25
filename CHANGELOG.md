@@ -14,6 +14,9 @@ comparison.
 - **Adreno**: the flat shadows' stencil is off by default, faster on these chips.
 - **GPU profiles** measured for the Mali-G57 MC4 and the Adreno 650: the launcher suggests the resolution that keeps
   fights at 30.
+- **Lite mode** (Settings > Performance; offered by the GPU profile on Mali-G52-class GPUs): the renderer on its own
+  thread and the glow and the sky's glare left out entirely. On a simulated Mali-G52 MC1, fights at 1x went from 53% to
+  77% of full speed.
 - **From the PC**: fewer hitches the first time a special or a transformation appears (new textures are prepared much
   faster, on several cores), drawing buffers made ready before a fight's first big effect, and the characters' outline
   drawn only where there is a line.

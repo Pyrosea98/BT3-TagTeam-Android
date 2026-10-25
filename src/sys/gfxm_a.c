@@ -634,8 +634,8 @@ void GfxPost_DrawGlow(s32 passes, u32 color, u32 glow) {
     passes += passes & 1;
 #ifdef PORT
     {
-        extern int Port_GlowSkip(void); /* port/src/gs/gs_draw.c: the chain left out (Dragon Rage Lite) */
-        if (Port_GlowSkip()) {
+        extern int Port_GlowSkip(u32 glow); /* port/src/gs/gs_draw.c: the chain left out (Lite mode, strength 0) */
+        if (Port_GlowSkip(glow)) {
             return;
         }
     }

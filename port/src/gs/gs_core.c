@@ -1420,7 +1420,7 @@ static int render_thread_wanted(void) {
     extern int Port_Setting(const char *name, int def);
     extern int SDL_GetNumLogicalCPUCores(void);
     const char *e = getenv("BT3_GS_THREAD");
-    int want = e != NULL ? atoi(e) != 0 : Port_Setting("render_thread", 0) != 0;
+    int want = e != NULL ? atoi(e) != 0 : Port_Setting("render_thread", 0) != 0 || Port_Setting("dr_lite", 0) != 0;
 #ifdef __APPLE__
     want = 0;
 #endif
@@ -1443,7 +1443,8 @@ static int gs_on(void) {
             sscanf(getenv("BT3_GS_PROBE"), "%d,%d", &sProbeX, &sProbeY);
         }
         if (on && strcmp(gs_mode(), "gpu") == 0) {
-            /* The render thread (setting "render_thread", F1 > Video; BT3_GS_THREAD=0/1 over it): the back end, the
+            /* The render thread (setting "render_thread", F1 > Video, or Lite mode, "dr_lite"; BT3_GS_THREAD=0/1 over
+               them): the back end, the
                window and the list run on a thread of their own while the game computes the next tick. Not with
                OpenGL (its context is one thread's, and the game's thread asks the back end for a few things), not
                on macOS (a window there is the main thread's), not with two logical processors or fewer. */

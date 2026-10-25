@@ -49,8 +49,6 @@ GSX = HERE / "gsx"
 BT3R = WORK / "BT3-Recomp"
 BT4R = WORK / "dbz-bt4-recomp"
 OURS = HERE / "patches/bt3recomp-android.patch"
-# Dragon Rage Lite (branch lite): the runtime's changes for weak phones, applied after ours
-LITE = HERE / "patches/bt3recomp-lite.patch"
 
 
 def run(cmd, cwd=None, env=None):
@@ -76,7 +74,7 @@ def sources():
     clone(BT4R_URL, BT4R_REV, BT4R)
     run(["git", "-C", BT4R, "checkout", "--quiet", BT4R_REV])
     mark = BT3R / ".dragonrage-patched"
-    want = sha256(OURS) + " " + BT3R_REV + " " + BT4R_REV + (" " + sha256(LITE) if LITE.exists() else "")
+    want = sha256(OURS) + " " + BT3R_REV + " " + BT4R_REV
     if mark.exists() and mark.read_text().strip() == want:
         return
     print("== BT3-Recomp: the mod's patch and Dragon Rage's", flush=True)
@@ -90,8 +88,6 @@ def sources():
     run(["git", "-C", BT3R, "apply", "--whitespace=nowarn", "--exclude=ps2xRuntime/third_party/parallel-gs",
          BT4R / "patches/bt3recomp-bt4mod-full.patch"])
     run(["git", "-C", BT3R, "apply", "--whitespace=nowarn", OURS])
-    if LITE.exists():
-        run(["git", "-C", BT3R, "apply", "--whitespace=nowarn", LITE])
     mark.write_text(want + "\n")
 
 

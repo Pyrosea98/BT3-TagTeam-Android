@@ -442,6 +442,13 @@ open class GameActivity : SDLActivity() {
     /** The game folder, the app's native libraries (the engine, adrenotools' hooks) and the chosen GPU driver, if any. */
     override fun getArguments(): Array<String> {
         val driver = runCatching { GpuDrivers(this, contentResolver).selected() }.getOrNull()
-        return arrayOf(paths.root.path, applicationInfo.nativeLibraryDir, driver?.dir?.path ?: "", driver?.library ?: "")
+        // Lite mode on a Mali: the render passes' areas cut to what they draw (loader.c, area_driver)
+        val liteMali = game == com.dfdx047.dragonrage.data.Game.BT3 && runCatching {
+            EngineSettings(paths.settings).get(EngineSettings.LITE, 0) != 0 && Renderer.isMali(Renderer.gpuName(paths))
+        }.getOrDefault(false)
+        return arrayOf(
+            paths.root.path, applicationInfo.nativeLibraryDir, driver?.dir?.path ?: "", driver?.library ?: "",
+            if (liteMali) "1" else "0",
+        )
     }
 }

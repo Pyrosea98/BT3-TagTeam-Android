@@ -232,6 +232,9 @@ fun SettingsScreen(vm: AppViewModel) {
             ToggleRow(stringResource(R.string.frame_skip), stringResource(R.string.frame_skip_text), get(EngineSettings.FRAME_SKIP, 1) != 0) {
                 vm.setting(EngineSettings.FRAME_SKIP, if (it) 1 else 0)
             }
+            ToggleRow(stringResource(R.string.lite), stringResource(R.string.lite_text), get(EngineSettings.LITE, 0) != 0) {
+                vm.setLite(it)
+            }
             if (vm.game != com.dfdx047.dragonrage.data.Game.BT4) { // (smooth motion is the BT3 engine's)
                 Text(stringResource(R.string.fps60), style = MaterialTheme.typography.titleSmall)
                 ChipRow(

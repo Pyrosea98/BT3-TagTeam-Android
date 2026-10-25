@@ -420,3 +420,59 @@ encontrado, como já estava documentado no `docs/port/README.md`.
 **Aparelhos:** os testes desta seção instalaram o pacote nos dois e mudaram ajustes; tudo voltou ao estado da seção
 6 (ajustes do BT3 e do BT4, `bt3_env.txt` do Cube, sem `fight.rec`, sem pacotes em `textures`, Downloads igual,
 saves iguais). Os dois estão com o APK desta seção (900). O zip do pacote ficou no PC em `~/dbz-tex/zips/SLUS-21678.zip`.
+
+## 9. Modo Lite (GPUs fracas)
+
+O pedido era BT3 e BT4 a 1x e 30 quadros/s num Mali-G52 MC1. O que foi medido está em `docs/lite-notes.md`. A
+decisão foi fechar o que estava medido como um **Modo Lite** no mesmo APK e parar de perseguir os 30.
+
+**O que entra.** Com `dr_lite=0` o motor segue o caminho de hoje (imagem idêntica, abaixo).
+- `dr_lite` (0/1): uma linha em Ajustes › Desempenho. Ligar põe o brilho e o reflexo do céu em 0 (desligar não
+  mexe neles). O diálogo do perfil de GPU oferece o Lite só para os chips fracos (`GpuProfiles.weakChip`): o
+  nível 0 da tabela (Mali-G52, G31, G51, T-série, Adreno 3xx a 512 e 600 a 612, PowerVR GE), mas não um Mali-G57 com
+  mais de 2 núcleos nem um que não diga quantos tem (o RG Cube diz só "Mali-G57").
+- Com `dr_lite=1`: thread de renderização (como `render_thread`; não em OpenGL); a cadeia do brilho e a do reflexo
+  do céu puladas inteiras quando a força delas é 0 (`Port_GlowSkip`, `gfxm_a.c GfxPost_DrawGlow`); em Mali e só no
+  BT3, a área de cada render pass reduzida ao que ela desenha (o `GameActivity` passa a flag ao loader, que intercepta
+  `vkCmdBeginRenderPass`; sem Lite ou fora de Mali o loader não toca no Vulkan).
+- **SDL 3.4.12 modificado, para todos**: ao trocar de pipeline, o SDL não recria nem regrava os conjuntos de
+  descritores quando o layout é o mesmo (os modelos 3D alternam dois pipelines a cada draw). Patch em
+  `port/third_party/sdl3-patches/`; o CI (`toolchain.yml`) aplica e republica o SDL quando o `main` mudar esse
+  arquivo. `DR_SDL_KEEP_SETS=0` no `bt3_env.txt` volta ao comportamento original. Localmente, o
+  `android-toolchain/sdl3/lib/libSDL3.so` foi trocado pelo modificado (o original ficou em `libSDL3.so.stock`).
+- BT4: nos chips fracos o launcher avisa ao abrir: "Este aparelho tem pouca CPU para o BT4: a luta vai rodar abaixo
+  da velocidade normal." O jogo continua disponível.
+
+**Antes e depois** (luta gravada `fight.rec`; 100% = 30 quadros/s; "900" é o APK da 0.9.0 publicado, com a seção 8)
+
+| Aparelho, config | 900 | esta build, Lite desligado | esta build, Lite ligado |
+|---|---|---|---|
+| G52 MC1 simulado (Cube, 1 núcleo a 512 MHz, só A55), VK 1x, fx_off=48 | 52,8% | - | **77,0%** (23 quadros/s) |
+| Cube, VK 1x | 100% | 100% | 100% |
+| Cube, VK 2x | 94,8% (relatório) | **94,8%** | **100%** (present 18,6 → 2,9 ms) |
+| RP5, VK 4x | 83,7% (draws 5,39 ms) | 83,5% (draws 4,23 ms) | n/a |
+| RP5, VK 2x | 100% | 100% | n/a |
+| RP5, GL 2x | 100% | 100% | n/a |
+
+Imagem (8 quadros da luta, 6300 a 7350):
+- Cube VK 1x, 900 contra esta build com Lite desligado (SDL modificado): **0 pixels diferentes**.
+- RP5 VK 2x, 900 contra esta build (SDL modificado): **0 pixels diferentes**.
+- Cube VK 1x, brilho e reflexo em 0, Lite desligado contra ligado: 0 em 7 quadros; no quadro 7350, 11 pixels com
+  1 nível de diferença. Não vêm da área de render pass nem da thread (os mesmos 11 com cada uma desligada):
+  vêm do passe que soma o brilho com força 0, que ainda mexe 1 nível nesses pixels e que o Lite pula.
+
+**RP5 e a gravação.** A `fight_rp5.rec` deixou de sincronizar (também no APK 900): o jogo fica nos logos e na
+demonstração e a "luta" medida não é a luta (copies 3,9 em vez de 14,5; por isso VK 4x parecia 93%). As medições do
+RP5 acima usam a gravação do Cube (`fight.rec`), conferidas por captura de tela (seleção, "Fight!", golpes), e a
+coluna 900 foi medida de novo nela. A causa provável é a mudança de início de tela cheia (79ce685), não investigada.
+
+**O que ficou de fora**
+- 30 quadros/s no G52 MC1: o Lite chega a ~77% (BT3). O resto do tempo de GPU está nas cópias DATE (~20%) e no
+  custo por draw; o de CPU, no driver e na emulação de FPU.
+- BT4 no G52 MC1: limitado pela CPU (8,7 a 10 atualizações/s de 30). O agrupamento dos `thread_local` do runtime não
+  foi medido e não entrou (o patch está no commit dd4581d).
+- OpenGL com framebuffer fetch (93% só GPU, mas imagem errada no G57 e trava no G52, ver o device lab), shader em
+  mediump (+3,7%), cópias DATE sem quebrar o pass e as ferramentas de medição (no commit dd4581d).
+
+**Aparelhos:** os dois voltaram ao estado da seção 8 (APK 900, ajustes do BT3, `bt3_env.txt` do Cube, sem
+gravações nem capturas, saves iguais, Cube sem limites de GPU e CPU).
