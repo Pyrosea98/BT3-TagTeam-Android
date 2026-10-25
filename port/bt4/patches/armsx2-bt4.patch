@@ -115,6 +115,31 @@ index 695b76741..3c65852b4 100644
  #elif defined(__linux__)
  // No X11/Wayland on this build (handheld kmsdrm target). Vulkan VK_KHR_display
  // owns the screen; VulkanDirect is reported with the requested resolution and
+diff --git a/pcsx2/GS/Renderers/HW/GSTextureReplacements.cpp b/pcsx2/GS/Renderers/HW/GSTextureReplacements.cpp
+index 97b692e2d..1a0cf5090 100644
+--- a/pcsx2/GS/Renderers/HW/GSTextureReplacements.cpp
++++ b/pcsx2/GS/Renderers/HW/GSTextureReplacements.cpp
+@@ -19,6 +19,8 @@
+ #include "GS/GSExtra.h"
+ #include "GS/GSLocalMemory.h"
+ #include "GS/Renderers/HW/GSTextureReplacements.h"
++
++#include <cstdlib>
+ #include "GS/Renderers/HW/GSTextureUpscaleSupport.h"
+ #include "GS/Renderers/HW/GSTextureUpscaler.h"
+ #include "VMManager.h"
+@@ -679,7 +681,10 @@ void GSTextureReplacements::ReloadReplacementMap()
+ 	}
+ 
+ 	const std::string texture_dir = GetGameTextureDirectory();
+-	const std::string replacement_dir(Path::Combine(texture_dir, TEXTURE_REPLACEMENT_SUBDIRECTORY_NAME));
++	// Dragon Rage: the launcher's own folder of packs (bt4/textures, one folder per pack, any depth) instead of
++	// <textures>/<serial>/replacements, which the app's shared storage gives no way to fill
++	const char* app_dir = std::getenv("BT4GSX_TEXTURES");
++	const std::string replacement_dir(app_dir && *app_dir ? std::string(app_dir) : Path::Combine(texture_dir, TEXTURE_REPLACEMENT_SUBDIRECTORY_NAME));
+ 
+ 	FileSystem::FindResultsArray files;
+ 
 diff --git a/pcsx2/GSDumpReplayer.cpp b/pcsx2/GSDumpReplayer.cpp
 index 2431077de..4142d6422 100644
 --- a/pcsx2/GSDumpReplayer.cpp

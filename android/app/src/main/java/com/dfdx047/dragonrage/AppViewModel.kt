@@ -21,6 +21,7 @@ import com.dfdx047.dragonrage.data.Net
 import com.dfdx047.dragonrage.data.TextureCatalog
 import com.dfdx047.dragonrage.data.UpdateState
 import com.dfdx047.dragonrage.data.formatBytes
+import com.dfdx047.dragonrage.data.zipUnpackedSize
 import com.dfdx047.dragonrage.data.ExtraItem
 import com.dfdx047.dragonrage.data.ExtraKind
 import com.dfdx047.dragonrage.data.FileMod
@@ -504,6 +505,7 @@ class AppViewModel @JvmOverloads constructor(app: Application, val game: Game = 
                 ActivityLog.info("textures", "downloaded ${file.length()} bytes from $u")
                 if (!Net.looksLikeZip(file)) throw IOException(str(R.string.err_download_not_zip))
                 val label = name ?: u.substringBefore('?').substringAfterLast('/').removeSuffix(".zip").ifBlank { "Texture pack" }
+                packs.checkRoom(zipUnpackedSize { java.io.RandomAccessFile(file, "r").channel })
                 val p = packs.importFrom(label, { file.inputStream() }) { d -> setDetail(d) }
                 _packs.value = packs.list()
                 ActivityLog.info("textures", "installed: ${p.name}, ${p.textures} textures")

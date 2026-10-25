@@ -68,7 +68,7 @@
     <string name="detail_checksums">verifying checksums</string>
     <string name="step_extracting">Unpacking the game data</string>
     <string name="detail_extract">%1$d%% · %2$d files</string>
-    <string name="err_zip_only">Pick a pack as .zip (.7z and .rar are not supported yet).</string>
+    <string name="err_zip_only">Pick a pack as .zip. A .rar or .7z has to be extracted and packed again as .zip first (with ZArchiver or RAR on the phone, or 7-Zip on a PC).</string>
     <string name="err_zip_empty">The zip is empty.</string>
     <string name="err_no_textures">No textures in PCSX2\'s format were found (names like 1a2b3c4d5e6f7a8b-0f1e2d3c-00004a64.dds).</string>
     <string name="err_zip_entry">Invalid entry in the zip: %1$s</string>
@@ -265,7 +265,9 @@
     <string name="renderer_auto">Automatic</string>
     <string name="renderer_now">GPU: %1$s. The game starts with %2$s.</string>
     <string name="renderer_text">Automatic: Vulkan, the faster one on nearly every GPU (0.5.0 chose OpenGL ES for Mali, which turned out much slower in fights there). OpenGL ES stays for GPUs whose Vulkan driver fails; it has no depth clamping and no screen filters (FXAA, FSR, GSR).</string>
-    <string name="err_zip_method">This zip uses a compression the app cannot read (Deflate64, LZMA, BZip2 or a password). Pack it again as a normal .zip (\"Deflate\", no password), for example with 7-Zip or ZArchiver.</string>
+    <string name="err_zip_method">This zip uses a compression the app cannot read (LZMA, Zstandard or a password). Pack it again as a normal .zip (\"Deflate\", no password), for example with 7-Zip or ZArchiver.</string>
+    <string name="err_no_space">Not enough space: this pack takes %1$s unpacked and the device has %2$s free.</string>
+    <string name="err_no_space_during">The device ran out of space while unpacking (%1$s unpacked). Free some space and try again; nothing of this pack was kept.</string>
     <string name="err_no_textures_seen">Images in the zip: %1$s.</string>
     <string name="nav_drivers">Drivers</string>
     <string name="nav_debug">Debug</string>

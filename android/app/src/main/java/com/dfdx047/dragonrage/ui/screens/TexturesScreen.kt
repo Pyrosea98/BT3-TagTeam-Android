@@ -125,7 +125,9 @@ fun TexturesScreen(vm: AppViewModel) {
             }
         }
         ExtendedFloatingActionButton(
-            onClick = { pick.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) },
+            // any file: a .rar or .7z (the form the packs are shared in) greyed out in the picker left the player
+            // without a word; the zip is known by its first bytes, and anything else gets the message on what to do
+            onClick = { pick.launch(arrayOf("*/*")) },
             icon = { Icon(Icons.Rounded.Add, null) },
             text = { Text(stringResource(R.string.add_pack)) },
             modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),

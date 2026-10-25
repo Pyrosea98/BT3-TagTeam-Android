@@ -67,7 +67,7 @@
     <string name="detail_checksums">conferindo as somas de verificação</string>
     <string name="step_extracting">Extraindo os dados do jogo</string>
     <string name="detail_extract">%1$d%% · %2$d arquivos</string>
-    <string name="err_zip_only">Escolha um pack em .zip (arquivos .7z e .rar ainda não são aceitos).</string>
+    <string name="err_zip_only">Escolha um pack em .zip. Um .rar ou .7z precisa ser extraído e compactado de novo como .zip antes (no ZArchiver ou no RAR, no próprio celular, ou no 7-Zip, no PC).</string>
     <string name="err_zip_empty">O zip está vazio.</string>
     <string name="err_no_textures">Nenhuma textura no formato do PCSX2 foi encontrada (nomes como 1a2b3c4d5e6f7a8b-0f1e2d3c-00004a64.dds).</string>
     <string name="err_zip_entry">Entrada inválida no zip: %1$s</string>
@@ -264,7 +264,9 @@
     <string name="renderer_auto">Automático</string>
     <string name="renderer_now">GPU: %1$s. O jogo abre com %2$s.</string>
     <string name="renderer_text">Automático: Vulkan, o mais rápido em quase todas as GPUs (a 0.5.0 escolhia OpenGL ES para Mali, que se mostrou bem mais lento nas lutas). O OpenGL ES fica para GPUs cujo driver Vulkan falha; ele não tem depth clamp nem os filtros de tela (FXAA, FSR, GSR).</string>
-    <string name="err_zip_method">Este zip usa uma compressão que o app não lê (Deflate64, LZMA, BZip2 ou senha). Compacte de novo como .zip normal (\"Deflate\", sem senha), por exemplo no 7-Zip ou no ZArchiver.</string>
+    <string name="err_zip_method">Este zip usa uma compressão que o app não lê (LZMA, Zstandard ou senha). Compacte de novo como .zip normal (\"Deflate\", sem senha), por exemplo no 7-Zip ou no ZArchiver.</string>
+    <string name="err_no_space">Espaço insuficiente: este pack ocupa %1$s depois de extraído e o aparelho tem %2$s livres.</string>
+    <string name="err_no_space_during">O espaço do aparelho acabou durante a extração (%1$s extraídos). Libere espaço e tente de novo; nada deste pack ficou guardado.</string>
     <string name="err_no_textures_seen">Imagens no zip: %1$s.</string>
     <string name="nav_drivers">Drivers</string>
     <string name="nav_debug">Depuração</string>

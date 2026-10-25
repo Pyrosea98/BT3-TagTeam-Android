@@ -26,6 +26,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef __ANDROID__
+#include <unistd.h> /* getcwd */
+#endif
 #include <SDL3/SDL.h>
 #define XXH_INLINE_ALL
 #include "../../third_party/xxhash/xxhash.h"
@@ -268,10 +271,23 @@ int TexPack_Decompress(TexPackImage *img, uint32_t maxSide) {
 
 void TexPack_Init(void) {
     const char *root = getenv("BT3_TEXTURES") != NULL ? getenv("BT3_TEXTURES") : "textures";
-    size_t n = strlen(root);
-    char *dir = malloc(n + 2);
+    size_t n;
+    char *dir;
     uint32_t i, dup = 0;
     SDL_PathInfo info;
+#ifdef __ANDROID__
+    /* SDL on Android takes a relative path as one in the app's internal folder (/data/user/0/<app>/files), not
+       the current folder: "textures" was never the launcher's folder of packs next to gamedata/, and a pack
+       imported in the app was never used ("no folder textures" with the pack in place). From the game's folder. */
+    static char absRoot[1200];
+    char cwd[1024];
+    if (root[0] != '\0' && root[0] != '/' && getcwd(cwd, sizeof(cwd)) != NULL) {
+        snprintf(absRoot, sizeof(absRoot), "%s/%s", cwd, root);
+        root = absRoot;
+    }
+#endif
+    n = strlen(root);
+    dir = malloc(n + 2);
 
     if (root[0] == '\0' || !SDL_GetPathInfo(root, &info) || info.type != SDL_PATHTYPE_DIRECTORY) {
         fprintf(stderr, "bt3: texture pack: no folder %s\n", root);

@@ -23,6 +23,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <dirent.h>
 #include <pthread.h>
 #include <string>
 #include <thread>
@@ -513,6 +514,31 @@ struct Gsx
     void (*stop)(void);
 };
 
+// The launcher's texture packs (bt4/textures, one folder per pack): a .dds or .png at any depth below it. A pack
+// switched off in the launcher is moved to textures_off, beside it.
+static bool hasTexturePack(const std::string &dir, int depth = 0)
+{
+    DIR *d = opendir(dir.c_str());
+    if (!d)
+        return false;
+    bool found = false;
+    while (dirent *e = readdir(d))
+    {
+        const std::string name = e->d_name;
+        if (name == "." || name == "..")
+            continue;
+        const size_t n = name.size();
+        if (e->d_type == DT_DIR)
+            found = depth < 16 && hasTexturePack(dir + "/" + name, depth + 1);
+        else
+            found = n > 4 && (strcasecmp(name.c_str() + n - 4, ".dds") == 0 || strcasecmp(name.c_str() + n - 4, ".png") == 0);
+        if (found)
+            break;
+    }
+    closedir(d);
+    return found;
+}
+
 // The GS settings for this start (gsx/dbz.ini), from the launcher's: Team BT4's PCSX2 profile (dbz-bt4-recomp's
 // gshost/dbz.ini) with the internal resolution, the shape and the texture offset of that resolution.
 float gsxWriteIni(const std::string &path)
@@ -525,6 +551,9 @@ float gsxWriteIni(const std::string &path)
     const int s = static_cast<int>(upscale + 0.5f);
     const int tc = s <= 1 ? 0 : s == 2 ? 345 : s <= 5 ? 425 : 500;
     const int aspect = Bt4_AspectMode();
+    // (read by ARMSX2 from BT4GSX_TEXTURES, set at the start: its own folder is <textures>/<serial>/replacements)
+    const bool packs = hasTexturePack(g_root + "/textures");
+    std::fprintf(stderr, "bt4: texture packs for ARMSX2's renderer: %s\n", packs ? "on (bt4/textures)" : "none in bt4/textures");
     FILE *f = std::fopen(path.c_str(), "w");
     if (!f)
         return upscale;
@@ -546,10 +575,10 @@ float gsxWriteIni(const std::string &path)
                  "UserHacks_CPUCLUTRender = 1\n"
                  "UserHacks_TCOffsetX = %d\n"
                  "UserHacks_TCOffsetY = %d\n"
-                 "LoadTextureReplacements = false\n"
+                 "LoadTextureReplacements = %s\n"
                  "DumpReplaceableTextures = false\n",
                  static_cast<double>(upscale), aspect == 1 ? "4:3" : aspect == 2 ? "Stretch" : "16:9",
-                 Port_Setting("meter", 0) ? "true" : "false", tc, tc);
+                 Port_Setting("meter", 0) ? "true" : "false", tc, tc, packs ? "true" : "false");
     std::fclose(f);
     return upscale;
 }
@@ -888,6 +917,12 @@ extern "C" __attribute__((visibility("default"))) int SDL_main(int argc, char *a
     // the renderer reads and writes bt3_settings.txt when it is asked (a setting changed in the menu)
     static std::string settingsPath = g_root + "/bt3_settings.txt";
     setenv("BT3_SETTINGS", settingsPath.c_str(), 1);
+    // the launcher's texture packs, by their full path for the same reason: Dragon Rage's renderer looked for
+    // "textures" in whatever folder the game was in ("no folder textures") and ARMSX2's in its own folder under
+    // the serial, so a pack imported for BT4 was never used by either (bt3_env.txt can still name another folder)
+    static std::string texturesPath = g_root + "/textures";
+    setenv("BT3_TEXTURES", texturesPath.c_str(), 0);
+    setenv("BT4GSX_TEXTURES", texturesPath.c_str(), 0);
 
     fps60Prepare();
 
