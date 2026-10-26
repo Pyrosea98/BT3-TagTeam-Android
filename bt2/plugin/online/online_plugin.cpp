@@ -216,6 +216,11 @@ std::uint32_t go_to_mode=0,auto_pick=0;
 bool session=false,duel_lock=false,returning=false,down_sent=false,transition_mute=false;
 std::uint32_t mute_frames=0;
 std::uint32_t mode_frames=0,return_frames=0;
+// The automatic walk: from "Connected" the screen is black and the sound off while the game takes itself, with the presses of a script (the Dueling menu's
+// "1P VS 2P", then what comes before the character selection), to the character selection; nobody presses meanwhile. Then the screen and the sound come back.
+bool auto_phase=false;
+std::uint32_t auto_frames=0,ready_frames=0,walk_end_wait=0;
+std::atomic<bool> nocover{false}; // (development: the file online_nocover shows what happens under the black)
 std::atomic<int> left_cover{0};
 constexpr std::uint32_t duel_mode=30;
 // Dueling's menu (found by comparing the memory with the cursor in other places): its state is the structure the word at 0x42BB84 points to, the cursor
@@ -281,7 +286,7 @@ void screenLoop(Guest& g) {
                     const std::uint32_t mode=modeToTry()?modeToTry():duel_mode; // (the file online_mode_test tries another mode)
                     endWait(true); // the line stays: the match is on
                     go_to_mode=mode;screen.leaving=true;effect(1);g.call(leave_fade,{0,0,0});
-                    session=true;duel_lock=mode==duel_mode;down_sent=false;mode_frames=0;
+                    session=true;duel_lock=mode==duel_mode;down_sent=false;mode_frames=0;auto_phase=duel_lock;auto_frames=0;ready_frames=0;walk_end_wait=0;
                 }
             } else if(pressed&0x3000 || onlineFile("online_back",true)) {endWait();effect(2);} // triangle, circle, or the app: given up
             else if(screen.failed) {
@@ -350,7 +355,7 @@ void startWalk() {
         std::uint32_t wait=0;std::string button;
         if((words>>wait>>button) && buttonBits(button)) {walk_steps.push_back({wait,buttonBits(button)});any=true;}
     }
-    if(!any)return; // (no script: the player chooses in the menus himself)
+    if(!any)walk_steps={{150,0x4000}}; // (no script file: after the Dueling menu, "Single Battle")
     walk_at=0;walk_wait=walk_steps[0].wait;walking=true;
     std::fprintf(stderr,"Online Mode: the walk through the menus starts (%zu presses)\n",walk_steps.size());
 }
@@ -359,7 +364,8 @@ void leaveSession(bool opponent_gone) {
     if(!session)return;
     if(!opponent_gone)link.sayBye();
     link.close();
-    session=false;duel_lock=false;dim_others.store(false);
+    session=false;duel_lock=false;dim_others.store(false);auto_phase=false;walking=false;cover.store(0);
+    if(transition_mute){transition_mute=false;H->set_stream_percent(music_volume);}
     if(opponent_gone)left_cover.store(900); // (kept until the Online screen is open again, 15 seconds at most)
     returning=true;return_frames=0;screen_next=true;
     std::fprintf(stderr,"Online Mode: the match ends (%s)\n",opponent_gone?"the opponent left or was lost":"the player left");
@@ -398,15 +404,13 @@ void framePad(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
         link.poll();
         if(link.state()!=Link::Up || link.peerLeft() || link.silentMs()>6000)leaveSession(true);
     }
-    if(transition_mute) { // silent from "connected" until the Dueling menu has been on for a moment (or 15 seconds at most)
-        ++mute_frames;
-        if((mode==duel_mode && mode_frames>=45) || mute_frames>900 || !session) {
-            transition_mute=false;mute_frames=0;
-            H->set_stream_percent(music_volume);
-        }
+    if(transition_mute && ++mute_frames>1800) {transition_mute=false;mute_frames=0;H->set_stream_percent(music_volume);}
+    if(session && auto_phase) {
+        const std::uint32_t pressed=read32(rdram,pad+0x134);
+        if(duel_lock && mode_frames>20 && (pressed&0x1000))leaveSession(false); // triangle: the game's own way back, and the line closes
+        else {write32(rdram,pad+0x144,0);write32(rdram,pad+0x134,0);} // (nobody presses while the game takes itself to the selection)
     }
     if(session && duel_lock) {
-        std::uint32_t held=read32(rdram,pad+0x144),pressed=read32(rdram,pad+0x134);
         if(mode==duel_mode)++mode_frames;
         const std::uint32_t state=read32(rdram,duel_state_pointer);
         const bool menu_ready=mode==duel_mode && mode_frames>=60 && state>0x100000 && state<0x1FFFF00;
@@ -418,16 +422,23 @@ void framePad(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
             g.call(duel_moved);
             *c=saved;
         }
-        if(pressed&0x1000 && mode_frames>20) {dim_others.store(false);leaveSession(false);} // triangle: the game's own way back to the main menu, and the line closes
-        else {
-            // only "1P VS 2P" can be taken: nothing moves the cursor, and cross works only on it
-            std::uint32_t allowed=0x1000;
-            if(menu_ready && read32(rdram,state+0xF4)==1)allowed|=0x4000;
-            held&=allowed;pressed&=allowed;
-            if(pressed&0x4000){duel_lock=false;dim_others.store(false);} // taken: the screens after it are the player's
-            write32(rdram,pad+0x144,held);write32(rdram,pad+0x134,pressed);
+        if(menu_ready && read32(rdram,state+0xF4)==1 && ++ready_frames==12) { // "1P VS 2P" is taken, and the walk goes on from there
+            write32(rdram,pad+0x144,read32(rdram,pad+0x144)|0x4000);write32(rdram,pad+0x134,read32(rdram,pad+0x134)|0x4000);
+            duel_lock=false;dim_others.store(false);
+            startWalk();
         }
     }
+    if(session && auto_phase) { // the end of the walk: a moment after its last press the screen and the sound come back
+        const bool done=!duel_lock && !walking && walk_steps.size() && walk_at>=walk_steps.size();
+        if(done && walk_end_wait==0)walk_end_wait=90;
+        if((walk_end_wait && --walk_end_wait==0) || ++auto_frames>2400) {
+            auto_phase=false;cover.store(0);
+            if(transition_mute){transition_mute=false;mute_frames=0;H->set_stream_percent(music_volume);}
+            std::fprintf(stderr,"Online Mode: at the end of the walk (%u fields), screen and sound back\n",auto_frames);
+        }
+    }
+    static unsigned cover_check=0;
+    if(++cover_check%60==0)nocover.store(onlineFile("online_nocover",false));
     if(returning) { // triangle every twenty fields until the game is at the main menu's mode (where the Online screen opens: screen_next)
         if(mode==main_menu_mode || return_frames>900)returning=false;
         else {
@@ -498,7 +509,7 @@ void menuMode(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
         const auto ra=c->r[31],a0=c->r[4],sp=c->r[29];
         screenLoop(g);
         c->r[31]=ra;c->r[4]=a0;c->r[29]=sp;c->pc=menu_mode;
-        if(go_to_mode){cover_menu_seen.store(false);cover.store(600);}
+        if(go_to_mode)cover.store(2600);
         auto_pick=go_to_mode; // the main menu comes back as a player leaves the screen; its pad step then "presses" the item (padMenu)
         go_to_mode=0;
     }
@@ -515,7 +526,6 @@ void padMenu(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
             g.set(0xF0,wrap(static_cast<std::int32_t>(item)-2));
             g.set(0xE8,item);
             held=0;pressed=0x4000;auto_pick=0;
-            startWalk();
         }
         if(held&0x50) { // up, down: the wheel turns from where it was
             g.set(0xF0,wrap(static_cast<std::int32_t>(item)-2));
@@ -776,10 +786,9 @@ static void pluginOverlay(std::uint64_t dispfb,std::uint64_t display) {
     } else if(menu && menu_item==online_item) {
         draw(description_picture,37.4f,347,348.9f,391); // (where the window's two lines are: measured on the frame)
     }
-    if(cover.load()>0) { // the screen's picture stays over the main menu until the mode after it (Dueling) is on its way
-        if(menu)cover_menu_seen.store(true);
-        else if(cover_menu_seen.load())cover.store(0);
-        if(cover.load()>0) {cover.fetch_sub(1);draw(wait_picture,0,0,float(width),float(height),128);}
+    if(cover.load()>0) { // black over the frame from "Connected" until the walk reaches the character selection
+        cover.fetch_sub(1);
+        if(!nocover.load(std::memory_order_relaxed))draw(shade_picture,0,0,float(width),float(height),128);
     }
     if(screen.open && left_cover.load()>0 && left_cover.load()<=720)left_cover.store(0); // (the Online screen is back, and the message has been up three seconds: it goes)
     if(left_cover.load()>0) {left_cover.fetch_sub(1);draw(left_picture,0,0,float(width),float(height),128);} // (the opponent left: black, with the message)
