@@ -30,14 +30,14 @@ Written 2026-10-25. Android only. Names stay neutral; addresses are BT2's (USA d
 2b. **The library** (done): everything of the menu and of the online play that does not need the game's code is `libbt2online.so`
    (`bt2/plugin/`, API in `bt2_plugin.h`), built by the public CI (`build.py plugin`, non-blocking step in `android.yml`) and carried
    by the APK; the engine loads it (`runtime/plugin/plugin_host.cpp`). Quick loop: `build.py plugin` takes 15 s.
-2c. **The direct line** (written, first test pending): `bt2/plugin/online/link.{h,cpp}`, UDP "hello" to every address the service
+2c. **The direct line** (done, tested 2026-10-26 on the same Wi-Fi: phone shows "Conectado! Atraso: 38 ms", PC measures 22-32 ms): `bt2/plugin/online/link.{h,cpp}`, UDP "hello" to every address the service
    gave, "ping" for the round trip, 15 s to give up. Test with one phone: `bt2/tools/dev_server/peer.py` plays the other player on the
    computer (same Wi-Fi).
 3. **The fight** (not started, the hard part).
 
 ## Next, in this order
 
-1. Test the line (2c): the phone creates/joins a room, `peer.py join|host|quick` is the other player; expect "Conectado! Atraso: N ms".
+1. (done) the line over the same Wi-Fi works; not tested across networks or on mobile data.
 2. **The relay (TURN)**, so that any two phones can play. BT3 does it in `port/src/gs/net_relay.c` (RFC 5766 over UDP: Allocate with
    long-term credentials, CreatePermission, Refresh, Send/Data indications, ChannelBind). The service gives the host `turn`
    {server, username, credential} in the answer of `/v1/host` (only when it has `TURN_KEY_ID`/`TURN_KEY_TOKEN`; the development
