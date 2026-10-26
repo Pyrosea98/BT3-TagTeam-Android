@@ -111,6 +111,17 @@ jobs:
           tail -3 bt2_build.txt
           ls -la android/app/src/main/jniLibs/arm64-v8a
 
+      # Dragon Rage's own part of BT2 (bt2/plugin: libbt2online.so, the Online Mode menu and its screens, the music, later the online
+      # play): it needs nothing of the game's code, so it is built here for every APK. The BT2 engine (the players import it) loads
+      # it from the app's native libraries. Not blocking: without it the APK is as it was and BT2's main menu stays the game's.
+      - name: BT2 plugin (libbt2online.so)
+        continue-on-error: true
+        working-directory: .
+        run: |
+          ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME" python3 bt2/android/build.py plugin > bt2_plugin.txt 2>&1 || { tail -40 bt2_plugin.txt > bt2_plugin_errors.txt; sh .github/annotate.sh bt2_plugin_errors.txt; exit 1; }
+          tail -2 bt2_plugin.txt
+          ls -la android/app/src/main/jniLibs/arm64-v8a
+
       - name: Version from the tag
         run: |
           if [[ "$GITHUB_REF" == refs/tags/android-v* ]]; then

@@ -320,7 +320,7 @@ extern "C" __attribute__((visibility("default"))) int SDL_main(int argc,char* ar
         // the settings file cannot hold: "gs_hacks = <list>", paraLLEl-GS's speed-for-accuracy options.
         {
             std::ifstream in(user/"android");std::string line,hacks;
-            bool sample=false,render_thread=true;std::string renderer;
+            bool sample=false,render_thread=true;std::string renderer,sync_run;
             while(std::getline(in,line)) {
                 if(line.rfind("gs_hacks = ",0)==0)hacks=line.substr(11);
                 if(line=="sample = 1")sample=true;
@@ -343,6 +343,23 @@ extern "C" __attribute__((visibility("default"))) int SDL_main(int argc,char* ar
                 // "vu1_census = 1": every VU1 program the run starts goes to user/vu1-census, to translate to native
                 // code on a PC (tools/vu1/translate_programs.py; the result is the game's, it stays local)
                 if(line=="vu1_census = 1") {fs::create_directories(user/"vu1-census",error);setenv("BT2_VU1_CENSUS",(user/"vu1-census").c_str(),1);}
+                // "sync_test = <run>": the repeatability check of online play (docs/plans/online/ONLINE_PLAN.md), for developers: run 1 is
+                // played by the player and its controller recorded (user/sync-test/input.bin); run 2 plays that recording by itself;
+                // both from a copy of the same memory card, with the game's memories hashed every 10 fields (user/sync-test/run-<run>.txt)
+                if(line.rfind("sync_test = ",0)==0 && line.size()>12)sync_run=line.substr(12);
+            }
+            for(const char* name:{"BT2_STATE_HASH","BT2_STATE_HASH_EVERY","BT2_STATE_HASH_PAGES","BT2_INPUT_RECORD","BT2_INPUT_REPLAY"})unsetenv(name);
+            if(!sync_run.empty()) {
+                const auto dir=user/"sync-test",start=dir/"card-start",card=dir/"card";
+                fs::create_directories(dir,error);
+                if(sync_run=="1") {fs::remove_all(start,error);fs::copy(folders.card(settings),start,fs::copy_options::recursive,error);}
+                fs::remove_all(card,error);fs::copy(start,card,fs::copy_options::recursive,error);
+                setEnv("BT2_CARD_FOLDER",card.string());
+                setEnv("BT2_STATE_HASH",(dir/("run-"+sync_run+".txt")).string());
+                setenv("BT2_STATE_HASH_EVERY","10",1);
+                setenv("BT2_STATE_HASH_PAGES","6000",1);
+                setEnv(sync_run=="1"?"BT2_INPUT_RECORD":"BT2_INPUT_REPLAY",(dir/"input.bin").string());
+                std::fprintf(stderr,"Sync test: run %s\n",sync_run.c_str());
             }
             setEnv("BT2_GS_HACKS",hacks);
             setEnv("BT2_RENDERER",renderer);
@@ -356,7 +373,9 @@ extern "C" __attribute__((visibility("default"))) int SDL_main(int argc,char* ar
             }
             setEnv("BT2_HW_SETTINGS",renderer.empty()?"":(user/"renderer").string());
             // The main menu's Online Mode item (game/main_menu_item.h), with BT3's renderer: its pictures in user/menu-item.
+            setenv("BT2_ONLINE_DIR",user.c_str(),1); // (the app and the Online Mode screens talk through files here: game/main_menu_item.cpp)
             setEnv("BT2_MAIN_MENU_ITEM",renderer=="bt3" && fs::is_directory(user/"menu-item",error)?(user/"menu-item").string():"");
+            setEnv("BT2_PLUGIN_DIR",renderer=="bt3" && fs::is_directory(user/"menu-item",error)?libdir:""); // (Dragon Rage's library, in the app's native libraries: plugin/plugin_host.cpp)
             if(sample) {startSampler();setenv("BT2_GPU_TIMESTAMPS","1",1);} // And the GPU's time by stage.
         }
 
@@ -373,7 +392,6 @@ extern "C" __attribute__((visibility("default"))) int SDL_main(int argc,char* ar
         quitToApp();
         return 0;
     } catch(const std::exception& e) {
-            setenv("BT2_ONLINE_DIR",user.c_str(),1); // (the app and the Online Mode screens talk through files here: game/main_menu_item.cpp)
         return stop(e.what());
     }
 }
@@ -404,6 +422,7 @@ extern "C" JNIEXPORT void JNICALL Java_com_dfdx047_dragonrage_engine_Bt2Bridge_n
 extern "C" JNIEXPORT jint JNICALL Java_com_dfdx047_dragonrage_engine_TouchBridge_nativePlayerTeamSize(JNIEnv*,jclass) {return -1;}
 // The app's performance panel (Bt2PerfOverlay): pictures shown and fields run so far, and the game thread's id (its
 // CPU time is read from /proc by the app).
+extern "C" int Bt2MenuItem_OnlineState(); // plugin/plugin_host.cpp: the library's, or 0
 extern "C" JNIEXPORT jlongArray JNICALL Java_com_dfdx047_dragonrage_engine_Bt2Bridge_nativeStats(JNIEnv* env,jclass) {
     // (a fourth count since the Online Mode screen: which of its pages is open, 0 none; an older app reads three)
     const jlong values[4]={jlong(PlayerSession::pictures_total.load()),jlong(PlayerSession::fields_total.load()),jlong(game_tid.load()),jlong(Bt2MenuItem_OnlineState())};
@@ -411,4 +430,3 @@ extern "C" JNIEXPORT jlongArray JNICALL Java_com_dfdx047_dragonrage_engine_Bt2Br
     if(out)env->SetLongArrayRegion(out,0,4,values);
     return out;
 }
-extern "C" int Bt2MenuItem_OnlineState(); // game/main_menu_item.cpp

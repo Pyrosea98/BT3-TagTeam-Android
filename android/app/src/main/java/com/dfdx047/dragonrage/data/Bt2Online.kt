@@ -35,19 +35,19 @@ object Bt2Online {
     /** The name as the service takes it: printable ASCII, 16 letters at most ("Player" when nothing is left). */
     fun cleanName(name: String): String = name.filter { it.code in 0x20..0x7e }.trim().take(16).ifEmpty { "Jogador" }
 
-    fun host(base: String, name: String): Room {
-        val r = post(base, "/v1/host", JSONObject().put("v", VERSION).put("name", cleanName(name)).put("addrs", addrs()))
+    fun host(base: String, name: String, mine: List<String>): Room {
+        val r = post(base, "/v1/host", JSONObject().put("v", VERSION).put("name", cleanName(name)).put("addrs", addrs(mine)))
         return Room(r.getString("code"), r.getString("key"), null, true)
     }
 
-    fun join(base: String, code: String, name: String): Room {
-        val r = post(base, "/v1/join", JSONObject().put("v", VERSION).put("code", code.trim().uppercase()).put("name", cleanName(name)).put("addrs", addrs()))
+    fun join(base: String, code: String, name: String, mine: List<String>): Room {
+        val r = post(base, "/v1/join", JSONObject().put("v", VERSION).put("code", code.trim().uppercase()).put("name", cleanName(name)).put("addrs", addrs(mine)))
         return Room(code.trim().uppercase(), r.getString("key"), peer(r.getJSONObject("peer")), false)
     }
 
     /** Quick match: put with whoever waits longest, or given a room of its own to wait in. */
-    fun quick(base: String, name: String, who: String): Room {
-        val r = post(base, "/v1/quick", JSONObject().put("v", VERSION).put("name", cleanName(name)).put("addrs", addrs()).put("queue", QUEUE).put("who", who))
+    fun quick(base: String, name: String, who: String, mine: List<String>): Room {
+        val r = post(base, "/v1/quick", JSONObject().put("v", VERSION).put("name", cleanName(name)).put("addrs", addrs(mine)).put("queue", QUEUE).put("who", who))
         val join = r.optString("role") == "join"
         return Room(r.getString("code"), r.getString("key"), if (join) peer(r.getJSONObject("peer")) else null, !join)
     }
@@ -75,8 +75,11 @@ object Bt2Online {
 
     private fun peer(o: JSONObject) = Peer(o.optString("name", "Jogador"), (0 until (o.optJSONArray("addrs")?.length() ?: 0)).map { o.getJSONArray("addrs").getString(it) })
 
-    /** This phone's addresses as the service wants them ("ip:port", four at most). */
-    private fun addrs(): JSONArray {
+    /** This phone's addresses as the service wants them ("ip:port", four at most): the ones the game's socket reported (the
+     *  line to the other game is that socket's: bt2/plugin/online/link.h), else the phone's own with a port of no use. */
+    private fun addrs(mine: List<String>): JSONArray {
+        val good = mine.filter { Regex("""[0-9.]{7,15}:\d{1,5}""").matches(it) }
+        if (good.isNotEmpty()) return JSONArray(good.take(4))
         val found = runCatching {
             NetworkInterface.getNetworkInterfaces().toList().filter { it.isUp && !it.isLoopback }
                 .flatMap { it.inetAddresses.toList() }.filterIsInstance<Inet4Address>().mapNotNull { it.hostAddress }

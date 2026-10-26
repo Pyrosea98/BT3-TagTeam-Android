@@ -53,6 +53,18 @@ add_subdirectory("${BT2_ADRENOTOOLS_DIR}" adrenotools EXCLUDE_FROM_ALL)
 add_library(SDL3 SHARED IMPORTED)
 set_target_properties(SDL3 PROPERTIES IMPORTED_LOCATION "${BT2_SDL3_DIR}/lib/libSDL3.so" INTERFACE_INCLUDE_DIRECTORIES "${BT2_SDL3_DIR}/include")
 
+# Dragon Rage's own part, in a library of its own (plugin/bt2_plugin.h): the Online Mode item and its screens, the opening's music,
+# later the online play. It needs nothing of the game's code, so the public CI builds it (build.py plugin) and the APK carries it;
+# the engine loads it when it starts (runtime/plugin/plugin_host.cpp).
+add_library(bt2online SHARED
+    "${BT2_SOURCE_ROOT}/plugin/online/online_plugin.cpp"
+    "${BT2_SOURCE_ROOT}/plugin/online/opening_music.cpp"
+    "${BT2_SOURCE_ROOT}/plugin/online/link.cpp")
+set_target_properties(bt2online PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
+target_include_directories(bt2online PRIVATE "${BT2_SOURCE_ROOT}/plugin" "${BT2_SOURCE_ROOT}/plugin/online")
+target_compile_options(bt2online PRIVATE -O2 -fvisibility=hidden -w)
+target_link_libraries(bt2online PRIVATE SDL3 log)
+
 set(BT2_ANDROID_SOURCES
     "${BT2_SOURCE_ROOT}/runtime/gs/hw/hw_gs_mirror.cpp"
     "${BT2_SOURCE_ROOT}/runtime/gs/gpu/gpu_gs_backend.cpp"
@@ -61,8 +73,7 @@ set(BT2_ANDROID_SOURCES
     "${BT2_SOURCE_ROOT}/runtime/gs/gpu/gpu_window_presenter.cpp"
     "${BT2_SOURCE_ROOT}/runtime/gs/gpu/in_between_frames.cpp"
     "${BT2_SOURCE_ROOT}/runtime/game/startup_inputs.cpp"
-    "${BT2_SOURCE_ROOT}/runtime/game/main_menu_item.cpp"
-    "${BT2_SOURCE_ROOT}/runtime/game/opening_music.cpp"
+    "${BT2_SOURCE_ROOT}/runtime/plugin/plugin_host.cpp"
     "${BT2_SOURCE_ROOT}/runtime/android/android_main.cpp")
 
 # What every unit of the engine is built with.

@@ -1,4 +1,4 @@
-#include "game/opening_music.h"
+#include "opening_music.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -137,11 +137,11 @@ void OpeningMusic::decodeFrame() {
     at_+=channels_*frame_bytes_;
 }
 
-void OpeningMusic::mix(std::vector<std::int16_t>& field,unsigned percent) {
+void OpeningMusic::mix(std::int16_t* field,std::size_t samples,unsigned percent) {
     std::lock_guard<std::mutex> hold(lock_);
     if(!playing_ || !header() || !channels_)return;
     const double step=double(rate_)/out_rate;
-    for(std::size_t n=0;n+1<field.size();n+=2) {
+    for(std::size_t n=0;n+1<samples;n+=2) {
         while(pcm_.size()/channels_<pcm_at_+2) {
             const std::size_t before=pcm_.size();decodeFrame();
             if(pcm_.size()==before)return; // (nothing to play yet)

@@ -48,6 +48,7 @@ std::uint64_t StateHashLog::field(unsigned field, unsigned flips, std::span<cons
     char line[96];
     std::snprintf(line, sizeof line, "%u %u %016llx\n", field, flips, static_cast<unsigned long long>(hash));
     log_ << line;
+    if (field % 60 == 0) log_.flush(); // (a phone's run ends when its app is closed, without the destructor)
     if (pages_at_ && field == pages_at_) {
         std::ofstream pages(pages_path_);
         if (!pages) throw std::runtime_error("Cannot write the state hash pages " + pages_path_);

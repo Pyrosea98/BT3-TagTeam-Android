@@ -19,14 +19,32 @@ Written 2026-10-25. Android only. Names stay neutral; addresses are BT2's (USA d
 
 ## The stages
 
-1. **Menus** (done): Online Mode item in the main menu, its pages (Online / Ranked; Create room / Join room / Quick match) and the
-   name box. Engine: `runtime/game/main_menu_item.cpp`. Pictures: `bt2/tools/menu_item/make_menu_item.py` (own art, none from the disc).
-2. **Pairing** (written, being tested): create a room (a code), join with a code, quick match; the opponent's name is shown. The engine
-   draws the waiting background and goes by the app's word, files in `<root>/bt2/user`: `online_peer` (an opponent is there: his name)
-   and `online_back`. The engine's state is the fourth count of `Bt2Bridge.nativeStats()`: 0 closed, 1 Online/Ranked, 2 the three ways
-   in, 11/12/13 create/join/quick in progress, 14 connected.
-3. **The fight** (not started, the hard part): the two games connected to each other and kept in step.
+1. **Menus** (done, tested on a phone): Online Mode item in the main menu, its pages (Online / Ranked; Create room / Join room / Quick
+   match) and the name box.
+2. **Pairing** (done, tested against the development service): create a room (a code), join with a code, quick match; the opponent's
+   name is shown. The app talks to the service; the game's library draws the screens and goes by the app's word, files in
+   `<root>/bt2/user`: `online_peer` (the opponent: name, room code, his addresses, a line each), `online_back`; and the library
+   tells the app through `online_local` (the addresses of its socket) and `online_link` (`rtt=<ms>`). The state is the fourth count
+   of `Bt2Bridge.nativeStats()`: 0 closed, 1 Online/Ranked, 2 the three ways in, 11/12/13 create/join/quick in progress, 15 saying
+   hello to the other game, 14 the line is up, 16 it could not be made.
+2b. **The library** (done): everything of the menu and of the online play that does not need the game's code is `libbt2online.so`
+   (`bt2/plugin/`, API in `bt2_plugin.h`), built by the public CI (`build.py plugin`, non-blocking step in `android.yml`) and carried
+   by the APK; the engine loads it (`runtime/plugin/plugin_host.cpp`). Quick loop: `build.py plugin` takes 15 s.
+2c. **The direct line** (written, first test pending): `bt2/plugin/online/link.{h,cpp}`, UDP "hello" to every address the service
+   gave, "ping" for the round trip, 15 s to give up. Test with one phone: `bt2/tools/dev_server/peer.py` plays the other player on the
+   computer (same Wi-Fi).
+3. **The fight** (not started, the hard part).
 
+## Next, in this order
+
+1. Test the line (2c): the phone creates/joins a room, `peer.py join|host|quick` is the other player; expect "Conectado! Atraso: N ms".
+2. **The relay (TURN)**, so that any two phones can play. BT3 does it in `port/src/gs/net_relay.c` (RFC 5766 over UDP: Allocate with
+   long-term credentials, CreatePermission, Refresh, Send/Data indications, ChannelBind). The service gives the host `turn`
+   {server, username, credential} in the answer of `/v1/host` (only when it has `TURN_KEY_ID`/`TURN_KEY_TOKEN`; the development
+   copy has none, so test the relay with a local TURN server such as coturn, or with the owner's keys); the host publishes
+   `relay=ip:port` with `/v1/addrs`; the other player's addresses carry `seen=ip`. In the library: a small TURN client next to `link.cpp`;
+   `Link::start` already skips `relay=` / `seen=` entries.
+3. The repeatability check (stage 3, step 1 below), the second pad, lockstep.
 ## Stage 3: what BT3 does, and what BT2 lacks
 
 BT3 (`port/src/gs/net.c`, `state.c`, `net_relay.c`; notes in `docs/netplay_notes.md`): both copies run the same game from the first

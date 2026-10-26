@@ -9,7 +9,7 @@
 #include "probe_state.h"
 #include "game_starter.h"
 #ifdef BT2_HW_GS
-#include "game/main_menu_item.h"
+#include "plugin/plugin_host.h"
 #endif
 #include "host/audio_device.h"
 #include "host/frame_pacer.h"
@@ -91,7 +91,14 @@ int main(int argc, char** argv) {
         if (const char* path = std::getenv("BT2_STATE_HASH")) {
             const char* pages = std::getenv("BT2_STATE_HASH_PAGES");
             state_hash = std::make_unique<StateHashLog>(path, pages ? static_cast<unsigned>(std::stoul(pages)) : 0u);
+            static const unsigned pages_field = pages ? static_cast<unsigned>(std::stoul(pages)) : 0u;
+            // BT2_STATE_HASH_EVERY=<n>: only every n-th field is hashed (the hash of 32 MB a field slows a phone's game; a
+            // difference between two runs is then found at the next hashed field, and BT2_STATE_HASH_PAGES names the field
+            // whose pages are written, to find where).
+            static const unsigned every = std::getenv("BT2_STATE_HASH_EVERY") ? std::max(1u, static_cast<unsigned>(std::stoul(std::getenv("BT2_STATE_HASH_EVERY")))) : 1u;
             runtime.on_field_end = [&runtime, &state_hash] {
+                const unsigned field = static_cast<unsigned>(runtime.vblank_deliveries + 1);
+                if (every > 1 && field % every != 0 && field != pages_field) return;
                 const StateHashLog::Region regions[] = {{"ee", runtime.memory()}, {"sp", runtime.scratchpad()},
                     {"vu0", runtime.vu0_memory_}, {"vu1data", runtime.vif1.vu.data}, {"vu1code", runtime.vif1.vu.program}};
                 state_hash->field(static_cast<unsigned>(runtime.vblank_deliveries + 1), static_cast<unsigned>(runtime.gs_display_flips), regions);
@@ -316,6 +323,32 @@ int main(int argc, char** argv) {
             if (const char* settings_path = std::getenv("BT2_PLAYER_SETTINGS")) {
                 player = std::make_unique<PlayerSession>(settings_path, viewer, *host_input, runtime.audio_mixer, pacer.get());
                 runtime.on_pad_input = [] { return player->padInput(); };
+            }
+            // BT2_INPUT_RECORD=<path>: every field's controller (buttons and sticks, 6 bytes) as it reached the game;
+            // BT2_INPUT_REPLAY=<path>: such a file played in place of the live controller, then nothing pressed (the
+            // live one still runs, for the menu). The repeatability check (docs/plans/online/ONLINE_PLAN.md): the player
+            // plays a run, the next ones repeat it, and their state hashes are compared.
+            static std::ofstream input_record;
+            static std::vector<PadInput> input_replay;
+            static std::size_t input_at = 0;
+            if (const char* path = std::getenv("BT2_INPUT_REPLAY")) {
+                std::ifstream in(path, std::ios::binary);
+                if (!in) throw std::runtime_error(std::string("Cannot read ") + path);
+                for (std::uint8_t b[6]; in.read(reinterpret_cast<char*>(b), 6);)
+                    input_replay.push_back({std::uint16_t(b[0] | b[1] << 8), {b[2], b[3], b[4], b[5]}});
+                auto live = runtime.on_pad_input;
+                runtime.on_pad_input = [live] {live();return input_at < input_replay.size() ? input_replay[input_at++] : PadInput{};};
+            } else if (const char* path = std::getenv("BT2_INPUT_RECORD")) {
+                input_record.open(path, std::ios::binary);
+                if (!input_record) throw std::runtime_error(std::string("Cannot write ") + path);
+                auto live = runtime.on_pad_input;
+                runtime.on_pad_input = [live] {
+                    const auto input = live();
+                    const char b[6] = {char(input.pressed), char(input.pressed >> 8), char(input.sticks[0]), char(input.sticks[1]), char(input.sticks[2]), char(input.sticks[3])};
+                    input_record.write(b, 6);
+                    if (++input_at % 60 == 0) input_record.flush(); // (a phone's run ends without the destructor)
+                    return input;
+                };
             }
             if (const char* path = std::getenv("BT2_PAD_RECORD")) {
                 pad_record.open(path);
@@ -683,9 +716,14 @@ int main(int argc, char** argv) {
             if (screen) installScreenStarter(runtime, parseScreenStart(screen));
             if (episode) installEpisodeStarter(runtime, parseEpisodeStart(episode));
 #ifdef BT2_HW_GS
-            // BT2_MAIN_MENU_ITEM=<folder>: Dragon Rage's eleventh item of the main menu, Online Mode (a player's run with
-            // BT3's renderer; its pictures in the folder, game/main_menu_item.h).
-            if (const char* item = std::getenv("BT2_MAIN_MENU_ITEM"); item && *item && std::getenv("BT2_PLAYER_SETTINGS")) installMainMenuItem(runtime, item);
+            // BT2_PLUGIN_DIR=<folder>: Dragon Rage's own library (libbt2online.so, plugin/bt2_plugin.h) is loaded from there: the
+            // Online Mode item of the main menu and its screens (a player's run with BT3's renderer). Its pictures are in
+            // BT2_MAIN_MENU_ITEM, the files it shares with the app in BT2_ONLINE_DIR.
+            if (const char* dir = std::getenv("BT2_PLUGIN_DIR"); dir && *dir && std::getenv("BT2_PLAYER_SETTINGS")) {
+                const char* pictures = std::getenv("BT2_MAIN_MENU_ITEM");
+                const char* online = std::getenv("BT2_ONLINE_DIR");
+                installPlugin(runtime, dir, pictures ? pictures : "", online ? online : "");
+            }
 #endif
         }
         // BT2_FIGHT_UNCAPPED (tool runs; the 60 fps study, docs/plans/graphics/HIGH_FRAME_RATE_PLAN.md): the fight's

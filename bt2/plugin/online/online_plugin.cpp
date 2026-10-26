@@ -1,5 +1,6 @@
-#include "game/main_menu_item.h"
-#include "game/opening_music.h"
+#include "bt2_plugin.h"
+#include "link.h"
+#include "opening_music.h"
 #include <array>
 #include <atomic>
 #include <cstdio>
@@ -12,6 +13,13 @@
 #include <initializer_list>
 #include <vector>
 #include <SDL3/SDL.h>
+
+// This is Dragon Rage's own part of BT2, in a library of its own (bt2_plugin.h): the Online Mode item of the main menu and
+// its screens. It was written against the engine's own types and keeps their names: the registers (Bt2Regs) and the engine's
+// record of the call (Bt2Call) are what the engine gives it, and every call into the game goes through the table H.
+using R5900Context=Bt2Regs;
+using PS2Runtime=Bt2Call;
+static const Bt2HostApi* H=nullptr;
 
 // The main menu (overlay DBZP.BIN) as the game has it, read from its code (addresses BT2's, USA disc):
 // - its state, at *0x421380: +0x0C the guide's speech, +0x10/+0x38/+0x60 three layers (0x28 apart; the wheel and
@@ -56,7 +64,7 @@ struct Guest {
         for(const auto argument:arguments)setRegister(c,index++,argument);
         c->f[12]=f12;c->f[13]=f13;
         setRegister(c,31,self);
-        runtime->dispatchGuestBranch(rdram,c,target,self,self,PS2Runtime::GuestBranchKind::DirectCall,"main menu item");
+        H->call(runtime,c,target,self);
         return static_cast<std::uint32_t>(c->r[2].low);
     }
     std::uint32_t state() const {return read32(rdram,state_pointer);}
@@ -67,10 +75,10 @@ struct Guest {
 // The replaced function returns where its caller's JAL left $ra.
 void returnTo(Guest& g,std::uint32_t ra) {
     g.c->pc=ra;
-    g.runtime->dispatchGuestBranch(g.rdram,g.c,ra,g.self,0,PS2Runtime::GuestBranchKind::Return,"JR $ra");
+    H->ret(g.runtime,g.c,ra,g.self);
 }
 
-PS2Runtime::RecompiledFunction original_init=nullptr;
+constexpr int slot_init=0,slot_menu_mode=1,slot_guides=2,slot_moved=3,slot_pad=4,slot_draw=5; // (the engine's names for what it replaced)
 std::uint32_t plate_entry=0; // the texture entry of the third sheet of plates, given 256 lines
 
 // The third sheet of plates (512 x 128: items 8 and 9) is drawn as 512 x 256, so a third row (lines 128 to 191)
@@ -99,7 +107,7 @@ void growPlateSheet(std::uint8_t* rdram,bool now) {
 }
 
 void initMenu(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
-    original_init(rdram,c,runtime);
+    H->call_original(runtime,c,slot_init);
     // The wheel's top from the cursor kept from the last visit, of eleven (the game counts ten).
     const std::uint32_t state=read32(rdram,state_pointer);
     write32(rdram,state+0xF0,wrap(static_cast<std::int32_t>(read32(rdram,state+0xE8))-2));
@@ -140,13 +148,16 @@ void guidesMenu(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
 // the room code, the search. Everything that talks to the network is the app's.
 // wait: 0, or 1 + the way in chosen (create a room, join one, quick match) while the app works on it: the engine only draws
 // its background and watches for the app's word that someone is there (the file <online dir>/online_peer, the opponent's name).
-struct Screen {bool open=false,soon=false,leaving=false;std::uint32_t choice=0;int fade=0;int page=0;int wait=0;int found=0;};
+// linking: the app has the other player's addresses and the two games are saying hello (link.h); found: the line is up and the
+// opponent is shown; failed: no answer in time. The app is told by the state below (15 linking, 14 up, 16 failed) and by files.
+struct Screen {bool open=false,soon=false,leaving=false;std::uint32_t choice=0;int fade=0;int page=0;int wait=0;int found=0;int linking=0;int failed=0;};
+Link link;
+std::uint32_t loop_frame=0;
 Screen screen;
 std::atomic<int> online_state{0}; // 0 closed, 1 + page while a page is open
 bool screen_next=false; // the menu was left for the screen
 std::uint32_t flips=0,menu_drawn=~0u,menu_item=0; // the menu drawn in this frame (its flip number), its item
 std::atomic<bool> menu_active{false}; // the main menu drawn this frame or the last (the renderer's thread reads it)
-EeRuntime* ee=nullptr;
 std::string disc_image;
 OpeningMusic music;
 unsigned music_volume=100; // the player's, kept while the game's music is silenced
@@ -155,23 +166,49 @@ constexpr std::uint32_t menu_mode=0x3B4250,main_menu_mode=4;
 constexpr std::uint32_t frame_begin=0x2711A0,frame_pad=0x28B090,frame_pad2=0x28BDA0,frame_sound=0x297978,frame_fade=0x2438E8;
 constexpr std::uint32_t frame_draw=0x2A0800,frame_fade_draw=0x2437E8,frame_end=0x271240,fade_in=0x243968,faded_out=0x243BA8;
 constexpr std::uint32_t paused=0x243BC0,pause_a=0x101890,pause_b=0x101498;
-PS2Runtime::RecompiledFunction original_menu_mode=nullptr;
 
 // The app's words, files in <BT2_ONLINE_DIR>: online_peer (an opponent is there: his name), online_back (go back to the three
 // ways in). `clear`: removes the file; else tells whether it is there.
+std::string onlinePath(const char* name) {return std::string(H->online_dir?H->online_dir:"")+"/"+name;}
+void writeOnlineFile(const char* name,const std::string& text) {
+    if(!H->online_dir)return;
+    std::ofstream out(onlinePath(name),std::ios::binary|std::ios::trunc);
+    out<<text;
+}
 bool onlineFile(const char* name,bool clear) {
-    const char* dir=std::getenv("BT2_ONLINE_DIR");
+    const char* dir=H->online_dir;
     if(!dir)return false;
-    const std::string path=std::string(dir)+"/"+name;
+    const std::string path=onlinePath(name);
     std::error_code error;
     if(clear)return std::filesystem::remove(path,error);
     return std::filesystem::exists(path,error);
 }
 
+// The other player, as the app leaves him in online_peer: his name, the room's code and his addresses, a line each.
+bool readPeer(std::string& name,std::string& code,std::vector<std::string>& addresses) {
+    std::ifstream in(onlinePath("online_peer"),std::ios::binary);
+    if(!in || !std::getline(in,name))return false;
+    std::getline(in,code);
+    addresses.clear();
+    for(std::string line;std::getline(in,line);) {
+        while(!line.empty() && (line.back()=='\r' || line.back()==' '))line.pop_back();
+        if(!line.empty())addresses.push_back(line);
+    }
+    return true;
+}
+// What the app shows of the line: online_link, "rtt=<ms>".
+void writeLinkFile() {writeOnlineFile("online_link","rtt="+std::to_string(link.roundTripMs())+"\n");}
+// A way in is over (given up, or the opponent has been shown): the line closes and the app's files go.
+void endWait() {
+    link.close();
+    screen.wait=0;screen.found=0;screen.linking=0;screen.failed=0;
+    for(const char* name:{"online_peer","online_back","online_local","online_link"})onlineFile(name,true);
+}
+
 void screenLoop(Guest& g) {
     const std::function<void(std::uint32_t)> effect=[&](std::uint32_t which) {g.call(sound,{0,which,0x40,0x40,1});};
     screen={true,false,false,0,0,0,0,0};
-    music_volume=ee->audio_mixer.stream_percent;ee->audio_mixer.stream_percent=0; // (the menu's music stays silent)
+    music_volume=H->stream_percent();H->set_stream_percent(0); // (the menu's music stays silent)
     music.start(disc_image);
     g.call(fade_in,{0,0,0});
     for(;;) {
@@ -179,14 +216,29 @@ void screenLoop(Guest& g) {
         if(g.call(paused)) {g.call(pause_a);g.call(pause_b);continue;}
         if(g.call(faded_out))break;
         screen.fade=std::clamp(screen.fade+(screen.leaving?-9:9),0,128);
-        online_state.store(screen.leaving?0:screen.found?14:screen.wait?10+screen.wait:1+screen.page,std::memory_order_relaxed);
+        online_state.store(screen.leaving?0:screen.failed?16:screen.found?14:screen.linking?15:screen.wait?10+screen.wait:1+screen.page,std::memory_order_relaxed);
+        ++loop_frame;
         if(screen.leaving)continue;
         const std::uint32_t held=read32(g.rdram,pad+0x144),pressed=read32(g.rdram,pad+0x134);
         if(screen.wait) { // the app is making the connection
+            link.poll();
             if(screen.found) {
-                if(--screen.found==0) {screen.wait=0;onlineFile("online_peer",true);} // (the match itself comes next: for now, back to the three ways in)
-            } else if(pressed&0x3000 || onlineFile("online_back",true)) {screen.wait=0;onlineFile("online_peer",true);effect(2);} // triangle, circle, or the app: given up
-            else if((screen.fade&15)==0 && onlineFile("online_peer",false)) {screen.found=300;effect(1);}
+                if(loop_frame%30==0)writeLinkFile();
+                if(--screen.found==0)endWait(); // (the match itself comes next: for now, back to the three ways in)
+            } else if(pressed&0x3000 || onlineFile("online_back",true)) {endWait();effect(2);} // triangle, circle, or the app: given up
+            else if(screen.failed) {
+                // (waits for the player's triangle)
+            } else if(!screen.linking) {
+                std::string name,code;std::vector<std::string> addresses;
+                if(loop_frame%8==0 && readPeer(name,code,addresses)) {
+                    if(addresses.empty()) {screen.found=300;effect(1);} // (an app that gives no addresses: the opponent is shown as before)
+                    else {link.start(code,addresses);screen.linking=1;}
+                }
+            } else if(link.state()==Link::Up) {
+                screen.linking=0;screen.found=300;writeLinkFile();effect(1);
+            } else if(link.state()==Link::Failed) {
+                screen.failed=1;
+            }
         } else if(screen.soon) {
             if(pressed&0x7000){screen.soon=false;effect(2);} // cross, circle or triangle: the message closes
         } else if(held&0x50) { // up, down: the list turns
@@ -194,7 +246,11 @@ void screenLoop(Guest& g) {
             screen.choice=(screen.choice+(held&0x10?n-1:1))%n;effect(0);
         } else if(pressed&0x4000) { // cross
             if(screen.page==0 && screen.choice==0) {screen.page=1;screen.choice=0;} // Online: the three ways in
-            else if(screen.page==1) {screen.wait=1+int(screen.choice);onlineFile("online_peer",true);onlineFile("online_back",true);} // create, join, quick: the app takes it
+            else if(screen.page==1) { // create, join, quick: the app takes it; the socket first, for the addresses it will give the service
+                screen.wait=1+int(screen.choice);
+                for(const char* name:{"online_peer","online_back","online_link"})onlineFile(name,true);
+                if(link.open()){std::string lines;for(const auto& a:link.localAddresses())lines+=a+"\n";writeOnlineFile("online_local",lines);}
+            }
             else screen.soon=true; // (Ranked: coming soon)
             effect(1);
         } else if(pressed&0x3000) { // triangle, circle
@@ -206,7 +262,7 @@ void screenLoop(Guest& g) {
         }
     }
     music.stop();
-    ee->audio_mixer.stream_percent=music_volume;
+    H->set_stream_percent(music_volume);
     screen={};
     online_state.store(0,std::memory_order_relaxed);
 }
@@ -219,7 +275,7 @@ void menuMode(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
         screenLoop(g);
         c->r[31]=ra;c->r[4]=a0;c->r[29]=sp;c->pc=menu_mode;
     }
-    original_menu_mode(rdram,c,runtime);
+    H->call_original(runtime,c,slot_menu_mode);
 }
 
 void padMenu(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
@@ -411,7 +467,7 @@ void buildPlate(std::uint8_t* rdram,std::uint32_t entry) {
 }
 }
 
-extern "C" std::uint32_t* Bt2MenuItem_Pixels(std::uint32_t slot,std::uint32_t* version,std::uint32_t* w,std::uint32_t* h) {
+static std::uint32_t* pluginPixels(std::uint32_t slot,std::uint32_t* version,std::uint32_t* w,std::uint32_t* h) {
     if(slot>=pictures || picture[slot].rgba.empty())return nullptr;
     auto* px=static_cast<std::uint32_t*>(std::malloc(picture[slot].rgba.size()));
     if(!px)return nullptr;
@@ -420,19 +476,17 @@ extern "C" std::uint32_t* Bt2MenuItem_Pixels(std::uint32_t slot,std::uint32_t* v
     return px;
 }
 // Which page of the Online Mode screen is open (0 none), for the app's pieces over the game (android_main.cpp: the engine's counts).
-extern "C" int Bt2MenuItem_OnlineState() {return online_state.load(std::memory_order_relaxed);}
-extern "C" std::uint32_t Bt2MenuItem_Version(std::uint32_t slot) {return slot<pictures && !picture[slot].rgba.empty()?1:0;}
-extern "C" std::uint64_t Bt2Hw_LastFrame(void);
-extern "C" void Bt2Hw_OverlaySprite(int fbp,int fbw,int psm,int width,int height,std::uint32_t slot,float x0,float y0,float x1,float y1,int alpha);
+static int pluginOnlineState() {return online_state.load(std::memory_order_relaxed);}
+static std::uint32_t pluginVersion(std::uint32_t slot) {return slot<pictures && !picture[slot].rgba.empty()?1:0;}
 
 // At each flip, over the frame the game drew: the screen when it is open, else the item's description while the menu
 // shows it. Positions in the frame's own pixels (the game's 640 x 448).
-extern "C" void Bt2MenuItem_Overlay(std::uint64_t dispfb,std::uint64_t display) {
+static void pluginOverlay(std::uint64_t dispfb,std::uint64_t display) {
     const std::uint32_t flip=flips++;
     const bool menu=menu_drawn==flip;
     // The pictures go into both buffers of the game's pair: the one it has just drawn (FRAME as it left it) and the
     // one DISPFB names (on the screen now): whichever of the two the renderer shows has them.
-    const std::uint64_t frame=Bt2Hw_LastFrame();
+    const std::uint64_t frame=H->last_frame();
     const int fbp=int(frame&0x1FF),fbw=int(frame>>16&63),psm=int(frame>>24&63),shown=int(dispfb&0x1FF);
     const int magh=int(display>>23&15)+1,width=int((display>>32&0xFFF)+1)/magh,height=int((display>>44&0x7FF)+1);
     static bool logged=false;
@@ -440,8 +494,8 @@ extern "C" void Bt2MenuItem_Overlay(std::uint64_t dispfb,std::uint64_t display) 
     if(!menu)menu_active.store(false,std::memory_order_relaxed);
     const auto draw=[&](Slot slot,float x0,float y0,float x1,float y1,int alpha=128) {
         if(picture[slot].rgba.empty())return;
-        Bt2Hw_OverlaySprite(fbp,fbw,psm,width,height,slot,x0,y0,x1,y1,alpha);
-        if(shown!=fbp)Bt2Hw_OverlaySprite(shown,fbw,psm,width,height,slot,x0,y0,x1,y1,alpha);
+        H->overlay_sprite(fbp,fbw,psm,width,height,slot,x0,y0,x1,y1,alpha);
+        if(shown!=fbp)H->overlay_sprite(shown,fbw,psm,width,height,slot,x0,y0,x1,y1,alpha);
     };
     if(screen.open) {
         draw(screen.wait?wait_picture:screen.page?Slot(create_picture+screen.choice):screen.choice?ranked_picture:online_picture,0,0,float(width),float(height),screen.fade);
@@ -457,7 +511,7 @@ extern "C" void Bt2MenuItem_Overlay(std::uint64_t dispfb,std::uint64_t display) 
     }
 }
 
-extern "C" int Bt2MenuItem_ArtSwap(unsigned char* rgba,int w,int h) {
+static int pluginArtSwap(unsigned char* rgba,int w,int h) {
     // (only while the main menu is shown: the two sheets are its own, and the look at every other 512 x 256 picture
     // the renderer decodes, in a fight too, would cost for nothing)
     if(!art_ready.load(std::memory_order_acquire) || w!=512 || h!=256 || !menu_active.load(std::memory_order_relaxed))return 0;
@@ -475,22 +529,31 @@ extern "C" int Bt2MenuItem_ArtSwap(unsigned char* rgba,int w,int h) {
     return 1;
 }
 
-void installMainMenuItem(EeRuntime& runtime,const std::string& folder) {
+// The sound the library adds to each field's: the opening's music (opening_music.cpp), at the master volume and the player's
+// music volume (the engine's own streams were silenced while the screen is open).
+static void pluginMix(std::int16_t* stereo,std::size_t samples,unsigned master_percent) {music.mix(stereo,samples,master_percent*music_volume/100);}
+
+extern "C" __attribute__((visibility("default"))) const Bt2Plugin* bt2_plugin_init(const Bt2HostApi* host) {
+    if(!host || host->api!=BT2_PLUGIN_API || host->size<sizeof(Bt2HostApi))return nullptr;
+    H=host;
+    const std::string folder=host->pictures_dir;
     name_picture=loadPicture(folder+"/item_text.png");
     plate_word=loadPicture(folder+"/plate_text.png");
     for(std::size_t k=0;k<pictures;++k)picture[k]=loadPicture(folder+"/"+picture_names[k]+".png");
     if(name_picture.w!=512 || name_picture.h!=64 || plate_word.w!=512 || plate_word.h!=64) {
         std::fprintf(stderr,"Main menu item: no pictures in %s, the menu stays the game's\n",folder.c_str());
-        return;
+        return nullptr;
     }
     art_ready.store(true,std::memory_order_release);
-    original_init=runtime.replaceFunction(init_menu,initMenu);
-    runtime.replaceFunction(guides,guidesMenu);
-    runtime.replaceFunction(moved_menu,movedMenu);
-    runtime.replaceFunction(pad_menu,padMenu);
-    runtime.replaceFunction(draw_menu,drawMenu);
-    original_menu_mode=runtime.replaceFunction(menu_mode,menuMode);
-    ee=&runtime;disc_image=runtime.local_disc_path;
-    host_music_mix=[](std::vector<std::int16_t>& out){music.mix(out,ee->audio_mixer.master_percent*music_volume/100);};
+    H->hook(init_menu,initMenu,slot_init);
+    H->hook(guides,guidesMenu,slot_guides);
+    H->hook(moved_menu,movedMenu,slot_moved);
+    H->hook(pad_menu,padMenu,slot_pad);
+    H->hook(draw_menu,drawMenu,slot_draw);
+    H->hook(menu_mode,menuMode,slot_menu_mode);
+    disc_image=host->disc_image;
+    H->set_music_mix(pluginMix);
     std::fprintf(stderr,"Main menu item: Online Mode, the main menu's eleventh item\n");
+    static const Bt2Plugin plugin{BT2_PLUGIN_API,sizeof(Bt2Plugin),pluginOverlay,pluginPixels,pluginVersion,pluginArtSwap,pluginOnlineState};
+    return &plugin;
 }

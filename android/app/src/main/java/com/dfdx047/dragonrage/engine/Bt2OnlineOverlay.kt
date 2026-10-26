@@ -86,6 +86,8 @@ class Bt2OnlineOverlay(private val activity: Activity, private val paths: GamePa
     /** One try at a way in (create, join or find): its thread, and the room it holds. */
     private inner class Session(val kind: Int) {
         @Volatile var cancelled = false
+        @Volatile var peerName = ""
+        @Volatile var shown = ""
         @Volatile var room: Bt2Online.Room? = null
         val base = Bt2Online.url(paths)
     }
@@ -121,7 +123,7 @@ class Bt2OnlineOverlay(private val activity: Activity, private val paths: GamePa
         when (state) {
             1, 2 -> { endSession(); showBox() }
             11, 12, 13 -> { hideBox(); if (session?.kind != state - 10) begin(state - 10) }
-            14 -> hideBox() // someone is there: the session says so
+            14, 15, 16 -> { hideBox(); showLine(state) } // the game is making the line to the other one, has it, or could not
             else -> { endSession(); hideBox() }
         }
     }
@@ -175,14 +177,24 @@ class Bt2OnlineOverlay(private val activity: Activity, private val paths: GamePa
             }
     }
 
+    /** The addresses the game opened for the line to the other game (online_local, a moment after the screen asked). */
+    private fun localAddresses(): List<String> {
+        repeat(20) {
+            runCatching { File(dir, "online_local").readLines().map { it.trim() }.filter { it.isNotEmpty() } }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { return it }
+            Thread.sleep(100)
+        }
+        return emptyList()
+    }
+
     /** On the worker thread: the request, then the wait for the other player. */
     private fun work(s: Session, typedCode: String? = null) {
         val name = name() ?: ""
+        val mine = localAddresses()
         try {
             val first = when (s.kind) {
-                1 -> Bt2Online.host(s.base, name)
-                2 -> Bt2Online.join(s.base, typedCode ?: return, name)
-                else -> Bt2Online.quick(s.base, name, who)
+                1 -> Bt2Online.host(s.base, name, mine)
+                2 -> Bt2Online.join(s.base, typedCode ?: return, name, mine)
+                else -> Bt2Online.quick(s.base, name, who, mine)
             }
             s.room = first
             if (s.cancelled) return
@@ -196,7 +208,7 @@ class Bt2OnlineOverlay(private val activity: Activity, private val paths: GamePa
                 // (a room the service keeps ten minutes: a search that waits longer asks again)
                 if (s.kind == 3 && System.currentTimeMillis() - since > 9 * 60_000) {
                     Bt2Online.leave(s.base, room)
-                    room = Bt2Online.quick(s.base, name, who).also { s.room = it }
+                    room = Bt2Online.quick(s.base, name, who, mine).also { s.room = it }
                     since = System.currentTimeMillis()
                     room.peer?.let { return connected(s, it) }
                 }
@@ -206,10 +218,27 @@ class Bt2OnlineOverlay(private val activity: Activity, private val paths: GamePa
         }
     }
 
+    /** The service has paired the two: the game gets his name, the room's code and his addresses and makes the line (link.h). */
     private fun connected(s: Session, peer: Bt2Online.Peer) {
         if (s.cancelled) return
-        runCatching { dir.mkdirs(); File(dir, "online_peer").writeText(peer.name) } // the engine takes it from here
-        say("Conectado!", code = "", detail = "Oponente: ${peer.name}")
+        s.peerName = peer.name
+        val code = s.room?.code ?: ""
+        runCatching { dir.mkdirs(); File(dir, "online_peer").writeText((listOf(peer.name, code) + peer.addrs).joinToString("\n")) }
+        say("Conectando com ${peer.name}…", spinner = true)
+    }
+
+    /** What the game says of the line to the other player (15 saying hello, 14 up with its round trip, 16 no answer). */
+    private fun showLine(state: Int) {
+        val s = session ?: return
+        val rtt = if (state == 14) runCatching { File(dir, "online_link").readText().substringAfter("rtt=").trim().toInt() }.getOrDefault(-1) else -1
+        val text = "$state/${rtt / 5}"
+        if (s.shown == text) return
+        s.shown = text
+        when (state) {
+            15 -> say("Conectando com ${s.peerName}…", spinner = true)
+            14 -> say("Conectado!", detail = "Oponente: ${s.peerName}" + if (rtt >= 0) "\nAtraso: $rtt ms" else "")
+            else -> say("Não foi possível conectar com ${s.peerName}.", detail = "Por enquanto os dois jogos precisam estar na mesma rede.\nAperte △ para voltar.", error = true)
+        }
     }
 
     private fun endSession() {

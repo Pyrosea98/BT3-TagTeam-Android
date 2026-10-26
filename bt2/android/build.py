@@ -3,6 +3,7 @@
 
     python3 bt2/android/build.py [configure] [build] [install]        (all three when none is named)
     python3 bt2/android/build.py check                               (no game code needed)
+    python3 bt2/android/build.py plugin                              (libbt2online.so, no game code needed)
     python3 bt2/android/build.py package                             (the motor .zip players import)
     python3 bt2/android/build.py key                                 (makes the signing key, once)
 
@@ -95,6 +96,22 @@ def check():
     print("check: the handwritten runtime and paraLLEl-GS compile for Android arm64")
 
 
+def plugin():
+    """libbt2online.so (plugin/): Dragon Rage's own part, built without the game's code; into the app's jniLibs."""
+    dependencies()
+    build_dir = BT2 / "build/android-check"
+    cmake_configure(build_dir, "-DBT2_RUNTIME_CHECK=ON")
+    run("cmake", "--build", build_dir, "--target", "bt2online", "--parallel", jobs())
+    library = build_dir / "libbt2online.so"
+    jni = APP / "jniLibs/arm64-v8a"
+    jni.mkdir(parents=True, exist_ok=True)
+    shutil.copy(library, jni / library.name)
+    strip = next(ndk().glob("toolchains/llvm/prebuilt/*/bin/llvm-strip"), None)
+    if strip:
+        run(strip, "--strip-unneeded", jni / library.name)
+    print("plugin: installed into", jni.relative_to(BT2.parent))
+
+
 def build():
     run("cmake", "--build", BUILD, "--target", "bt2-entry-probe", "--parallel", jobs())
 
@@ -161,7 +178,7 @@ def package():
 def main():
     steps = sys.argv[1:] or ["configure", "build", "install"]
     for step in steps:
-        {"configure": configure, "build": build, "install": install, "check": check, "package": package, "key": key}[step]()
+        {"configure": configure, "build": build, "install": install, "check": check, "plugin": plugin, "package": package, "key": key}[step]()
 
 
 if __name__ == "__main__":

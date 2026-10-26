@@ -10,14 +10,14 @@
 // The music of the game's opening (DATA/ZS2USOP.SFD, the opening movie of the player's own disc) for Dragon Rage's
 // Online Mode screen (main_menu_item.cpp): the movie's audio stream (MPEG program stream, stream 0xC0) is CRI ADX;
 // a thread of its own takes it out of the movie while it plays, and each field's share is decoded and added to the
-// field's sound (host_music_mix), at 48 kHz, in a loop, faded in and out. Nothing of it is kept anywhere.
+// field's sound (Bt2HostApi.set_music_mix), at 48 kHz, in a loop, faded in and out. Nothing of it is kept anywhere.
 class OpeningMusic {
 public:
     ~OpeningMusic();
     void start(const std::string& disc_image); // from its beginning, fading in
     void stop();                               // fading out
     // Adds this field's samples (stereo, interleaved) at `percent` of the game's own music level.
-    void mix(std::vector<std::int16_t>& field, unsigned percent);
+    void mix(std::int16_t* field, std::size_t samples, unsigned percent);
 
 private:
     void demux(std::string disc_image);
@@ -39,6 +39,3 @@ private:
     int gain_=0;                    // the fade: 0 to half a second's samples
 };
 
-// The field's sound, as the CRI service gives it to the device: Dragon Rage's own music is added here when set
-// (defined in services/cri_service.cpp, which calls it).
-extern std::function<void(std::vector<std::int16_t>&)> host_music_mix;
