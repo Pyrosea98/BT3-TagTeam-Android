@@ -176,7 +176,12 @@ def shaders():
     nz_text = (ROOT / "port/src/gs/shaders/gs.frag").read_text().replace("\n", "\n#define NO_FRAG_DEPTH\n", 1)
     if not nz.exists() or nz.read_text() != nz_text:
         nz.write_text(nz_text)
-    sources = sorted((ROOT / "port/src/gs/shaders").glob("*.*")) + [nz]
+    # gswb.frag: that, and the GS's 1x sampling of a work buffer (GS_BLOCK), for the glow chain's draws (key bit 25)
+    wb = gen / "gswb.frag"
+    wb_text = (ROOT / "port/src/gs/shaders/gs.frag").read_text().replace("\n", "\n#define NO_FRAG_DEPTH\n#define GS_BLOCK\n", 1)
+    if not wb.exists() or wb.read_text() != wb_text:
+        wb.write_text(wb_text)
+    sources = sorted((ROOT / "port/src/gs/shaders").glob("*.*")) + [nz, wb]
     for src in sources:
         stage = src.suffix[1:]
         name = "k" + src.stem.capitalize() + stage.capitalize() + "Spv"
@@ -186,7 +191,7 @@ def shaders():
             print("FAILED shader", src.name, r.stderr[:300])
             continue
         arrays.append(f"static const unsigned char {name}[] = {{" + ",".join(str(b) for b in spv.read_bytes()) + "};\n")
-    # gs.frag and gsnz.frag a second time without their discards (the draws that never discard; gs_gpu.c, key bit 25)
+    # gs.frag and gsnz.frag a second time without their discards (the draws that never discard; gs_gpu.c, key bit 27)
     for src, out, arr in ((ROOT / "port/src/gs/shaders/gs.frag", "gs_nd.frag.spv", "kGsNdFragSpv"), (nz, "gsnz_nd.frag.spv", "kGsnzNdFragSpv")):
         spv = gen / out
         r = run([GLSLC, "-fshader-stage=frag", "-DGS_NO_DISCARD=1", str(src), "-o", str(spv)])

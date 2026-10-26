@@ -336,18 +336,21 @@ static GLuint make_present_program(void) {
 /* ---- state -------------------------------------------------------------------------------------- */
 static SDL_Window *sWindow;
 static SDL_GLContext sCtx;
-static GLuint sMainProg[8]; /* gs.vert / vu0 / vu4 / vu6 + gs.frag; 4..7: the same with gsnz.frag (key bit 23) */
+static GLuint sMainProg[9]; /* gs.vert / vu0 / vu4 / vu6 + gs.frag; 4..7: the same with gsnz.frag (key bit 23); 8: gs.vert + gswb.frag (bit 25) */
 extern int Port_Setting(const char *name, int def); /* plat_settings.c */
 static GLuint sMainProgFetch[8]; /* the same for the draws that test the destination alpha, reading it from the frame buffer (sHasFetch) */
 static int sHasFetch;     /* EXT_shader_framebuffer_fetch: no copy of the alpha bytes for TEST.DATE (tile-based GPUs keep their pass) */
 static int sWantFetch;    /* the draw being set up tests the destination alpha */
-static GLuint sMainProgNd[8]; /* the same with the fragment shader without its discards (pipeline key bit 25, as the Vulkan back end) */
+static GLuint sMainProgNd[8]; /* the same with the fragment shader without its discards (pipeline key bit 27, as the Vulkan back end) */
 static GLuint sOutlineProg, sKeyProg, sDclutProg, sPresentProg;
 static GLuint sVaoGs, sVaoVu, sVboGs, sVboVu, sIboVu;
 static GLuint sSamplers[16];
 static GLuint sWhite;
 static GLuint sUboU, sUboParams;
 static GLuint sTgCol[MAX_TARGETS], sTgAux[MAX_TARGETS], sTgDep[MAX_TARGETS], sTgFbo[MAX_TARGETS];
+/* the same target without its depth buffer: for the runs of draws that neither test nor write depth (most of a
+   fight's: the effects' work buffers and the 2D), which a tiled GPU then neither loads nor stores (see gs_gpu.c) */
+static GLuint sTgFboNd[MAX_TARGETS];
 static GLuint sDateCopy, sAuxCopy;
 static GLuint sScratchRead, sScratchDraw;
 static GLuint sFbTex[2], sFbFbo[2];
@@ -356,14 +359,14 @@ static const char *sGsSamplers[2] = {"tex", "dateTex"};
 static const char *sOneSampler[1] = {"aux"};
 static const char *sDclutSamplers[3] = {"depthTex", "auxTex", "clutTex"};
 
-typedef struct Pipe { uint32_t key, bkey, wmask; int ztst, zwrite, topo, vu, fx, nd, nz, shadow; } Pipe;
+typedef struct Pipe { uint32_t key, bkey, wmask; int ztst, zwrite, topo, vu, fx, nd, nz, wb, shadow; } Pipe;
 static Pipe sPipes[1024];
 static int sPipeCount;
 
 static void target_ensure(int i);
 static void target_drop(int i);
 static void set_pipe(int pipe);
-static void bind_target(int i, int clear);
+static void bind_target(int i, int clear, int nodepth);
 
 /* ---- the attachments of the shared targets ------------------------------------------------------ */
 static void target_ensure(int i) {
@@ -389,6 +392,15 @@ static void target_ensure(int i) {
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
         fprintf(stderr, "bt3: gl: target %d framebuffer incomplete\n", i);
     }
+    glGenFramebuffers(1, &sTgFboNd[i]);
+    glBindFramebuffer(GL_FRAMEBUFFER, sTgFboNd[i]);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sTgCol[i], 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, sTgAux[i], 0);
+    glDrawBuffers(2, bufs);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        glDeleteFramebuffers(1, &sTgFboNd[i]);
+        sTgFboNd[i] = 0; /* (the target is then always bound with its depth) */
+    }
 }
 
 static void target_drop(int i) {
@@ -396,7 +408,10 @@ static void target_drop(int i) {
     glDeleteTextures(1, &sTgAux[i]);
     glDeleteTextures(1, &sTgDep[i]);
     glDeleteFramebuffers(1, &sTgFbo[i]);
-    sTgCol[i] = sTgAux[i] = sTgDep[i] = sTgFbo[i] = 0;
+    if (sTgFboNd[i] != 0) {
+        glDeleteFramebuffers(1, &sTgFboNd[i]);
+    }
+    sTgCol[i] = sTgAux[i] = sTgDep[i] = sTgFbo[i] = sTgFboNd[i] = 0;
 }
 
 static GsTex target_color(int i) { return (GsTex)sTgCol[i]; }
@@ -465,10 +480,11 @@ static void pipe_decode(Pipe *p, uint32_t key) {
     p->topo = (int)((key >> 13) & 3);
     p->vu = (int)((key >> 20) & 3);
     p->nz = (int)((key >> 23) & 1);
+    p->wb = (int)((key >> 25) & 1);
     p->shadow = (int)((key >> 24) & 1);
     p->fx = (int)((key >> 22) & 1);
     p->wmask = (key >> 16) & 15;
-    p->nd = (int)((key >> 25) & 1);
+    p->nd = (int)((key >> 27) & 1);
 }
 
 static int pipe_get(uint32_t key) {
@@ -532,21 +548,121 @@ static void apply_masks(uint32_t wmask) {
 #define GL_MAP_WRITE_BIT 0x0002
 #define GL_MAP_INVALIDATE_RANGE_BIT 0x0004
 #define GL_MAP_UNSYNCHRONIZED_BIT 0x0020
+#define GL_MAP_PERSISTENT_BIT_EXT 0x0040
+#define GL_MAP_COHERENT_BIT_EXT 0x0080
+#define GL_SYNC_GPU_COMMANDS_COMPLETE 0x9117
+#define GL_SYNC_FLUSH_COMMANDS_BIT 0x00000001
+#define GL_WAIT_FAILED 0x911D
 #define GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT 0x8A34
 static GLint sUboAlign = 256;
 static GLintptr sUboOff[2];
+
+/* The same, on drivers whose unsynchronized maps are slow or broken (ARMSX2's GPU driver table: every Mali OpenGL ES
+   driver, "buffer streaming / unsynchronized mapping"): one buffer per block kind, mapped ONCE for good
+   (EXT_buffer_storage, persistent and coherent) and written in order like a ring. It is cut into UBO_SEGS pieces;
+   a fence goes in when the writing leaves a piece, and a piece is written again only after its fence has passed, so
+   the GPU never reads a byte that is being overwritten. No map, unmap or orphan per draw. Setting "gl_persist":
+   0 automatic (Mali and Adreno with EXT_buffer_storage), 1 always where the extension is, 2 never; BT3_GL_PERSIST=0/1.
+   Adreno: the map per draw stalled the Adreno 650's driver (a fight at 2x: about 4 s a picture; with the ring 100 %
+   speed, 14 ms of work a picture). Mali-G57 MC4: the same speed either way (92.5 % and 93.8 % at 2x). */
+#define UBO_SEGS 8
+#define UBO_SEG (1 << 20)
+typedef struct __GLsync *GLsync_;
+static void (*glBufferStorageEXT_)(GLenum, GLsizeiptr, const void *, GLbitfield);
+static GLsync_ (*glFenceSync_)(GLenum, GLbitfield);
+static GLenum (*glClientWaitSync_)(GLsync_, GLbitfield, uint64_t);
+static void (*glDeleteSync_)(GLsync_);
+static struct { uint8_t *ptr; int seg; GLintptr off; GLsync_ fence[UBO_SEGS]; } sPer[2];
+static int sPersist;
+static unsigned sPersistWaits;
+
+static void ubo_persist_init(GLuint bufU, GLuint bufP) {
+    const char *r = (const char *)glGetString(GL_RENDERER);
+    const char *e = getenv("BT3_GL_PERSIST");
+    int want = Port_Setting("gl_persist", 0), tiled = r != NULL && (strstr(r, "Mali") != NULL || strstr(r, "Immortalis") != NULL ||
+                                                                    strstr(r, "Adreno") != NULL);
+    int on = e != NULL ? atoi(e) != 0 : want == 1 ? 1 : want == 2 ? 0 : tiled;
+    GLuint bufs[2] = {bufU, bufP};
+    int k;
+    sPersist = 0;
+    if (!on || !SDL_GL_ExtensionSupported("GL_EXT_buffer_storage")) {
+        fprintf(stderr, "bt3: gl: uniform blocks: orphaned per frame%s\n", on ? " (no EXT_buffer_storage)" : "");
+        return;
+    }
+    glBufferStorageEXT_ = (void (*)(GLenum, GLsizeiptr, const void *, GLbitfield))SDL_GL_GetProcAddress("glBufferStorageEXT");
+    glFenceSync_ = (GLsync_ (*)(GLenum, GLbitfield))SDL_GL_GetProcAddress("glFenceSync");
+    glClientWaitSync_ = (GLenum (*)(GLsync_, GLbitfield, uint64_t))SDL_GL_GetProcAddress("glClientWaitSync");
+    glDeleteSync_ = (void (*)(GLsync_))SDL_GL_GetProcAddress("glDeleteSync");
+    if (glBufferStorageEXT_ == NULL || glFenceSync_ == NULL || glClientWaitSync_ == NULL || glDeleteSync_ == NULL) {
+        fprintf(stderr, "bt3: gl: uniform blocks: orphaned per frame (EXT_buffer_storage without its functions)\n");
+        return;
+    }
+    while (glGetError() != 0) {} /* (errors left from before are not this one's) */
+    for (k = 0; k < 2; k++) {
+        /* (a buffer given its storage this way can never be given another: these two are made fresh for it) */
+        glGenBuffers(1, &bufs[k]);
+        glBindBuffer(GL_UNIFORM_BUFFER, bufs[k]);
+        glBufferStorageEXT_(GL_UNIFORM_BUFFER, (GLsizeiptr)UBO_SEGS * UBO_SEG, NULL, GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT_EXT | GL_MAP_COHERENT_BIT_EXT);
+        sPer[k].ptr = (uint8_t *)glMapBufferRange(GL_UNIFORM_BUFFER, 0, (GLsizeiptr)UBO_SEGS * UBO_SEG,
+                                                  GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT_EXT | GL_MAP_COHERENT_BIT_EXT);
+        sPer[k].seg = 0;
+        sPer[k].off = 0;
+        memset(sPer[k].fence, 0, sizeof(sPer[k].fence));
+        if (sPer[k].ptr == NULL || glGetError() != 0) {
+            fprintf(stderr, "bt3: gl: uniform blocks: the persistent buffer could not be made: orphaned per frame\n");
+            sPer[0].ptr = sPer[1].ptr = NULL;
+            while (glGetError() != 0) {}
+            return;
+        }
+    }
+    sUboU = bufs[0];
+    sUboParams = bufs[1];
+    glBindBufferBase(GL_UNIFORM_BUFFER, 0, sUboU);
+    glBindBufferBase(GL_UNIFORM_BUFFER, 1, sUboParams);
+    sPersist = 1;
+    fprintf(stderr, "bt3: gl: uniform blocks: persistent ring (EXT_buffer_storage, %d x %d KB)\n", UBO_SEGS, UBO_SEG >> 10);
+}
+
 static void ubo_orphan(GLuint buf) {
     glBindBuffer(GL_UNIFORM_BUFFER, buf);
     glBufferData(GL_UNIFORM_BUFFER, UBO_RING, NULL, GL_STREAM_DRAW);
 }
 static void ubo_frame(void) {
+    if (sPersist) {
+        return; /* (the ring's fences keep what the GPU reads; nothing to do at a frame's start) */
+    }
     ubo_orphan(sUboU);
     ubo_orphan(sUboParams);
     sUboOff[0] = sUboOff[1] = 0;
 }
+static void ubo_put_persist(int which, GLuint buf, GLuint binding, const void *p, size_t n, size_t block) {
+    GLintptr off = (sPer[which].off + sUboAlign - 1) / sUboAlign * sUboAlign;
+    int s = sPer[which].seg;
+    if (off + (GLintptr)block > UBO_SEG) { /* this piece is full: fence it, go on to the next once the GPU is done with it */
+        sPer[which].fence[s] = glFenceSync_(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+        s = (s + 1) % UBO_SEGS;
+        if (sPer[which].fence[s] != NULL) {
+            if (glClientWaitSync_(sPer[which].fence[s], GL_SYNC_FLUSH_COMMANDS_BIT, 2000000000ull) == GL_WAIT_FAILED) {
+                fprintf(stderr, "bt3: gl: uniform ring: a fence failed\n");
+            }
+            glDeleteSync_(sPer[which].fence[s]);
+            sPer[which].fence[s] = NULL;
+            sPersistWaits++;
+        }
+        sPer[which].seg = s;
+        off = 0;
+    }
+    memcpy(sPer[which].ptr + (GLintptr)s * UBO_SEG + off, p, n);
+    glBindBufferRange(GL_UNIFORM_BUFFER, binding, buf, (GLintptr)s * UBO_SEG + off, (GLsizeiptr)block);
+    sPer[which].off = off + (GLintptr)block;
+}
 static void ubo_put(int which, GLuint buf, GLuint binding, const void *p, size_t n, size_t block) {
     GLintptr off = (sUboOff[which] + sUboAlign - 1) / sUboAlign * sUboAlign;
     void *m;
+    if (sPersist) {
+        ubo_put_persist(which, buf, binding, p, n, block);
+        return;
+    }
     if (off + (GLintptr)block > UBO_RING) {
         ubo_orphan(buf);
         off = 0;
@@ -587,7 +703,7 @@ static void set_pipe(int pipe) {
     p = &sPipes[pipe];
     {
         int pi = p->vu + (p->nz ? 4 : 0);
-        GLuint prog = p->fx ? sDclutProg : sWantFetch && sMainProgFetch[pi] != 0 ? sMainProgFetch[pi] :
+        GLuint prog = p->fx ? sDclutProg : p->wb ? sMainProg[8] : sWantFetch && sMainProgFetch[pi] != 0 ? sMainProgFetch[pi] :
                       p->nd && sMainProgNd[pi] != 0 ? sMainProgNd[pi] : sMainProg[pi];
         if (sCurProgram != prog) { sCurProgram = prog; glUseProgram(prog); }
     }
@@ -668,9 +784,14 @@ static void set_textures(GLuint t0, int s0, GLuint t1, int s1, GLuint t2, int s2
     }
 }
 
-static void bind_target(int i, int clear) {
+static unsigned sBindN, sBlitN, sFrameN; /* the frames' target changes and copies since the last heartbeat (the log) */
+static unsigned sNoDepthN; /* of those target changes, the ones bound without the depth buffer */
+static int depthless = -1; /* framebuffers without depth where it is not used (the frame's replay) */
+
+static void bind_target(int i, int clear, int nodepth) {
     GLenum bufs[2] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1};
-    glBindFramebuffer(GL_FRAMEBUFFER, sTgFbo[i]);
+    sBindN++;
+    glBindFramebuffer(GL_FRAMEBUFFER, nodepth && !clear && sTgFboNd[i] != 0 ? sTgFboNd[i] : sTgFbo[i]);
     glDrawBuffers(2, bufs);
     glViewport(0, 0, GS_W * SCALE, GS_H * SCALE);
     if (clear) {
@@ -798,6 +919,7 @@ static int gl_init(void) {
     sMainProg[5] = make_program(kVu0VertGlsl, kGsnzFragGlsl, "vu0 nz", sGsSamplers, 2, 0);
     sMainProg[6] = make_program(kVu4VertGlsl, kGsnzFragGlsl, "vu4 nz", sGsSamplers, 2, 0);
     sMainProg[7] = make_program(kVu6VertGlsl, kGsnzFragGlsl, "vu6 nz", sGsSamplers, 2, 0);
+    sMainProg[8] = make_program(kGsVertGlsl, kGswbFragGlsl, "gs wb", sGsSamplers, 2, 0);
     sOutlineProg = make_program(kFxVertGlsl, kOutlineFragGlsl, "outline", sOneSampler, 1, 0);
     sKeyProg = make_program(kFxVertGlsl, kAlphakeyFragGlsl, "alphakey", sOneSampler, 1, 0);
     sDclutProg = make_program(kFxVertGlsl, kDclutFragGlsl, "dclut", sDclutSamplers, 3, 0);
@@ -882,6 +1004,7 @@ static int gl_init(void) {
     glBufferData(GL_UNIFORM_BUFFER, 80, NULL, GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_UNIFORM_BUFFER, 1, sUboParams);
 #if GL_ES
+    ubo_persist_init(sUboU, sUboParams);
     ubo_frame();
 #endif
 
@@ -996,20 +1119,25 @@ static void gl_heartbeat(void) {
     uint64_t now;
     extern int gPortInMenus; /* headless.c */
     extern int Port_Setting(const char *name, int def);
-    if (gGsFrame % 300 != 0 || Port_Setting("perf_log", 1) == 0) {
+    static unsigned hbFrame = ~0u; /* (smooth motion shows a frame twice: one heartbeat for it) */
+    if (gGsFrame % 300 != 0 || gGsFrame == hbFrame || Port_Setting("perf_log", 1) == 0) {
         return;
     }
+    hbFrame = gGsFrame;
     now = SDL_GetTicksNS();
     fprintf(stderr, "bt3: alive: frame %u, game blank %u, %u draws, %u vertices, %d targets, %d textures\n", gGsFrame, gPortVBlanks,
             gsDrawCount, gsVertCount + gsVuVertCount, gsTargetCount, gsTexCount);
-    if (lastNs != 0 && now > lastNs) {
+    if (lastNs != 0 && now > lastNs && (int)(gPortVBlanks - lastBlank) >= 0) { /* (the count starts again online) */
         double secs = (double)(now - lastNs) / 1e9, bps = (double)(gPortVBlanks - lastBlank) / secs;
-        fprintf(stderr, "bt3: speed %.0f%% (%.1f game blanks/s, %.1f pictures/s over %.1f s%s), OpenGL ES\n", bps * 100.0 / 60.0, bps,
-                (double)(gGsFrame - lastFrame) / secs, secs, Ui_Pauses() ? ", the menu was open" : gPortInMenus ? ", menus" : ", fight");
+        fprintf(stderr, "bt3: speed %.0f%% (%.1f game blanks/s, %.1f pictures/s over %.1f s%s), OpenGL ES; per frame %.1f target changes, "
+                        "%.1f copies, %.1f without depth\n", bps * 100.0 / 60.0, bps, (double)(gGsFrame - lastFrame) / secs, secs,
+                Ui_Pauses() ? ", the menu was open" : gPortInMenus ? ", menus" : ", fight", sFrameN ? (double)sBindN / sFrameN : 0.0,
+                sFrameN ? (double)sBlitN / sFrameN : 0.0, sFrameN ? (double)sNoDepthN / sFrameN : 0.0);
     }
     lastNs = now;
     lastBlank = gPortVBlanks;
     lastFrame = gGsFrame;
+    sBindN = sBlitN = sFrameN = sNoDepthN = 0;
 }
 #endif
 
@@ -1144,6 +1272,11 @@ static void frame_end(void) {
        back on for the frame's own draws, or every partial scissor (the split screen's halves, the HUD, the
        fighters' shadows) is ignored and the two views overlap across the whole screen. */
     glEnable(GL_SCISSOR_TEST);
+    if (depthless < 0) { /* BT3_GPU_DEPTHLESS=0/1, setting "depthless_passes" (0 automatic: on, 1 on, 2 off) */
+        const char *e = getenv("BT3_GPU_DEPTHLESS");
+        depthless = e != NULL ? atoi(e) != 0 : Port_Setting("depthless_passes", 0) != 2;
+        fprintf(stderr, "bt3: gl: framebuffers without the depth buffer where it is not used: %s\n", depthless ? "on" : "off");
+    }
     for (n = 0; n < gsDrawCount; n++) {
         const GsDraw *d = &gsDraws[n];
         int shadowStart;
@@ -1180,6 +1313,7 @@ static void frame_end(void) {
             glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, dst, 0);
             glDrawBuffers(1, one);
             glBlitFramebuffer(rx, ry, rx + rw, ry + rh, rx, ry, rx + rw, ry + rh, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+            sBlitN++;
             glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
             glEnable(GL_SCISSOR_TEST);
@@ -1190,7 +1324,7 @@ static void frame_end(void) {
         if (d->native == 3) {
             float params[4] = {(float)d->src, d->misc[0], 0.0f, 0.0f};
             if (!gsTargets[d->target].cleared) { continue; }
-            if (cur != d->target) { bind_target(d->target, 0); cur = d->target; }
+            if (cur != d->target) { bind_target(d->target, 0, 0); cur = d->target; }
             sWantFetch = 0;
             set_pipe(d->pipeline);
             set_textures(sTgDep[d->target], 6, sAuxCopy, 6, (GLuint)d->tex, 6);
@@ -1204,10 +1338,11 @@ static void frame_end(void) {
         if (d->native) {
             float params[4];
             if (!gsTargets[d->target].cleared) { continue; }
-            if (cur != d->target) { bind_target(d->target, 0); cur = d->target; }
+            if (cur != d->target) { bind_target(d->target, 0, 0); cur = d->target; }
             set_native(d->native);
             set_textures(sAuxCopy, 6, 0, 6, 0, 6);
-            params[0] = 1.0f / (float)GS_W;
+            extern int Port_PageAspectMilli(void); /* plat_stub.c: the shape of the page shown now */
+            params[0] = 1333.333f / (float)Port_PageAspectMilli() / (float)GS_W; /* one PS2 pixel across, as wide as at 4:3 (outline.frag) */
             params[1] = 1.0f / (float)GS_H;
             params[2] = 100.0f / 255.0f;
             params[3] = getenv("BT3_FX_DEBUG") != NULL ? 1.0f : 0.0f;
@@ -1222,7 +1357,22 @@ static void frame_end(void) {
             (n == 0 || gsDraws[n - 1].native || gsDraws[n - 1].target != d->target ||
              !sPipes[gsDraws[n - 1].pipeline].shadow);
         if (cur != d->target) {
-            bind_target(d->target, !gsTargets[d->target].cleared);
+            int nodepth = 0;
+            if (depthless && gsTargets[d->target].cleared) {
+                /* the draws on this target until the next copy or change of target (the table passes and native
+                   effects in between stay in the same framebuffer and use no depth buffer) */
+                uint32_t j;
+                nodepth = 1;
+                for (j = n; nodepth && j < gsDrawCount && gsDraws[j].target == d->target &&
+                            !(gsDraws[j].native >= 4); j++) {
+                    const Pipe *q = &sPipes[gsDraws[j].pipeline];
+                    if (!gsDraws[j].native && !q->fx) {
+                        nodepth = q->ztst == 1 && !q->zwrite && !q->shadow;
+                    }
+                }
+            }
+            sNoDepthN += nodepth;
+            bind_target(d->target, !gsTargets[d->target].cleared, nodepth);
             gsTargets[d->target].cleared = 1;
             cur = d->target;
             haveFu = 0;
@@ -1344,6 +1494,7 @@ static void frame_end(void) {
         }
     }
 
+    sFrameN++;
     for (i = 0; i < gsTargetCount; i++) { gsTargets[i].draws = 0; }
     gsVertCount = 0;
     gsVuVertCount = 0;

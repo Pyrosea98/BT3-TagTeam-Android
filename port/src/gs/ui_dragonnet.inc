@@ -291,6 +291,12 @@ static const char *rules_line(void) {
     return t;
 }
 
+// a service over its limit (HTTP 429, net_match.c): its daily requests, most often
+static const char *limit_text(void) {
+    return T("Server busy (daily limit), try again later.", "Servidor ocupado (limite diário), tente mais tarde.",
+             "Servidor ocupado (límite diario), inténtalo más tarde.");
+}
+
 static const char *ranked_msg(int m) {
     switch (m) {
     case DRMSG_SEARCHING: return T("Searching for a rival...", "Procurando um rival...", "Buscando rival...");
@@ -311,6 +317,7 @@ static const char *ranked_msg(int m) {
                                  "El servicio Dragon Net aún no acepta esta versión.");
     case DRMSG_UPDATED: return T("Profile updated.", "Perfil atualizado.", "Perfil actualizado.");
     case DRMSG_BUSY: return T("Too many requests: wait a moment.", "Muitos pedidos: espere um pouco.", "Demasiadas solicitudes: espera un momento.");
+    case DRMSG_LIMIT: return limit_text();
     default: return "";
     }
 }
@@ -327,7 +334,7 @@ static const char *rank_tier(const char *server) {
 }
 
 static const char *lobby_error(int last) {
-    if (last == -3) { return Port_LobbyError(); }
+    if (last == -3) { return strcmp(Port_LobbyError(), MATCH_LIMIT_TEXT) == 0 ? limit_text() : Port_LobbyError(); }
     if (last == -4) { return T("The two games could not reach each other. Try again.", "Os dois jogos não se alcançaram. Tente de novo.",
                                "Los dos juegos no pudieron conectarse. Inténtalo de nuevo."); }
     if (last == -5) { return T("Nobody searched in the last three minutes.", "Ninguém procurou nos últimos três minutos.", "Nadie buscó en los últimos tres minutos."); }
