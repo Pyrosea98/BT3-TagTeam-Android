@@ -20,24 +20,26 @@ import java.net.URL
 object Bt2Online {
     /** BT2's netcode version on the service (the service's ALLOWED_VERSIONS must list it). BT3's is 5001. */
     const val VERSION = 6001
+    /** BT2's own matchmaking service (bt2/tools/dragonnet_own): versions 6001 only, on its own account, so BT3's service is left alone. */
+    const val SERVICE = "https://dragonnet-bt2.regulusplay.workers.dev"
     private const val QUEUE = "S" // single fights
     private const val GAME_PORT = 7000 // (the port the game will listen on, when it connects: for now only what the addresses say)
 
     class Failure(val why: String) : Exception(why)
     data class Peer(val name: String, val addrs: List<String>)
     /** A room this player is in: its code, this player's key in it, and the other player when already there. */
-    data class Room(val code: String, val key: String, val peer: Peer?, val hosting: Boolean)
+    data class Room(val code: String, val key: String, val peer: Peer?, val hosting: Boolean, val turn: List<String> = emptyList())
 
     fun url(paths: GamePaths): String =
         runCatching { File(paths.bt2Root, "user/dragonnet_url.txt").readText().trim() }.getOrNull()?.takeIf { it.startsWith("http") }?.trimEnd('/')
-            ?: OnlineStatus.DRAGON_URL
+            ?: SERVICE
 
     /** The name as the service takes it: printable ASCII, 16 letters at most ("Player" when nothing is left). */
     fun cleanName(name: String): String = name.filter { it.code in 0x20..0x7e }.trim().take(16).ifEmpty { "Jogador" }
 
     fun host(base: String, name: String, mine: List<String>): Room {
         val r = post(base, "/v1/host", JSONObject().put("v", VERSION).put("name", cleanName(name)).put("addrs", addrs(mine)))
-        return Room(r.getString("code"), r.getString("key"), null, true)
+        return Room(r.getString("code"), r.getString("key"), null, true, turn(base, r))
     }
 
     fun join(base: String, code: String, name: String, mine: List<String>): Room {
@@ -49,12 +51,23 @@ object Bt2Online {
     fun quick(base: String, name: String, who: String, mine: List<String>): Room {
         val r = post(base, "/v1/quick", JSONObject().put("v", VERSION).put("name", cleanName(name)).put("addrs", addrs(mine)).put("queue", QUEUE).put("who", who))
         val join = r.optString("role") == "join"
-        return Room(r.getString("code"), r.getString("key"), if (join) peer(r.getJSONObject("peer")) else null, !join)
+        return Room(r.getString("code"), r.getString("key"), if (join) peer(r.getJSONObject("peer")) else null, !join, if (join) emptyList() else turn(base, r))
     }
 
     /** The one who joined the room this player hosts, once there. */
     fun poll(base: String, room: Room): Peer? =
         post(base, "/v1/poll", JSONObject().put("code", room.code).put("key", room.key)).optJSONObject("peer")?.let(::peer)
+
+    /** The relay login the service gives a host (server, user, credential), or the development one in dragonnet_turn.txt (a coturn on the computer). */
+    private fun turn(base: String, r: JSONObject): List<String> {
+        r.optJSONObject("turn")?.let { return listOf(it.optString("server"), it.optString("username"), it.optString("credential")) }
+        return emptyList()
+    }
+
+    /** The host's addresses again, with its relayed address among them, for the one who joins. */
+    fun publish(base: String, room: Room, mine: List<String>, relay: String) {
+        runCatching { post(base, "/v1/addrs", JSONObject().put("code", room.code).put("key", room.key).put("addrs", addrs(listOf("relay=$relay") + mine))) }
+    }
 
     fun leave(base: String, room: Room) {
         runCatching { post(base, "/v1/leave", JSONObject().put("code", room.code).put("key", room.key)) }
@@ -78,7 +91,7 @@ object Bt2Online {
     /** This phone's addresses as the service wants them ("ip:port", four at most): the ones the game's socket reported (the
      *  line to the other game is that socket's: bt2/plugin/online/link.h), else the phone's own with a port of no use. */
     private fun addrs(mine: List<String>): JSONArray {
-        val good = mine.filter { Regex("""[0-9.]{7,15}:\d{1,5}""").matches(it) }
+        val good = mine.filter { Regex("""(relay=)?[0-9.]{7,15}:\d{1,5}""").matches(it) }
         if (good.isNotEmpty()) return JSONArray(good.take(4))
         val found = runCatching {
             NetworkInterface.getNetworkInterfaces().toList().filter { it.isUp && !it.isLoopback }

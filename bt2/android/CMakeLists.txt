@@ -59,7 +59,8 @@ set_target_properties(SDL3 PROPERTIES IMPORTED_LOCATION "${BT2_SDL3_DIR}/lib/lib
 add_library(bt2online SHARED
     "${BT2_SOURCE_ROOT}/plugin/online/online_plugin.cpp"
     "${BT2_SOURCE_ROOT}/plugin/online/opening_music.cpp"
-    "${BT2_SOURCE_ROOT}/plugin/online/link.cpp")
+    "${BT2_SOURCE_ROOT}/plugin/online/link.cpp"
+    "${BT2_SOURCE_ROOT}/plugin/online/relay.cpp")
 set_target_properties(bt2online PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
 target_include_directories(bt2online PRIVATE "${BT2_SOURCE_ROOT}/plugin" "${BT2_SOURCE_ROOT}/plugin/online")
 target_compile_options(bt2online PRIVATE -O2 -fvisibility=hidden -w)

@@ -68,6 +68,7 @@ def main():
     ap.add_argument("--name", default="Rival")
     ap.add_argument("--address", default=None)
     ap.add_argument("--seconds", type=int, default=60)
+    ap.add_argument("--relay-only", action="store_true", help="send only to the host's relay= address (to test the TURN relay)")
     args = ap.parse_args()
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -103,8 +104,9 @@ def main():
     session = fnv(code)
     targets = []
     for a in peer["addrs"]:
-        if a.startswith(("relay=", "seen=")): continue
-        host, port = a.rsplit(":", 1)
+        if a.startswith("seen="): continue
+        if args.relay_only and not a.startswith("relay="): continue
+        host, port = a.removeprefix("relay=").rsplit(":", 1)
         targets.append((host, int(port)))
     remote, up, number, last_hello, last_ping, rtts = None, False, 0, 0, 0, []
     while time.time() < deadline:

@@ -64,6 +64,7 @@ bool Link::open() {
 }
 
 void Link::close() {
+    relay_.end(socket_);
     if (socket_ >= 0) ::close(socket_);
     socket_ = -1;
     state_ = Closed;
@@ -80,10 +81,17 @@ void Link::start(const std::string& code, const std::vector<std::string>& addres
         const auto colon = a.rfind(':');
         if (colon == std::string::npos) continue;
         in_addr ip{};
-        const int port = std::atoi(a.c_str() + colon + 1);
-        if (a.compare(0, 6, "relay=") == 0 || a.compare(0, 5, "seen=") == 0 || port <= 0 || port > 65535) continue;
-        if (::inet_pton(AF_INET, a.substr(0, colon).c_str(), &ip) != 1) continue;
+        if (a.compare(0, 5, "seen=") == 0) {   // the address the service saw the other player under: the relay lets it through
+            if (::inet_pton(AF_INET, a.c_str() + 5, &ip) == 1) relay_.permit(socket_, ip.s_addr);
+            continue;
+        }
+        const std::string text = a.compare(0, 6, "relay=") == 0 ? a.substr(6) : a;   // (the host's relayed address is an ordinary one)
+        const auto at = text.rfind(':');
+        if (at == std::string::npos) continue;
+        const int port = std::atoi(text.c_str() + at + 1);
+        if (port <= 0 || port > 65535 || ::inet_pton(AF_INET, text.substr(0, at).c_str(), &ip) != 1) continue;
         candidates_.push_back({ip.s_addr, std::uint16_t(port)});
+        relay_.permit(socket_, ip.s_addr);
     }
     started_ = now();
     lastHello_ = started_ - hello_every;
@@ -105,6 +113,7 @@ void Link::send(std::uint8_t type, std::uint32_t number, std::uint32_t echo, con
     a.sin_family = AF_INET;
     a.sin_addr.s_addr = to.ip;
     a.sin_port = htons(to.port);
+    if (to.relayed) {relay_.send(socket_, p, sizeof p, to.ip, htons(to.port)); return;}
     ::sendto(socket_, p, sizeof p, 0, reinterpret_cast<sockaddr*>(&a), sizeof a);
 }
 
@@ -119,9 +128,12 @@ bool Link::peerAddress(std::string& out) const {
 }
 
 void Link::poll() {
-    if (socket_ < 0 || state_ == Open || state_ == Closed || state_ == Failed) return;
+    if (socket_ >= 0 && relay_.started()) relay_.poll(socket_);
+    if (socket_ < 0 || state_ == Closed) return;
     const std::uint32_t t = now();
-    if (state_ == Linking) {
+    if (state_ == Open || state_ == Failed) {
+        // (nothing to say yet, or nothing more: answers from the relay are still read below)
+    } else if (state_ == Linking) {
         if (t - started_ > give_up_after) {state_ = Failed; return;}
         if (t - lastHello_ >= hello_every) {
             lastHello_ = t;
@@ -133,13 +145,25 @@ void Link::poll() {
     }
     // what came: at most a few dozen packets a frame
     for (int n = 0; n < 64; ++n) {
-        std::uint8_t p[64];
+        std::uint8_t buffer[1600];
+        std::uint8_t* p = buffer;
         sockaddr_in from{};
         socklen_t length = sizeof from;
-        const ssize_t got = ::recvfrom(socket_, p, sizeof p, 0, reinterpret_cast<sockaddr*>(&from), &length);
+        ssize_t got = ::recvfrom(socket_, buffer, sizeof buffer, 0, reinterpret_cast<sockaddr*>(&from), &length);
         if (got < 0) break;
+        Candidate source{from.sin_addr.s_addr, ntohs(from.sin_port)};
+        if (relay_.isServer(from.sin_addr.s_addr, from.sin_port)) {   // the TURN server: its answers, or the other player's packet inside
+            const std::uint8_t* data = nullptr;
+            int dataSize = 0;
+            std::uint32_t peerIp = 0;
+            std::uint16_t peerPort = 0;
+            if (!relay_.unwrap(socket_, buffer, int(got), from.sin_addr.s_addr, from.sin_port, &data, &dataSize, &peerIp, &peerPort)) continue;
+            p = const_cast<std::uint8_t*>(data);
+            got = dataSize;
+            source = {peerIp, ntohs(peerPort), true};
+        }
+        if (state_ != Linking && state_ != Up) continue;
         if (got < static_cast<ssize_t>(packet_size) || get32(p) != magic || p[4] != version || get32(p + 8) != session_) continue;
-        const Candidate source{from.sin_addr.s_addr, ntohs(from.sin_port)};
         const std::uint32_t echo = get32(p + 16);
         switch (p[5]) {
         case hello:

@@ -198,11 +198,28 @@ bool readPeer(std::string& name,std::string& code,std::vector<std::string>& addr
 }
 // What the app shows of the line: online_link, "rtt=<ms>".
 void writeLinkFile() {writeOnlineFile("online_link","rtt="+std::to_string(link.roundTripMs())+"\n");}
+// The host's relay (relay.h): the app leaves the service's TURN login in online_turn (server, user, credential, a line each);
+// once the relayed address is there it is left in online_relay for the app to give the service.
+bool relayPublished=false;
+void relayStep() {
+    if(!link.relayStarted()) {
+        std::ifstream in(onlinePath("online_turn"),std::ios::binary);
+        std::string server,user,credential;
+        if(in && std::getline(in,server) && std::getline(in,user) && std::getline(in,credential)) {
+            for(auto* t:{&server,&user,&credential})while(!t->empty() && (t->back()=='\r' || t->back()==' '))t->pop_back();
+            if(!server.empty() && !user.empty())link.beginRelay(server,user,credential);
+        }
+    } else if(link.relayActive() && !relayPublished) {
+        writeOnlineFile("online_relay",link.relayAddress()+"\n");
+        relayPublished=true;
+    }
+}
 // A way in is over (given up, or the opponent has been shown): the line closes and the app's files go.
 void endWait() {
     link.close();
     screen.wait=0;screen.found=0;screen.linking=0;screen.failed=0;
-    for(const char* name:{"online_peer","online_back","online_local","online_link"})onlineFile(name,true);
+    for(const char* name:{"online_peer","online_back","online_local","online_link","online_turn","online_relay"})onlineFile(name,true);
+    relayPublished=false;
 }
 
 void screenLoop(Guest& g) {
@@ -222,6 +239,7 @@ void screenLoop(Guest& g) {
         const std::uint32_t held=read32(g.rdram,pad+0x144),pressed=read32(g.rdram,pad+0x134);
         if(screen.wait) { // the app is making the connection
             link.poll();
+            if(loop_frame%15==0)relayStep();
             if(screen.found) {
                 if(loop_frame%30==0)writeLinkFile();
                 if(--screen.found==0)endWait(); // (the match itself comes next: for now, back to the three ways in)
