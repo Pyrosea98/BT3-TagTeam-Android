@@ -60,11 +60,14 @@ bool Link::open() {
     }
     state_ = Open;
     rtt_ = -1;
+    openedAt_ = now();
+    stun_.begin();
     return true;
 }
 
 void Link::close() {
     relay_.end(socket_);
+    stun_.reset();
     if (socket_ >= 0) ::close(socket_);
     socket_ = -1;
     state_ = Closed;
@@ -72,6 +75,14 @@ void Link::close() {
     local_.clear();
     rtt_ = -1;
 }
+
+std::vector<std::string> Link::localAddresses() const {
+    std::vector<std::string> out = stun_.mapped();
+    for (const auto& a : local_) out.push_back(a);
+    return out;
+}
+
+bool Link::addressesReady() const {return stun_.finished() || now() - openedAt_ > 1200;}
 
 void Link::start(const std::string& code, const std::vector<std::string>& addresses) {
     if (state_ != Open) return;
@@ -129,6 +140,7 @@ bool Link::peerAddress(std::string& out) const {
 
 void Link::poll() {
     if (socket_ >= 0 && relay_.started()) relay_.poll(socket_);
+    if (socket_ >= 0) stun_.poll(socket_);
     if (socket_ < 0 || state_ == Closed) return;
     const std::uint32_t t = now();
     if (state_ == Open || state_ == Failed) {
@@ -151,6 +163,7 @@ void Link::poll() {
         socklen_t length = sizeof from;
         ssize_t got = ::recvfrom(socket_, buffer, sizeof buffer, 0, reinterpret_cast<sockaddr*>(&from), &length);
         if (got < 0) break;
+        if (stun_.handle(buffer, int(got), from.sin_addr.s_addr, from.sin_port)) continue;
         Candidate source{from.sin_addr.s_addr, ntohs(from.sin_port)};
         if (relay_.isServer(from.sin_addr.s_addr, from.sin_port)) {   // the TURN server: its answers, or the other player's packet inside
             const std::uint8_t* data = nullptr;

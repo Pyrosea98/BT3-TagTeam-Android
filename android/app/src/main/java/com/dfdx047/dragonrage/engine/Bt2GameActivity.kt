@@ -64,8 +64,26 @@ class Bt2GameActivity : GameActivity() {
     /** BT2's own GPU driver choice (Bt2ViewModel: <root>/bt2/user/driver), apart from BT3's. */
     override fun gpuDriver(): GpuDriver? = Bt2Drivers.selected(this, paths)
 
+    /**
+     * The game wrote gpu_preset = 1 in its renderer settings: it found a weak GPU and turned the effects off for the first run. Here the
+     * screen's picture goes to 75% of its size, once (the settings can change it back; this does not come again).
+     */
+    private fun lowEndPreset() {
+        val done = File(paths.bt2Root, "user/gpu_preset_done")
+        if (done.exists()) return
+        val marked = runCatching { File(paths.bt2Root, "user/renderer").readLines().any { it.trim() == "gpu_preset = 1" } }.getOrDefault(false)
+        if (!marked) return
+        runCatching {
+            val settings = Bt2Settings(paths)
+            val v = settings.load()
+            if (v.outputScale == 100) settings.save(v.copy(outputScale = 75))
+            done.writeText("75\n")
+        }
+    }
+
     override fun onResume() {
         super.onResume()
+        lowEndPreset()
         applyOutputScale(Bt2Settings(paths).load().outputScale)
         refreshPerfOverlay()
         (SDLActivity.getContentView() as? ViewGroup)?.let { online.start(it) }

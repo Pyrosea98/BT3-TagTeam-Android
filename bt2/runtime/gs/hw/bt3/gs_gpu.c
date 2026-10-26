@@ -536,6 +536,8 @@ static int window_ready(void) {
 #define window_ready() 1
 #endif
 
+char gGsGpuName[96]; /* the GPU's name as the driver reports it ("Mali-G57 MC2"), for gs_draw.c's preset for weak GPUs */
+
 static int vk_init(void) {
     SDL_GPUBufferCreateInfo bi;
     SDL_GPUTransferBufferCreateInfo ti;
@@ -713,6 +715,7 @@ static int vk_init(void) {
     fprintf(stderr, "bt3: GPU renderer: %s\n", SDL_GetGPUDeviceDriver(sDev));
     {   /* which GPU and driver (for reports from other devices) */
         SDL_PropertiesID p = SDL_GetGPUDeviceProperties(sDev);
+        SDL_strlcpy(gGsGpuName, SDL_GetStringProperty(p, SDL_PROP_GPU_DEVICE_NAME_STRING, ""), sizeof gGsGpuName);
         fprintf(stderr, "bt3: GPU: %s, driver %s %s (%s)\n", SDL_GetStringProperty(p, SDL_PROP_GPU_DEVICE_NAME_STRING, "?"),
                 SDL_GetStringProperty(p, SDL_PROP_GPU_DEVICE_DRIVER_NAME_STRING, "?"),
                 SDL_GetStringProperty(p, SDL_PROP_GPU_DEVICE_DRIVER_VERSION_STRING, "?"),

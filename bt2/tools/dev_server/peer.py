@@ -33,12 +33,16 @@ def fnv(text):
 
 
 def post(server, path, body):
-    request = urllib.request.Request(server + path, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"}, method="POST")
+    request = urllib.request.Request(server + path, data=json.dumps(body).encode(), headers={"Content-Type": "application/json", "User-Agent": "dragonrage-peer/1"}, method="POST")
     try:
         with urllib.request.urlopen(request, timeout=10) as r:
             return json.load(r)
     except urllib.error.HTTPError as e:
-        return json.load(e)
+        body = e.read().decode("utf-8", "replace")
+        try:
+            return json.loads(body)
+        except ValueError:
+            return {"error": f"HTTP {e.code}: {body[:120]}"}
 
 
 def lan_address():
@@ -50,6 +54,35 @@ def lan_address():
         return "127.0.0.1"
     finally:
         s.close()
+
+
+def stun_address(sock, server=("stun.l.google.com", 19302)):
+    """The address the router shows to the internet for this socket (a STUN Binding request), or None."""
+    import os
+    transaction = os.urandom(12)
+    request = struct.pack(">HHI", 1, 0, 0x2112A442) + transaction
+    try:
+        target = (socket.gethostbyname(server[0]), server[1])
+    except OSError:
+        return None
+    end = time.time() + 3
+    while time.time() < end:
+        sock.sendto(request, target)
+        time.sleep(0.3)
+        try:
+            data, _ = sock.recvfrom(512)
+        except BlockingIOError:
+            continue
+        if len(data) < 20 or data[8:20] != transaction or struct.unpack(">H", data[:2])[0] != 0x0101: continue
+        at = 20
+        while at + 4 <= len(data):
+            kind, length = struct.unpack(">HH", data[at:at + 4])
+            if kind == 0x0020 and length >= 8:
+                port = struct.unpack(">H", data[at + 6:at + 8])[0] ^ 0x2112
+                ip = bytes(b ^ m for b, m in zip(data[at + 8:at + 12], b"\x21\x12\xa4\x42"))
+                return ".".join(map(str, ip)) + ":" + str(port)
+            at += 4 + ((length + 3) & ~3)
+    return None
 
 
 def packet(kind, session, number, echo):
@@ -67,6 +100,7 @@ def main():
     ap.add_argument("--server", default="http://127.0.0.1:8787")
     ap.add_argument("--name", default="Rival")
     ap.add_argument("--address", default=None)
+    ap.add_argument("--stun", action="store_true", help="publish the address the router shows to the internet (for a test across networks)")
     ap.add_argument("--seconds", type=int, default=60)
     ap.add_argument("--relay-only", action="store_true", help="send only to the host's relay= address (to test the TURN relay)")
     args = ap.parse_args()
@@ -75,6 +109,10 @@ def main():
     sock.bind(("0.0.0.0", 0))
     sock.setblocking(False)
     mine = f"{args.address or lan_address()}:{sock.getsockname()[1]}"
+    if args.stun:
+        public = stun_address(sock)
+        print("public address (STUN):", public)
+        if public: mine = public
     print("my address:", mine)
 
     if args.how == "host":

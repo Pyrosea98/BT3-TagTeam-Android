@@ -200,7 +200,7 @@ bool readPeer(std::string& name,std::string& code,std::vector<std::string>& addr
 void writeLinkFile() {writeOnlineFile("online_link","rtt="+std::to_string(link.roundTripMs())+"\n");}
 // The host's relay (relay.h): the app leaves the service's TURN login in online_turn (server, user, credential, a line each);
 // once the relayed address is there it is left in online_relay for the app to give the service.
-bool relayPublished=false;
+bool relayPublished=false,localWritten=true;
 void relayStep() {
     if(!link.relayStarted()) {
         std::ifstream in(onlinePath("online_turn"),std::ios::binary);
@@ -218,8 +218,8 @@ void relayStep() {
 void endWait() {
     link.close();
     screen.wait=0;screen.found=0;screen.linking=0;screen.failed=0;
-    for(const char* name:{"online_peer","online_back","online_local","online_link","online_turn","online_relay"})onlineFile(name,true);
-    relayPublished=false;
+    for(const char* name:{"online_peer","online_back","online_local","online_link","online_turn","online_relay","online_nat"})onlineFile(name,true);
+    relayPublished=false;localWritten=true;
 }
 
 void screenLoop(Guest& g) {
@@ -239,6 +239,12 @@ void screenLoop(Guest& g) {
         const std::uint32_t held=read32(g.rdram,pad+0x144),pressed=read32(g.rdram,pad+0x134);
         if(screen.wait) { // the app is making the connection
             link.poll();
+            if(!localWritten && link.addressesReady()) { // this game's addresses for the app: the router's first (stun.h), then the home's
+                std::string lines;for(const auto& a:link.localAddresses())lines+=a+"\n";
+                writeOnlineFile("online_local",lines);
+                writeOnlineFile("online_nat",link.symmetricRouter()?"symmetric\n":"cone-or-unknown\n");
+                localWritten=true;
+            }
             if(loop_frame%15==0)relayStep();
             if(screen.found) {
                 if(loop_frame%30==0)writeLinkFile();
@@ -267,7 +273,7 @@ void screenLoop(Guest& g) {
             else if(screen.page==1) { // create, join, quick: the app takes it; the socket first, for the addresses it will give the service
                 screen.wait=1+int(screen.choice);
                 for(const char* name:{"online_peer","online_back","online_link"})onlineFile(name,true);
-                if(link.open()){std::string lines;for(const auto& a:link.localAddresses())lines+=a+"\n";writeOnlineFile("online_local",lines);}
+                localWritten=!link.open(); // (the addresses are written once the STUN answers are in: the loop below)
             }
             else screen.soon=true; // (Ranked: coming soon)
             effect(1);

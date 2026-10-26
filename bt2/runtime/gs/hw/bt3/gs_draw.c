@@ -2128,6 +2128,27 @@ void GsGpu_SetSettings(const PortVideo *v) {
     Port_SettingsWrite();
 }
 
+extern char gGsGpuName[96];
+
+/* GPUs that cannot hold a fight at 30 pictures a second with every effect on: the small Mali (a log from a Mali-G57 MC2 showed 54 to 74
+   render passes and 17 to 23 copies a picture and 15 pictures a second), and the Adreno 3xx to 5xx and 610 to 616. */
+static int gpu_is_weak(const char *name) {
+    int n;
+    if (name == NULL) {
+        return 0;
+    }
+    if (strstr(name, "Mali-T") != NULL || strstr(name, "Mali-4") != NULL || strstr(name, "PowerVR") != NULL) {
+        return 1;
+    }
+    if (sscanf(name, "Mali-G%d", &n) == 1) {
+        return n == 31 || n == 51 || n == 52 || n == 57;
+    }
+    if (sscanf(name, "Adreno (TM) %d", &n) == 1 || sscanf(name, "Adreno %d", &n) == 1) {
+        return (n >= 300 && n < 600) || (n >= 610 && n <= 616);
+    }
+    return 0;
+}
+
 int GsGpu_Init(void) {
     const char *api = getenv("BT3_GPU_API");
     GsBackend *sb;
@@ -2189,6 +2210,17 @@ int GsGpu_Init(void) {
     gsWhite = sb->whiteTex();
     gsFxOff = (unsigned)(getenv("BT3_FX_OFF") != NULL ? atoi(getenv("BT3_FX_OFF")) : Port_Setting("fx_off", 0)) & 63;
     gsGlowPercent = getenv("BT3_GLOW") != NULL ? atoi(getenv("BT3_GLOW")) : Port_Setting("glow", GLOW_DEFAULT);
+    if (Port_Setting("gpu_preset", 0) == 0 && gpu_is_weak(gGsGpuName) && getenv("BT3_FX_OFF") == NULL && getenv("BT3_GLOW") == NULL) {
+        /* the first run on a weak GPU: every effect and the glow off, once (the settings window changes them back; the app takes the
+           screen's picture to 75% of its size on seeing gpu_preset in the settings: Bt2GameActivity) */
+        gsFxOff = 31;
+        gsGlowPercent = 0;
+        Port_SettingSave("gpu_preset", 1);
+        Port_SettingSave("fx_off", (int)gsFxOff);
+        Port_SettingSave("glow", gsGlowPercent);
+        Port_SettingsWrite();
+        fprintf(stderr, "bt3: weak GPU (%s): effects and glow off for the first run (gpu_preset)\n", gGsGpuName);
+    }
     gsFilter = getenv("BT3_FILTER") != NULL ? atoi(getenv("BT3_FILTER")) : Port_Setting("filter", 0);
     gsFilter = gsFilter < 0 || gsFilter > 4 ? 0 : gsFilter;
     MenuText_SetFontId(Port_Setting("menu_font_id", 0));

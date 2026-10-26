@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include "relay.h"
+#include "stun.h"
 
 // The direct line between the two games of an online match (UDP). The matchmaking service (the app talks to it) only tells each
 // side the other's name and addresses; this is what makes sure the other game is really there and how long a packet takes.
@@ -24,7 +25,10 @@ public:
     ~Link();
     bool open();                                         // the socket, any port; false: none could be made
     void close();
-    const std::vector<std::string>& localAddresses() const {return local_;}
+    // This game's addresses for the other side: the one the router shows to the internet first (from STUN, stun.h), then the home's own.
+    std::vector<std::string> localAddresses() const;
+    bool addressesReady() const;                         // the STUN answers are in (or given up on, or 1.2 s have passed)
+    bool symmetricRouter() const {return stun_.symmetric();}
     // Starts the exchange with the other game: `code` names the session, `addresses` are the other side's "ip:port" strings.
     void start(const std::string& code, const std::vector<std::string>& addresses);
     void poll();                                         // once a frame: sends what is due, reads what came
@@ -53,4 +57,6 @@ private:
     Candidate remote_;
     int rtt_ = -1;
     Relay relay_;
+    Stun stun_;
+    std::uint32_t openedAt_ = 0;
 };
