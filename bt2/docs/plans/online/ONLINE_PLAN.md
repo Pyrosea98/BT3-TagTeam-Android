@@ -79,3 +79,19 @@ What BT2 lacks, in the order it must be settled:
 
 Stage 2 needs the app and the engine updated together (the app's overlay reads the engine's fourth count; the engine's pages need the
 app's pictures). Stage 3 will also raise `BT2_ENGINE_ABI` if the app and engine start to exchange more than counts and files.
+
+## Stage 3, step 1: how the game reaches a two-player versus (found 2026-10-26, from the project notes; not yet run)
+
+- The main menu's entries set the progress structure's mode (`+0x1C` of the structure whose pointer is at `0x3876A4`): Dueling is **mode 30**.
+  The path of the gate's scripted fight (`bt2/tools/gate/pad-fight.txt`): main menu, Dueling, a versus choice (1P VS COM there), Single
+  Battle, **character selection** (one screen: mode, colour, pick), map selection, loading, fight. After the menus the main loop (`0x100680`)
+  runs the battle routine `0x103000` with the setup the menus left: `0x101A60(kind, music, ..., stage)` (kind 0 versus), `0x101AB0(side, ...)`
+  control (byte `+452`: 1 = CPU), `0x101AF8` a fighter (character * 9 + variant).
+- So the online match can use the game's own two-player versus screens: after "Connected", the library takes the game to mode 30 and
+  presses the menu's buttons itself (as the gate's script does) to the two-player versus, and the other player's pad is port 1.
+- The layout asked for (player 1's picture above, player 2's below) is not what the game's selection screen is: it is one screen with
+  both sides. To decide with the user: use the game's own screen (both pickers live on it), or build the two-picture layout (much more work).
+- Order of work: (1) the library leaves the Online screen into mode 30 and walks the menus to the two-player versus (a menu-walking script
+  from the library, hook on the pad); (2) pad port 1 answers with the other player's buttons; (3) exchange of the buttons each field
+  over the line, waiting when the other's are late; (4) the roles (player 1 and 2 drawn by one side and told to the other) and player 1's
+  map and music; (5) the names under the health bars.
