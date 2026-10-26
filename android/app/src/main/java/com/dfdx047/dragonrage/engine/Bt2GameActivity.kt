@@ -45,6 +45,9 @@ class Bt2GameActivity : GameActivity() {
         Bt2MenuItem.install(this, paths) // the pictures of the Online Mode item (engine reads <root>/bt2/user/menu-item)
     }
 
+    /** BT2 has the menu of its own below (Bt2Menu), on BT2's settings: GameMenu is BT3's and BT4's. */
+    override fun usesGameMenu(): Boolean = false
+
     override fun getLibraries(): Array<String> = arrayOf("SDL3", Game.BT2.library)
 
     /** The engine the player imported (Bt2Engine: files/engines/bt2), else the APK's own (getLibraries). */

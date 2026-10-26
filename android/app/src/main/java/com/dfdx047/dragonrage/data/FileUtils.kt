@@ -6,7 +6,9 @@ import android.provider.OpenableColumns
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
-import java.util.zip.ZipInputStream
+import java.nio.channels.SeekableByteChannel
+import org.apache.commons.compress.archivers.zip.ZipArchiveInputStream
+import org.apache.commons.compress.archivers.zip.ZipFile
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.ensureActive
 
@@ -50,7 +52,11 @@ fun uniqueChild(parent: File, wanted: String): File {
 /**
  * Unpacks a zip into [dest]. Entries that would land outside [dest] ("zip slip") are refused. [onEntry] sees
  * every file written, relative to [dest]; [onBytes] the number of compressed-stream bytes read so far is not
- * available from ZipInputStream, so progress is reported in uncompressed bytes written.
+ * available from a zip read as a stream, so progress is reported in uncompressed bytes written.
+ *
+ * Read with Commons Compress rather than java.util.zip, which refuses what 7-Zip writes with Deflate64 or BZip2
+ * and the stored (uncompressed) entries of a zip written as a stream ("only DEFLATED entries can have EXT
+ * descriptor"): all of them came out of the zip tools players use (checked against a real pack, 2026-10-25).
  */
 suspend fun unzip(
     input: InputStream,
@@ -63,7 +69,7 @@ suspend fun unzip(
     var files = 0
     var written = 0L
     val buf = ByteArray(1 shl 16)
-    ZipInputStream(input.buffered(1 shl 16), charset).use { zip ->
+    ZipArchiveInputStream(input.buffered(1 shl 16), charset.name(), true, true).use { zip ->
         while (true) {
             coroutineContext.ensureActive()
             val e = zip.nextEntry ?: break
@@ -91,6 +97,24 @@ suspend fun unzip(
     }
     return files
 }
+
+/**
+ * What a zip's files take unpacked, from its index at the end (sizes the entries themselves may not carry), or
+ * null when the source cannot be read at random (a pipe, some cloud files) or has no readable index.
+ */
+fun zipUnpackedSize(open: () -> SeekableByteChannel?): Long? = runCatching {
+    open()?.use { ch ->
+        ZipFile.builder().setSeekableByteChannel(ch).get().use { z ->
+            var sum = 0L
+            for (e in z.entries) if (!e.isDirectory && e.size > 0) sum += e.size
+            sum
+        }
+    }
+}.getOrNull()
+
+/** True for the error of a full storage (ENOSPC), as the system words it. */
+fun Throwable.isNoSpace(): Boolean =
+    generateSequence(this) { it.cause }.any { it.message?.let { m -> m.contains("ENOSPC") || m.contains("No space left", true) } == true }
 
 fun formatBytes(bytes: Long): String {
     if (bytes < 1024) return "$bytes B"

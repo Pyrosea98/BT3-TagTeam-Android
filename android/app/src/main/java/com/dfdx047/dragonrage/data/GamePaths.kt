@@ -27,8 +27,10 @@ import java.io.File
  * The root is the app's folder on shared storage (Android/data/<package>/files), so a file manager or adb can
  * reach it too.
  */
-class GamePaths(context: Context) {
-    val root: File = (context.getExternalFilesDir(null) ?: context.filesDir).also { it.mkdirs() }
+class GamePaths(context: Context, val game: Game = Game.BT3) {
+    /** The app's folder; Budokai Tenkaichi 3 lives in it, Budokai Tenkaichi 4 in its bt4/ (see Game). */
+    val base: File = (context.getExternalFilesDir(null) ?: context.filesDir).also { it.mkdirs() }
+    val root: File = (if (game.folder.isEmpty()) base else File(base, game.folder)).also { it.mkdirs() }
     val gameData = File(root, "gamedata")
     val installedMarker = File(gameData, ".installed")
     val mods = File(gameData, "mods")
@@ -40,6 +42,10 @@ class GamePaths(context: Context) {
     val settings = File(root, "bt3_settings.txt")
     val modLibrary = File(root, "modlib")
     val temp = File(context.cacheDir, "import")
+    /** BT4 only: the disc's boot files copied out of the image (the rest is read from the image itself), and the
+     *  image the player picked (its content:// address, kept with a persisted read permission). */
+    val runtimeData = File(root, "runtime/data")
+    val isoUri = File(root, "iso_uri.txt")
 
     val bt2Root = File(root, "bt2")
     val bt2Data = File(bt2Root, "data")
@@ -50,10 +56,4 @@ class GamePaths(context: Context) {
     fun ensure() {
         listOf(gameData, textures, texturesOff, stages, songs, saves, modLibrary, temp, bt2Data, bt2Saves).forEach { it.mkdirs() }
     }
-}
-
-/** The games the app can start, each from its own disc image and with its own engine library. */
-enum class Game(val serial: String, val library: String) {
-    BT3("SLUS-21678", "bt3"),
-    BT2("SLUS-21441", "bt2"),
 }

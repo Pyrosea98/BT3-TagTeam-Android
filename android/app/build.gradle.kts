@@ -13,9 +13,9 @@ android {
         minSdk = 29
         targetSdk = 35
         // CI passes the tag (android-v0.1.0 -> 0.1.0) and the run number
-        // Without CI (a local build) the name is 0.8.1 and the code follows it (0.8.1 -> 801), so a local build of
+        // Without CI (a local build) the name is 0.9.0 and the code follows it (0.9.0 -> 900), so a local build of
         // a newer version always installs over the one before it; the same version again installs with `adb install -r`.
-        val vName = System.getenv("DR_VERSION_NAME") ?: "0.8.1"
+        val vName = System.getenv("DR_VERSION_NAME") ?: "0.9.0"
         val vParts = vName.substringBefore('-').split('.').map { it.toIntOrNull() ?: 0 }
         versionCode = System.getenv("DR_VERSION_CODE")?.toInt()
             ?: maxOf(1, vParts.getOrElse(0) { 0 } * 10000 + vParts.getOrElse(1) { 0 } * 100 + vParts.getOrElse(2) { 0 })
@@ -105,5 +105,6 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.extended)
+    implementation(libs.commons.compress) // texture packs and mods: zips java.util.zip cannot read (data/FileUtils.kt)
     debugImplementation(libs.androidx.ui.tooling)
 }

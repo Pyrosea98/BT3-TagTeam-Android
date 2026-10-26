@@ -61,7 +61,7 @@ class GameDataInstaller(
             val iso = try {
                 IsoImage(channel)
             } catch (e: IOException) {
-                throw Stop(context.getString(R.string.err_not_iso))
+                throw Stop(notIsoMessage(context, channel))
             }
             iso.use {
                 report(InstallState.Working(context.getString(R.string.step_checking), 0f, context.getString(R.string.detail_finding)))
@@ -264,6 +264,38 @@ class GameDataInstaller(
         MessageDigest.getInstance("SHA-256").digest(data).joinToString("") { "%02x".format(it) }
 
     companion object {
+        /** Why a file is not a disc image, from its first bytes: a compressed archive or disc format (the players sent
+         *  .7z, .zip, .rar and .chd files), a web page saved instead of the download, or a file far too small. */
+        fun notIsoMessage(context: Context, channel: java.nio.channels.FileChannel): String {
+            val head = ByteArray(16)
+            val size = runCatching { channel.size() }.getOrDefault(-1L)
+            val n = runCatching {
+                val buf = ByteBuffer.wrap(head)
+                channel.position(0)
+                var got = 0
+                while (buf.hasRemaining()) { val r = channel.read(buf); if (r <= 0) break; got += r }
+                got
+            }.getOrDefault(0)
+            fun starts(vararg b: Int) = n >= b.size && b.indices.all { head[it] == b[it].toByte() }
+            fun text(t: String) = n >= t.length && String(head, 0, t.length, Charsets.ISO_8859_1).equals(t, ignoreCase = true)
+            val kind = when {
+                starts(0x50, 0x4B, 0x03, 0x04) -> "ZIP"
+                starts(0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C) -> "7Z"
+                starts(0x52, 0x61, 0x72, 0x21, 0x1A, 0x07) -> "RAR"
+                text("MComprHD") -> "CHD"
+                text("CISO") -> "CSO"
+                text("ZISO") -> "ZSO"
+                starts(0x1F, 0x8B) -> "GZ"
+                else -> null
+            }
+            return when {
+                kind != null -> context.getString(R.string.err_iso_packed, kind)
+                n > 0 && (text("<!DOCTYPE") || text("<html") || head[0] == '<'.code.toByte()) -> context.getString(R.string.err_iso_web_page)
+                size in 0 until 100L * 1024 * 1024 -> context.getString(R.string.err_iso_too_small, android.text.format.Formatter.formatShortFileSize(context, size))
+                else -> context.getString(R.string.err_not_iso)
+            }
+        }
+
         // config/SLUS_216.78.yaml and config/DBZP.yaml of the decompilation
         const val ROM_SHA1 = "caee6c2269bba89fc51eea9e7beac3adbec9dc52"
         const val DBZP_SHA1 = "4f910969e05d9b25c83af7642b60da9949a4348b"

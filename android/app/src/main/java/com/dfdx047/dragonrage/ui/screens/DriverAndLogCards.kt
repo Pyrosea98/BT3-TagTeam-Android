@@ -6,6 +6,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Delete
@@ -18,6 +19,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -25,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dfdx047.dragonrage.AppViewModel
@@ -41,13 +44,13 @@ fun GpuDriverCard(vm: AppViewModel) {
 
     SectionCard(stringResource(R.string.gpu_driver), Icons.Rounded.DeveloperBoard, accent = Dbz.KiBlue) {
         Text(stringResource(R.string.gpu_driver_text), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            RadioButton(selected = chosen == null, onClick = { vm.selectDriver(null) })
+        Row(Modifier.selectable(chosen == null, role = Role.RadioButton) { vm.selectDriver(null) }, verticalAlignment = Alignment.CenterVertically) {
+            RadioButton(selected = chosen == null, onClick = null, modifier = Modifier.minimumInteractiveComponentSize())
             Text(stringResource(R.string.gpu_driver_system), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
         }
         list.forEach { d ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                RadioButton(selected = chosen == d.id, onClick = { vm.selectDriver(d.id) })
+            Row(Modifier.selectable(chosen == d.id, role = Role.RadioButton) { vm.selectDriver(d.id) }, verticalAlignment = Alignment.CenterVertically) {
+                RadioButton(selected = chosen == d.id, onClick = null, modifier = Modifier.minimumInteractiveComponentSize())
                 Text(
                     if (d.version.isNotEmpty()) "${d.name} · ${d.version}" else d.name,
                     style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f),

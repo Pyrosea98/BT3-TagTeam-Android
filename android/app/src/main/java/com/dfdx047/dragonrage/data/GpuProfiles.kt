@@ -8,7 +8,9 @@ package com.dfdx047.dragonrage.data
  *
  * The tiers come from the GPUs' known performance and from the logs players sent: Mali-G52 MC2 at about 65 % speed at
  * 2x, Mali-G68 MC4 (Exynos 1380) 25-30 % at 2x, Xclipse 530 40-60 % at 2x, Mali-G720 MC7, Adreno 825 and 830 at
- * 100 % at 2x and more.
+ * 100 % at 2x and more. Measured on devices (docs/device-lab-2026-10.md): Mali-G57 MC4 (RG Cube) 100 % at 1.5x on
+ * Vulkan, worst frame 25 ms; Adreno 650 (Retroid Pocket 5) 100 % at 2x with precise depth (worst 16 ms) and 56-63
+ * pictures a second with smooth motion (worst 30 ms of the 33 a game frame has).
  */
 object GpuProfiles {
     /** 0 very weak, 1 weak, 2 mid-range, 3 strong, 4 flagship. */
@@ -21,6 +23,7 @@ object GpuProfiles {
         val frameSkip: Int,     // skip pictures instead of slowing down
         val fxOffAdd: Int,      // PS2 effects switched off (bits: 16 distance blur, 32 movement blur)
         val filter: Int,        // screen filter: 0 bilinear
+        val lite: Boolean = false, // Lite mode (render thread, glow and glare at 0 and left out): weakChip
     )
 
     /** [family]: a regular expression over the lower-case name; [from]..[to]: its three-digit model number (0..0: any). */
@@ -47,6 +50,12 @@ object GpuProfiles {
         Rule("maleoon", 0, 0, 2),
     )
 
+    /** Models measured on a device that hold a higher resolution than their tier's (its other settings kept):
+     *  the lower-case name to the resolution in quarters. */
+    private val measured = listOf(
+        "mali-g57 mc4" to 6, // RG Cube: Vulkan 1.5x 100 %, worst frame 25 ms (2x: 87 %); OpenGL 2x 100 % but worst 30 ms
+    )
+
     /** A Mali model with few cores (MC1, MC2) is one tier lower than its family; one with many is one higher. */
     private fun maliCores(name: String): Int = Regex("""MC(\d+)|MP(\d+)""", RegexOption.IGNORE_CASE).find(name)
         ?.groupValues?.drop(1)?.firstOrNull { it.isNotEmpty() }?.toIntOrNull() ?: 0
@@ -70,15 +79,27 @@ object GpuProfiles {
         return -1
     }
 
+    /** The weakest GPUs measured (Mali-G52, a Mali-G57 with one or two cores, docs/lite-notes.md: a G52 MC1 at about
+     *  50 % at 1x) and the others of their tier but a Mali-G57 with more cores (the RG Cube's MC4 holds 1.5x):
+     *  Lite mode is offered to them, and Budokai Tenkaichi 4 warns that it will run slow. */
+    fun weakChip(gpu: String): Boolean {
+        if (tierOf(gpu) != 0) return false
+        val n = gpu.lowercase()
+        return !(Regex("mali-g57(?!\\d)").containsMatchIn(n) && maliCores(gpu) !in 1..2)
+    }
+
     fun profile(gpu: String): Profile? {
         val t = tierOf(gpu)
         return when (t) {
             0 -> Profile(gpu, 0, scale4 = 4, interp = 0, fragDepth = 0, frameSkip = 1, fxOffAdd = 16 or 32, filter = 0)
             1 -> Profile(gpu, 1, scale4 = 4, interp = 0, fragDepth = 0, frameSkip = 1, fxOffAdd = 32, filter = 0)
             2 -> Profile(gpu, 2, scale4 = 6, interp = 0, fragDepth = 0, frameSkip = 1, fxOffAdd = 0, filter = 0)
-            3 -> Profile(gpu, 3, scale4 = 8, interp = 0, fragDepth = 1, frameSkip = 1, fxOffAdd = 0, filter = 0)
+            3 -> Profile(gpu, 3, scale4 = 8, interp = 1, fragDepth = 1, frameSkip = 1, fxOffAdd = 0, filter = 0)
             4 -> Profile(gpu, 4, scale4 = 8, interp = 1, fragDepth = 1, frameSkip = 1, fxOffAdd = 0, filter = 0)
             else -> null
+        }?.let { p ->
+            val n = gpu.lowercase().replace(Regex("\\s+"), " ")
+            (measured.firstOrNull { n.contains(it.first) }?.let { p.copy(scale4 = it.second) } ?: p).copy(lite = weakChip(gpu))
         }
     }
 
@@ -91,6 +112,11 @@ object GpuProfiles {
         s.set(EngineSettings.FRAME_SKIP, p.frameSkip)
         s.set(EngineSettings.FX_OFF, s.get(EngineSettings.FX_OFF, 0) or p.fxOffAdd)
         s.set(EngineSettings.FILTER, p.filter)
+        if (p.lite) {
+            s.set(EngineSettings.LITE, 1)
+            s.set(EngineSettings.GLOW, 0)
+            s.set(EngineSettings.GLARE, 0)
+        }
         s.set(EngineSettings.GPU_TIER, p.tier)
     }
 }

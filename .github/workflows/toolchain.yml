@@ -6,7 +6,7 @@ name: toolchain
 on:
   push:
     branches: [main]
-    paths: [".github/workflows/toolchain.yml"]
+    paths: [".github/workflows/toolchain.yml", "port/third_party/sdl3-patches/**"]
   workflow_dispatch:
 
 permissions:
@@ -16,6 +16,7 @@ jobs:
   sysroot:
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@v4
       - name: Package the NDK sysroot
         run: |
           set -e
@@ -46,6 +47,8 @@ jobs:
           V=3.4.12
           curl -fsSL -o sdl.tar.gz https://github.com/libsdl-org/SDL/releases/download/release-$V/SDL3-$V.tar.gz
           tar -xzf sdl.tar.gz
+          # Dragon Rage's changes (port/third_party/sdl3-patches: the descriptor sets kept across pipeline binds)
+          for p in "$GITHUB_WORKSPACE"/port/third_party/sdl3-patches/*.patch; do patch -d SDL3-$V -p1 < "$p"; done
           cmake -S SDL3-$V -B sdl-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-29 \
             -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TEST_LIBRARY=OFF -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF \

@@ -14,6 +14,8 @@ extern "C" {
 /* The service, the official one for Android and Switch (the Tenkaichi3DecompAndroidOnline fork's Worker, running
    port/dragonnet: it takes several versions and keeps them apart). Another one: dragonnet_url.txt in the game folder,
    one line "https://...". */
+#define MATCH_LIMIT_TEXT "Server busy (daily limit), try again later." /* the lobby's error then (ui_dragonnet.inc words it) */
+int Match_ServiceLimited(void); /* a service answered HTTP 429 a moment ago: nothing is asked for now (net_match.c) */
 #define DRNET_URL_DEFAULT "https://mitigo-rooms.minetivacraft.workers.dev"
 
 int DrNet_Mode(void);          /* 0 Dragon Net (Android + Switch), 1 against PC (the PC port's service); setting "net_mode" */
@@ -35,7 +37,7 @@ int DrNet_Online(void);
 enum {
     DRMSG_NONE, DRMSG_SEARCHING, DRMSG_SEARCHING_LEVEL, DRMSG_FOUND, DRMSG_CONFIRMED, DRMSG_ENDED_NO_POINTS, DRMSG_WAIT_RIVAL,
     DRMSG_DISPUTED, DRMSG_VOID, DRMSG_NO_ANSWER, DRMSG_REGISTER_FAILED, DRMSG_PROFILE_FAILED, DRMSG_ROOM_FAILED,
-    DRMSG_FINISH_FIRST, DRMSG_VERSION, DRMSG_UPDATED, DRMSG_BUSY
+    DRMSG_FINISH_FIRST, DRMSG_VERSION, DRMSG_UPDATED, DRMSG_BUSY, DRMSG_LIMIT
 };
 
 typedef struct DrRanked {

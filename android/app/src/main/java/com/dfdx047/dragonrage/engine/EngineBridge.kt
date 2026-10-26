@@ -18,10 +18,15 @@ object EngineBridge {
     fun isAvailable(context: Context, game: Game = Game.BT3): Boolean =
         game == Game.BT2 && Bt2Engine.usable(context) != null || isPackaged(context, game)
 
+    /** The same by the engine's name (Game.engine: "bt4" is Budokai Tenkaichi 4's, libbt4.so). */
+    fun isAvailable(context: Context, library: String): Boolean = isPackaged(context, library)
+
     /** Whether [game]'s engine library is packaged in this APK. Looked up without loading it. */
-    fun isPackaged(context: Context, game: Game = Game.BT3): Boolean {
+    fun isPackaged(context: Context, game: Game = Game.BT3): Boolean = isPackaged(context, game.library)
+
+    private fun isPackaged(context: Context, library: String): Boolean {
         // (the class loader also finds libraries kept uncompressed inside the APK, which is the default)
         val loader = context.classLoader as? dalvik.system.BaseDexClassLoader ?: return false
-        return loader.findLibrary(game.library) != null
+        return loader.findLibrary(library) != null
     }
 }

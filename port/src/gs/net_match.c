@@ -200,6 +200,9 @@ static void set_state(int state, const char *error) {
     if ((int)(intptr_t)SDL_GetTLS(&sMine) != SDL_GetAtomicInt(&sM.gen)) {
         return;
     }
+    if (error != NULL && state < 0 && Match_ServiceLimited()) {
+        error = MATCH_LIMIT_TEXT; /* (whatever went wrong after it: the limit is why) */
+    }
     if (error != NULL && state < 0) {
         fprintf(stderr, "net: %s\n", error); /* (in the log, for a report about online play) */
     }
@@ -481,18 +484,123 @@ static int http_post_once(const char *base, const char *what, const char *json, 
     return got > 0;
 }
 
+/* The services' limits (HTTP 429: Cloudflare's daily requests of a free Worker, its error 1027, or a Worker's own
+   "busy"): after one, nothing more is asked of that service for a while, 30 s doubling to 10 minutes, and the
+   windows say why ({"error":"limit"} or {"error":"busy"} in place of an answer). Everything that asks a service
+   goes through here, so polling that keeps going (a room, the Ranked queue) stops asking with it; another service
+   (Dragon Net's server B, Ranked's) goes on. A good answer ends the pause. Also counted for the log: the requests
+   of each minute with any. */
+typedef struct { SDL_AtomicInt hash, until, wait, daily; } Limit; /* until: SDL_GetTicks() / 1000; wait: the last pause, s */
+static Limit sLimits[4];
+static SDL_AtomicInt sLimitNext, sAsked, sAskedAt;
+
+static int url_hash(const char *base) {
+    unsigned h = 2166136261u;
+    for (; *base != '\0'; base++) {
+        h = (h ^ (unsigned char)*base) * 16777619u;
+    }
+    return (int)(h | 1u); /* (never 0: an unused slot) */
+}
+
+static Limit *limit_of(const char *base, int make) {
+    int h = url_hash(base), i;
+    for (i = 0; i < 4; i++) {
+        if (SDL_GetAtomicInt(&sLimits[i].hash) == h) {
+            return &sLimits[i];
+        }
+    }
+    if (!make) {
+        return NULL;
+    }
+    i = SDL_AddAtomicInt(&sLimitNext, 1) & 3;
+    SDL_SetAtomicInt(&sLimits[i].wait, 0);
+    SDL_SetAtomicInt(&sLimits[i].until, 0);
+    SDL_SetAtomicInt(&sLimits[i].hash, h);
+    return &sLimits[i];
+}
+
+/* a service is in a daily-limit pause now (the lobby's words for its error) */
+int Match_ServiceLimited(void) {
+    int now = (int)(SDL_GetTicks() / 1000), i;
+    for (i = 0; i < 4; i++) {
+        if (SDL_GetAtomicInt(&sLimits[i].hash) != 0 && now < SDL_GetAtomicInt(&sLimits[i].until) && SDL_GetAtomicInt(&sLimits[i].daily)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int limit_before(const char *base, char *out, size_t size) {
+    int now = (int)(SDL_GetTicks() / 1000);
+    Limit *l = limit_of(base, 0);
+    if (l != NULL && now < SDL_GetAtomicInt(&l->until)) {
+        SDL_strlcpy(out, SDL_GetAtomicInt(&l->daily) ? "{\"error\":\"limit\",\"held\":1}" : "{\"error\":\"busy\",\"held\":1}", size);
+        return 1;
+    }
+    if (now - SDL_GetAtomicInt(&sAskedAt) >= 60) {
+        int n = SDL_SetAtomicInt(&sAsked, 0);
+        if (n > 0) {
+            fprintf(stderr, "net: %d requests to the online services in %d s\n", n, now - SDL_GetAtomicInt(&sAskedAt));
+        }
+        SDL_SetAtomicInt(&sAskedAt, now);
+    }
+    SDL_AddAtomicInt(&sAsked, 1);
+    return 0;
+}
+
+/* BT3_NET_TEST_429=1: every request answered as Cloudflare's 1027 would be, without asking (testing the pause) */
+static int limit_test(char *out, size_t size) {
+    if (getenv("BT3_NET_TEST_429") == NULL) { /* (the C library's: on Android SDL's copy predates bt3_env.txt) */
+        return 0;
+    }
+    SDL_strlcpy(out, "{\"error\":\"limit\",\"http\":429}", size);
+    return 1;
+}
+
+/* 1: the answer was a 429 (a failure for Dragon Net's switch to server B, as Cloudflare's own page always was) */
+static int limit_after(const char *base, const char *what, int ok, const char *out) {
+    if (ok && (SDL_strstr(out, "\"http\":429") != NULL || SDL_strstr(out, "error code: 1027") != NULL)) {
+        Limit *l = limit_of(base, 1);
+        int wait = SDL_GetAtomicInt(&l->wait);
+        wait = wait == 0 ? 30 : wait * 2 > 600 ? 600 : wait * 2;
+        SDL_SetAtomicInt(&l->wait, wait);
+        SDL_SetAtomicInt(&l->daily, SDL_strstr(out, "\"busy\"") == NULL);
+        SDL_SetAtomicInt(&l->until, (int)(SDL_GetTicks() / 1000) + wait);
+        fprintf(stderr, "net: %s: the service is over its limit (HTTP 429, %s): nothing asked of it for %d s\n", what,
+                SDL_strstr(out, "\"busy\"") != NULL ? "the Worker's own" : "its daily requests: Cloudflare 1027", wait);
+        if (SDL_GetAtomicInt(&l->daily)) { /* Dragon Net's server A out of its day: server B at once, not after three tries */
+            int k;
+            for (k = 0; k < DRNET_FAILS; k++) {
+                DrNet_NoteResult(base, 0);
+            }
+        }
+        return 1;
+    }
+    if (ok && out[0] == '{' && SDL_strstr(out, "\"error\"") == NULL) {
+        Limit *l = limit_of(base, 0);
+        if (l != NULL) {
+            SDL_SetAtomicInt(&l->wait, 0);
+        }
+    }
+    return 0;
+}
+
 static int http_post_to(const char *base, const char *what, const char *json, char *out, size_t size) {
-    int ok;
+    int ok, limited;
     if (base == NULL) {
         base = match_url();
     }
-    ok = http_post_once(base, what, json, out, size);
+    if (limit_before(base, out, size)) {
+        return 1;
+    }
+    ok = limit_test(out, size) || http_post_once(base, what, json, out, size);
+    limited = limit_after(base, what, ok, out);
     /* refused for the time it was signed for: the answer says the service's time; once more by that */
     if (ok && Sign_HasKey() && SDL_strstr(out, "\"build key\"") != NULL && SDL_strstr(out, "\"why\":\"time\"") != NULL && SDL_strstr(out, "\"now\":") != NULL) {
         clock_learn(out);
         ok = http_post_once(base, what, json, out, size);
     }
-    DrNet_NoteResult(base, ok && out[0] == '{');
+    DrNet_NoteResult(base, ok && out[0] == '{' && !limited);
     return ok;
 }
 
@@ -1195,7 +1303,13 @@ int Match_PostDragon(const char *what, const char *json, char *out, size_t size)
         return 0; /* chat e o resto: desligado */
     }
     SDL_snprintf(url, sizeof(url), "%s/v1/%s", base, what);
-    ok = http_post_native(url, json, NULL, out, size);
+    if (limit_before(base, out, size)) {
+        return 1;
+    }
+    ok = limit_test(out, size) || http_post_native(url, json, NULL, out, size);
+    if (limit_after(base, what, ok, out)) {
+        ok = presence ? 0 : ok; /* (server A out of its requests: a failure for the switch to B) */
+    }
     if (presence) {
         DrNet_NoteResult(base, ok && out[0] == '{');
     }
