@@ -410,7 +410,7 @@ class AppViewModel @JvmOverloads constructor(app: Application, val game: Game = 
                         ActivityLog.info("iso", "step: ${it.step} (${it.detail})")
                     }
                 }
-                val done = if (bt4 != null) bt4.install(uri, report) else installer.install(uri, report)
+                val done = if (bt4 != null) bt4.install(uri, report) else installer.install(uri, report = report)
                 if (done.game == Game.BT2) { // a BT2 image picked here goes to the BT2 tab (Bt2ViewModel)
                     _install.value = installer.currentState()
                     say(str(R.string.msg_bt2_installed_tab))
