@@ -133,3 +133,9 @@ second item is the one to pick.
    left or was disconnected, and the game goes back to the Online Mode screen.
 Needed: the line kept open after "Connected" (not closed by endWait), a drop detector on it, the Dueling menu's entries (find its pad/draw routines
 like the main menu's), the second pad, the exchange of buttons, the shared seed and choices at the start of a fight, the names under the bars.
+
+## Next after the Dueling menu works (user, 2026-10-26)
+- Pressing "1P VS 2P" opens the character selection of both players in real time, on a split screen. If either player has not yet taken the option in
+  the Dueling menu, the selection loads for the other one with "Aguardando Oponente" written at the bottom (each side waits, the line tells who has
+  pressed). Needs: a message "I pressed 1P VS 2P" over the line, the second pad (port 1) fed with the other phone's buttons, the exchange of buttons per
+  field once both are in, and the waiting text drawn over the selection (a picture, like the others).

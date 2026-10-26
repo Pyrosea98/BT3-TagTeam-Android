@@ -35,6 +35,9 @@ public:
     State state() const {return state_;}
     int roundTripMs() const {return rtt_;}               // smoothed, milliseconds; -1 before the first PONG
     bool peerAddress(std::string& out) const;            // where the other game answered from, once UP
+    bool peerLeft() const {return peerLeft_;}            // the other game said goodbye (a BYE packet)
+    int silentMs() const;                                // milliseconds since anything came from the other game (while UP)
+    void sayBye();                                       // tells the other game this one is leaving
     bool viaRelay() const {return remote_.relayed;}      // the line goes through the TURN server
     // The host's relay: `server` is "host:port", the login comes from the matchmaking service. Asked once the socket is open.
     void beginRelay(const std::string& server, const std::string& user, const std::string& credential) {relay_.begin(server, user, credential);}
@@ -56,6 +59,8 @@ private:
     std::vector<Candidate> candidates_;
     Candidate remote_;
     int rtt_ = -1;
+    bool peerLeft_ = false;
+    std::uint32_t heard_ = 0;
     Relay relay_;
     Stun stun_;
     std::uint32_t openedAt_ = 0;

@@ -11,7 +11,7 @@ while it runs (main_menu_item.cpp), so none of it is kept anywhere.
     python3 bt2/tools/menu_item/make_menu_item.py --fighter <full-length picture on white> [--out <folder>]
 
 Writes item_text.png, plate_text.png, online.png, ranked.png, rooms_create.png, rooms_join.png, rooms_quick.png, wait.png,
-soon.png and description.png into the folder (default:
+left.png, soon.png and description.png into the folder (default:
 android/app/src/main/assets/bt2/menu-item, which the app copies to <root>/bt2/user/menu-item at each start).
 Needs Pillow and numpy; the fonts below (any heavy italic face and a monospace one will do: --font-italic, --font-mono).
 """
@@ -264,6 +264,17 @@ def soon(label):
     return im
 
 
+def left():
+    """The whole frame black with the message of an opponent who left or was lost (shown for a moment, then back to the Online screen)."""
+    im = Image.new("RGBA", (640, 448), (0, 0, 0, 255))
+    d = ImageDraw.Draw(im)
+    f = face(FONT_SANS, 30, name="Bold")
+    g = face(FONT_SANS, 22, name="Regular")
+    for text, font, y in (("O oponente saiu ou foi desconectado.", f, 190), ("Voltando ao Modo Online…", g, 240)):
+        d.text(((640 - d.textlength(text, font=font)) / 2, y), text, font=font, fill=(255, 255, 255, 255))
+    return im
+
+
 def description():
     """The menu's message window, with the item's line: the window's own lines are about 42.6 screen pixels a letter."""
     W, H = 1090, 120
@@ -367,6 +378,8 @@ def main():
         # the app is making the connection: the background alone, the app puts what it knows (code, search, opponent) over it
         "wait": screen(0, bg, [], hint, window=False),
         "soon": soon(lettering("Em breve!")),
+        "left": left(),
+        "shade": Image.new("RGBA", (16, 16), (0, 0, 0, 255)),  # dims the entries of Dueling's menu that are not open while an opponent is connected
         "description": description(),
     }
     for key, im in pictures.items():

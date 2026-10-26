@@ -79,7 +79,7 @@ void returnTo(Guest& g,std::uint32_t ra) {
     H->ret(g.runtime,g.c,ra,g.self);
 }
 
-constexpr int slot_init=0,slot_menu_mode=1,slot_guides=2,slot_moved=3,slot_pad=4,slot_draw=5,slot_frame_pad=6; // (the engine's names for what it replaced)
+constexpr int slot_init=0,slot_menu_mode=1,slot_guides=2,slot_moved=3,slot_pad=4,slot_draw=5,slot_frame_pad=6,slot_pad_connected=7; // (the engine's names for what it replaced)
 std::uint32_t plate_entry=0; // the texture entry of the third sheet of plates, given 256 lines
 
 // The third sheet of plates (512 x 128: items 8 and 9) is drawn as 512 x 256, so a third row (lines 128 to 191)
@@ -208,6 +208,20 @@ std::atomic<bool> cover_menu_seen{false};
 // The mode the game goes to when the line is up (0: back to the three ways in). For finding the way to the two-player versus: the file
 // online_mode_test of the user folder holds a mode number (29 to 34 are Dueling's), read at that moment so it can be changed between tries.
 std::uint32_t go_to_mode=0,auto_pick=0;
+// A match: the line stays open from the moment the opponent is found. In the Dueling menu (duel_lock) the player can only take "1P VS 2P"
+// (down once, then cross), or leave with triangle; when the opponent leaves or is lost the screen goes black with a message and the game
+// goes back, by triangles, to the main menu mode, where the Online screen opens again (screen_next).
+bool session=false,duel_lock=false,returning=false,down_sent=false,transition_mute=false;
+std::uint32_t mute_frames=0;
+std::uint32_t mode_frames=0,return_frames=0;
+std::atomic<int> left_cover{0};
+constexpr std::uint32_t duel_mode=30;
+// Dueling's menu (found by comparing the memory with the cursor in other places): its state is the structure the word at 0x42BB84 points to, the cursor
+// at +0xF4 (0 1P VS COM, 1 1P VS 2P, 2 COM VS COM, 3 Battle Settings); 0x41B648 tells the menu the cursor moved. "1P VS 2P" is dimmed by the game
+// (init 0x41A988, draw 0x41AE58) and refused (pad 0x41B7D8) while func 0x28C4B8(1) says the second controller is not there: with an opponent connected
+// the answer is "there" (padConnected), and the three other entries are dimmed over the frame (pluginOverlay).
+constexpr std::uint32_t duel_state_pointer=0x42BB84,duel_moved=0x41B648,pad_connected=0x28C4B8;
+std::atomic<bool> dim_others{false};
 std::uint32_t modeToTry() {
     std::ifstream in(onlinePath("online_mode_test"),std::ios::binary);
     int n=0;
@@ -227,8 +241,8 @@ void relayStep() {
     }
 }
 // A way in is over (given up, or the opponent has been shown): the line closes and the app's files go.
-void endWait() {
-    link.close();
+void endWait(bool keep_link=false) {
+    if(!keep_link)link.close();
     screen.wait=0;screen.found=0;screen.linking=0;screen.failed=0;
     for(const char* name:{"online_peer","online_back","online_local","online_link","online_turn","online_relay","online_nat"})onlineFile(name,true);
     relayPublished=false;localWritten=true;
@@ -261,9 +275,10 @@ void screenLoop(Guest& g) {
             if(screen.found) {
                 if(loop_frame%30==0)writeLinkFile();
                 if(--screen.found==0) {
-                    const std::uint32_t mode=modeToTry();
-                    endWait(); // (the match itself comes next: for now, back to the three ways in, or the mode being tried)
-                    if(mode) {go_to_mode=mode;screen.leaving=true;effect(1);g.call(leave_fade,{0,0,0});}
+                    const std::uint32_t mode=modeToTry()?modeToTry():duel_mode; // (the file online_mode_test tries another mode)
+                    endWait(true); // the line stays: the match is on
+                    go_to_mode=mode;screen.leaving=true;effect(1);g.call(leave_fade,{0,0,0});
+                    session=true;duel_lock=mode==duel_mode;down_sent=false;mode_frames=0;
                 }
             } else if(pressed&0x3000 || onlineFile("online_back",true)) {endWait();effect(2);} // triangle, circle, or the app: given up
             else if(screen.failed) {
@@ -302,7 +317,8 @@ void screenLoop(Guest& g) {
         }
     }
     music.stop();
-    H->set_stream_percent(music_volume);
+    if(go_to_mode)transition_mute=true; // the sound stays off while the game goes on to the next mode; framePad gives it back when that mode shows
+    else H->set_stream_percent(music_volume);
     screen={};
     online_state.store(0,std::memory_order_relaxed);
 }
@@ -335,8 +351,90 @@ void startWalk() {
     walk_at=0;walk_wait=walk_steps[0].wait;walking=true;
     std::fprintf(stderr,"Online Mode: the walk through the menus starts (%zu presses)\n",walk_steps.size());
 }
+// The match is over from this side (the player left, or the opponent was lost): the line closes and the game goes back to the Online screen.
+void leaveSession(bool opponent_gone) {
+    if(!session)return;
+    if(!opponent_gone)link.sayBye();
+    link.close();
+    session=false;duel_lock=false;
+    if(opponent_gone)left_cover.store(200);
+    returning=true;return_frames=0;screen_next=true;
+    std::fprintf(stderr,"Online Mode: the match ends (%s)\n",opponent_gone?"the opponent left or was lost":"the player left");
+}
+
+// For finding where a menu keeps its state (development only): while the file online_dump is in the user folder, the game's whole memory goes to
+// dump_<n>.bin there, one per touch of the file (compare the dumps with the cursor in other places).
+void dumpMemory(std::uint8_t* rdram) {
+    static unsigned count=0,frame=0;
+    if(++frame%15!=0 || !onlineFile("online_dump",true))return;
+    const std::string path=onlinePath(("dump_"+std::to_string(count++)+".bin").c_str());
+    std::ofstream out(path,std::ios::binary);
+    out.write(reinterpret_cast<const char*>(rdram),0x2000000);
+    std::fprintf(stderr,"Online Mode: memory dump to %s\n",path.c_str());
+}
+
+// Development only: online_press holds a button name (up, down, cross...); the game gets it held for one field, as if the player pressed it.
+std::uint32_t press_bits=0;
+void pressFromFile(std::uint8_t* rdram) {
+    static unsigned frame=0;
+    if(++frame%15==7) {
+        std::ifstream in(onlinePath("online_press"));
+        std::string name;
+        if(in && (in>>name)) {press_bits=buttonBits(name);onlineFile("online_press",true);}
+    }
+    if(press_bits) {write32(rdram,pad+0x144,read32(rdram,pad+0x144)|press_bits);press_bits=0;}
+}
+
 void framePad(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
     H->call_original(runtime,c,slot_frame_pad);
+    dumpMemory(rdram);
+    pressFromFile(rdram);
+    const std::uint32_t progress=read32(rdram,progress_pointer);
+    const std::uint32_t mode=progress?read32(rdram,progress+0x1C):0;
+    if(session) {
+        link.poll();
+        if(link.state()!=Link::Up || link.peerLeft() || link.silentMs()>6000)leaveSession(true);
+    }
+    if(transition_mute) { // silent from "connected" until the Dueling menu has been on for a moment (or 15 seconds at most)
+        ++mute_frames;
+        if((mode==duel_mode && mode_frames>=45) || mute_frames>900 || !session) {
+            transition_mute=false;mute_frames=0;
+            H->set_stream_percent(music_volume);
+        }
+    }
+    if(session && duel_lock) {
+        std::uint32_t held=read32(rdram,pad+0x144),pressed=read32(rdram,pad+0x134);
+        if(mode==duel_mode)++mode_frames;
+        const std::uint32_t state=read32(rdram,duel_state_pointer);
+        const bool menu_ready=mode==duel_mode && mode_frames>=60 && state>0x100000 && state<0x1FFFF00;
+        dim_others.store(menu_ready,std::memory_order_relaxed);
+        if(menu_ready && read32(rdram,state+0xF4)!=1) { // the cursor goes to "1P VS 2P" and the menu is told
+            write32(rdram,state+0xF4,1);
+            const R5900Context saved=*c;
+            Guest g{rdram,c,runtime,frame_pad};
+            g.call(duel_moved);
+            *c=saved;
+        }
+        if(pressed&0x1000 && mode_frames>20) {dim_others.store(false);leaveSession(false);} // triangle: the game's own way back to the main menu, and the line closes
+        else {
+            // only "1P VS 2P" can be taken: nothing moves the cursor, and cross works only on it
+            std::uint32_t allowed=0x1000;
+            if(menu_ready && read32(rdram,state+0xF4)==1)allowed|=0x4000;
+            held&=allowed;pressed&=allowed;
+            if(pressed&0x4000){duel_lock=false;dim_others.store(false);} // taken: the screens after it are the player's
+            write32(rdram,pad+0x144,held);write32(rdram,pad+0x134,pressed);
+        }
+    }
+    if(returning) { // triangle every twenty fields until the game is at the main menu's mode (where the Online screen opens: screen_next)
+        if(mode==main_menu_mode || return_frames>900)returning=false;
+        else {
+            if(return_frames%20==10) {
+                write32(rdram,pad+0x144,read32(rdram,pad+0x144)|0x1000);
+                write32(rdram,pad+0x134,read32(rdram,pad+0x134)|0x1000);
+            }
+            ++return_frames;
+        }
+    }
     if(!walking)return;
     if(walk_wait>0){--walk_wait;return;}
     const std::uint32_t bits=walk_steps[walk_at].bits;
@@ -344,6 +442,18 @@ void framePad(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
     write32(rdram,pad+0x134,read32(rdram,pad+0x134)|bits);
     if(++walk_at>=walk_steps.size()){walking=false;std::fprintf(stderr,"Online Mode: the walk is over\n");}
     else walk_wait=walk_steps[walk_at].wait;
+}
+
+// The game asks whether a controller port is unplugged (1 = yes). With an opponent connected, port 1 (the second player) is plugged.
+void padConnected(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
+    const std::uint32_t ra=static_cast<std::uint32_t>(c->r[31].low);
+    if(session && static_cast<std::uint32_t>(c->r[4].low)==1) {
+        setRegister(c,2,0);
+        Guest g{rdram,c,runtime,pad_connected};
+        returnTo(g,ra);
+        return;
+    }
+    H->call_original(runtime,c,slot_pad_connected);
 }
 
 void menuMode(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
@@ -469,10 +579,10 @@ void drawMenu(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
 // the menu's description of the item. The plate itself is the game's own Dueling plate, made into this one while the menu
 // is set up (buildPlate), so no picture of the game's is kept anywhere. The two sheets they go into are known by the
 // FNV-1a hash of their first 128 lines as the renderer decodes them (the USA disc's).
-enum Slot {online_picture,ranked_picture,soon_picture,description_picture,create_picture,join_picture,quick_picture,wait_picture,pictures};
+enum Slot {online_picture,ranked_picture,soon_picture,description_picture,create_picture,join_picture,quick_picture,wait_picture,left_picture,shade_picture,pictures};
 struct Picture {std::uint32_t w=0,h=0;std::vector<std::uint8_t> rgba;};
 std::array<Picture,pictures> picture;
-constexpr std::array<const char*,pictures> picture_names{"online","ranked","soon","description","rooms_create","rooms_join","rooms_quick","wait"};
+constexpr std::array<const char*,pictures> picture_names{"online","ranked","soon","description","rooms_create","rooms_join","rooms_quick","wait","left","shade"};
 Picture name_picture,plate_word;
 std::vector<std::uint8_t> plate_row; // the plate: 512 x 64 RGBA
 constexpr std::uint64_t names_sheet_hash=0x838260d6bb66161aull,plates_sheet_hash=0x9cb5f2297eb6c82eull;
@@ -603,6 +713,11 @@ static void pluginOverlay(std::uint64_t dispfb,std::uint64_t display) {
         else if(cover_menu_seen.load())cover.store(0);
         if(cover.load()>0) {cover.fetch_sub(1);draw(wait_picture,0,0,float(width),float(height),128);}
     }
+    if(dim_others.load(std::memory_order_relaxed)) { // the three other entries of Dueling's menu dimmed (the rows are where the menu draws them: measured on the frame)
+        const float rows[3]={0.217f,0.398f,0.48f};
+        for(const float y:rows)draw(shade_picture,0.03f*float(width),(y-0.04f)*float(height),0.60f*float(width),(y+0.04f)*float(height),78);
+    }
+    if(left_cover.load()>0) {left_cover.fetch_sub(1);draw(left_picture,0,0,float(width),float(height),128);} // (the opponent left: black, with the message)
 }
 
 static int pluginArtSwap(unsigned char* rgba,int w,int h) {
@@ -633,7 +748,11 @@ extern "C" __attribute__((visibility("default"))) const Bt2Plugin* bt2_plugin_in
     const std::string folder=host->pictures_dir;
     name_picture=loadPicture(folder+"/item_text.png");
     plate_word=loadPicture(folder+"/plate_text.png");
-    for(std::size_t k=0;k<pictures;++k)picture[k]=loadPicture(folder+"/"+picture_names[k]+".png");
+    for(std::size_t k=0;k<pictures;++k) {
+        picture[k]=loadPicture(folder+"/"+picture_names[k]+".png");
+        // (a picture not in the APK yet: the folder "extra" of the user folder, which the app leaves alone, for tries)
+        if(picture[k].rgba.empty())picture[k]=loadPicture(std::string(H->online_dir?H->online_dir:"")+"/extra/"+picture_names[k]+".png");
+    }
     if(name_picture.w!=512 || name_picture.h!=64 || plate_word.w!=512 || plate_word.h!=64) {
         std::fprintf(stderr,"Main menu item: no pictures in %s, the menu stays the game's\n",folder.c_str());
         return nullptr;
@@ -646,6 +765,7 @@ extern "C" __attribute__((visibility("default"))) const Bt2Plugin* bt2_plugin_in
     H->hook(draw_menu,drawMenu,slot_draw);
     H->hook(menu_mode,menuMode,slot_menu_mode);
     H->hook(frame_pad,framePad,slot_frame_pad);
+    H->hook(pad_connected,padConnected,slot_pad_connected);
     disc_image=host->disc_image;
     H->set_music_mix(pluginMix);
     std::fprintf(stderr,"Main menu item: Online Mode, the main menu's eleventh item\n");

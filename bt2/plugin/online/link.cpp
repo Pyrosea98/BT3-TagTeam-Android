@@ -15,7 +15,7 @@
 namespace {
 constexpr std::uint32_t magic = 0x4E325442; // "BT2N"
 constexpr std::uint8_t version = 1;
-enum Type : std::uint8_t {hello = 1, hello_ack = 2, ping = 3, pong = 4};
+enum Type : std::uint8_t {hello = 1, hello_ack = 2, ping = 3, pong = 4, bye = 5};
 constexpr std::size_t packet_size = 20;
 constexpr std::uint32_t hello_every = 100, ping_every = 500, give_up_after = 15000;
 
@@ -60,6 +60,7 @@ bool Link::open() {
     }
     state_ = Open;
     rtt_ = -1;
+    peerLeft_ = false;
     openedAt_ = now();
     stun_.begin();
     return true;
@@ -105,6 +106,7 @@ void Link::start(const std::string& code, const std::vector<std::string>& addres
         relay_.permit(socket_, ip.s_addr);
     }
     started_ = now();
+    heard_ = started_;
     lastHello_ = started_ - hello_every;
     lastPing_ = 0;
     number_ = 0;
@@ -136,6 +138,13 @@ bool Link::peerAddress(std::string& out) const {
     if (!::inet_ntop(AF_INET, &ip, text, sizeof text)) return false;
     out = std::string(text) + ":" + std::to_string(remote_.port);
     return true;
+}
+
+int Link::silentMs() const {return state_ == Up ? static_cast<int>(now() - heard_) : 0;}
+
+void Link::sayBye() {
+    if (state_ != Up) return;
+    for (int i = 0; i < 3; ++i) send(bye, ++number_, 0, remote_);   // (three, in case one is lost)
 }
 
 void Link::poll() {
@@ -177,6 +186,7 @@ void Link::poll() {
         }
         if (state_ != Linking && state_ != Up) continue;
         if (got < static_cast<ssize_t>(packet_size) || get32(p) != magic || p[4] != version || get32(p + 8) != session_) continue;
+        heard_ = t;
         const std::uint32_t echo = get32(p + 16);
         switch (p[5]) {
         case hello:
@@ -196,6 +206,9 @@ void Link::poll() {
             if (sample >= 0 && sample < 10000) rtt_ = rtt_ < 0 ? sample : (rtt_ * 3 + sample) / 4;
             break;
         }
+        case bye:
+            peerLeft_ = true;
+            break;
         default:
             break;
         }
