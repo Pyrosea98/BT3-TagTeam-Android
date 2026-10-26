@@ -110,18 +110,32 @@ def verify_extra():
     return addresses
 
 
+def overlay_image_hash(image):
+    """64-bit FNV-1a, the value runtime/ee/overlay_image.h computes over the file read from the disc."""
+    value = 0xcbf29ce484222325
+    for byte in image:
+        value = ((value ^ byte) * 0x100000001b3) & 0xFFFFFFFFFFFFFFFF
+    return value
+
+
 def render_overlays(selection, interior=None):
     """Overlay bindings: each selected function is registered with the bytes it was generated from,
     then its interior entries (`interior`: program -> [(label, owner)], read from the generated
-    sources when not given), which are checked against the bytes of their owner."""
+    sources when not given), which are checked against the bytes of their owner. The bytes are not in
+    the header: it carries each program's size and hash, and the runtime reads the program's file from
+    the player's disc image when it registers (runtime/ee/overlay_image.h), refusing a different file."""
     if interior is None:
         interior = {program: interior_entries(overlay_programs.paths(program)['output'], [row['start'] for row in functions])
                     for program, functions in selection.items()}
     cmake = 'target_sources(bt2-entry-probe PRIVATE\n'
-    declarations, tables, registrations = [], [], []
+    declarations, loads, registrations = [], [], []
     for program, functions in sorted(selection.items()):
         image, _ = overlay_programs.load(program)
-        base = overlay_programs.PROGRAMS[program]['base']
+        info = overlay_programs.PROGRAMS[program]
+        base = info['base']
+        disc_path = '\\\\' + info['directory'].decode() + '\\\\' + info['filename'].decode() # C++ source: "\\BIN\\DBZP.BIN;1"
+        loads.append(f'    const OverlayImage overlay_image_{program} = loadOverlayImage(runtime.local_disc_path, "{disc_path}", '
+                     f'0x{base:X}, {len(image)}, 0x{overlay_image_hash(image):016X}ull);\n')
         for row in functions:
             start, end = row['start'], row['end']
             if not base <= start < end <= base + len(image):
@@ -129,13 +143,12 @@ def render_overlays(selection, interior=None):
             name = f'FUN_{start:08X}_0x{start:x}'
             cmake += f'    "${{BT2_GENERATED_DIR}}/../{program}-runtime/{name}.cpp"\n'
             declarations.append(f'void {name}(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime);\n')
-            body = ','.join(map(str, image[start - base:end - base]))
-            tables.append(f'inline constexpr std::uint8_t bt2_overlay_{start:08X}[] = {{{body}}};\n')
-            registrations.append(f'    runtime.registerOverlayFunction(0x{start:08X}, {name}, bt2_overlay_{start:08X});\n')
+            registrations.append(f'    runtime.registerOverlayFunction(0x{start:08X}, {name}, '
+                                 f'overlay_image_{program}.code(0x{start:08X}, 0x{end:08X}));\n')
         registrations += [f'    runtime.registerInteriorEntry(0x{label:08X}, FUN_{owner:08X}_0x{owner:x}, 0x{owner:08X});\n'
                           for label, owner in interior.get(program, ())]
-    header = ('#pragma once\n#include <cstdint>\n' + ''.join(declarations) + ''.join(tables)
-              + 'inline void registerOverlays(EeRuntime& runtime) {\n' + ''.join(registrations) + '}\n')
+    header = ('#pragma once\n#include <cstdint>\n#include "ee/overlay_image.h"\n' + ''.join(declarations)
+              + 'inline void registerOverlays(EeRuntime& runtime) {\n' + ''.join(loads) + ''.join(registrations) + '}\n')
     return cmake + ')\n', header
 
 
