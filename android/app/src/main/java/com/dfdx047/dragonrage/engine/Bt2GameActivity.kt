@@ -68,6 +68,7 @@ class Bt2GameActivity : GameActivity() {
         super.onResume()
         applyOutputScale(Bt2Settings(paths).load().outputScale)
         refreshPerfOverlay()
+        (SDLActivity.getContentView() as? ViewGroup)?.let { online.start(it) }
         // The whole screen for the game: the status and navigation bars come back with a swipe.
         WindowCompat.getInsetsController(window, window.decorView).apply {
             hide(WindowInsetsCompat.Type.systemBars())
@@ -96,8 +97,12 @@ class Bt2GameActivity : GameActivity() {
 
     override fun onPause() {
         perf.hide()
+        online.stop()
         super.onPause()
     }
+
+    /** What the app puts over the Online Mode screens: the player's online name (Bt2OnlineOverlay). */
+    private val online by lazy { Bt2OnlineOverlay(this, paths) }
 
     /** The performance panel (Bt2PerfOverlay) as the setting has it: the BT2 tab's or the in-game menu's switch. */
     private val perf by lazy { Bt2PerfOverlay(this) }

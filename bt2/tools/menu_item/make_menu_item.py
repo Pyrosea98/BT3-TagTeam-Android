@@ -10,7 +10,8 @@ while it runs (main_menu_item.cpp), so none of it is kept anywhere.
     python3 bt2/tools/menu_item/make_menu_item.py --bust <fighter bust.png> [--out <folder>]
     python3 bt2/tools/menu_item/make_menu_item.py --fighter <full-length picture on white> [--out <folder>]
 
-Writes item_text.png, plate_text.png, online.png, ranked.png, soon.png and description.png into the folder (default:
+Writes item_text.png, plate_text.png, online.png, ranked.png, rooms_create.png, rooms_join.png, rooms_quick.png, wait.png,
+soon.png and description.png into the folder (default:
 android/app/src/main/assets/bt2/menu-item, which the app copies to <root>/bt2/user/menu-item at each start).
 Needs Pillow and numpy; the fonts below (any heavy italic face and a monospace one will do: --font-italic, --font-mono).
 """
@@ -217,14 +218,17 @@ def add_fighter(bg, bust):
 
 DESCRIPTIONS = [("Lute contra outros jogadores pela internet.", "Salas com código e partidas rápidas."),
                 ("Partidas que valem pontos no ranking.", "Suba de posição e mostre a sua força!")]
+ROOM_DESCRIPTIONS = [("Crie uma sala e passe o código", "para um amigo entrar."),
+                     ("Digite o código da sala de um", "amigo para jogar com ele."),
+                     ("Procure um oponente online que", "tenha o jogo na mesma versão.")]
 
 
-def screen(choice, bg, labels, hint):
+def screen(choice, bg, labels, hint, descriptions=DESCRIPTIONS, top=200, step=110, window=True):
     im = bg.copy()
     W, H = SCREEN
     bar = pill(600, 84, True)
     for i, lab in enumerate(labels):
-        y = 200 + i * 110
+        y = top + i * step
         text = trimmed(lab)
         text = text.resize((int(text.width * 1.5), int(text.height * 1.5)), Image.LANCZOS)
         if i == choice:
@@ -235,13 +239,14 @@ def screen(choice, bg, labels, hint):
             im.alpha_composite(p)
             text.putalpha(text.split()[3].point(lambda v: int(v * 0.8)))
         im.alpha_composite(text, (80, y + 6 + (84 - text.height) // 2 - 6))
-    win = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    ImageDraw.Draw(win).rounded_rectangle([40, 520, 700, 640], radius=18, fill=(40, 20, 90, 215), outline=(200, 190, 255, 255), width=3)
-    im.alpha_composite(win)
-    d = ImageDraw.Draw(im)
-    f = face(FONT_SANS, 30, name="Bold")
-    d.text((66, 540), DESCRIPTIONS[choice][0], font=f, fill=(255, 255, 255, 255))
-    d.text((66, 584), DESCRIPTIONS[choice][1], font=f, fill=(210, 210, 240, 255))
+    if window:
+        win = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        ImageDraw.Draw(win).rounded_rectangle([40, 520, 700, 640], radius=18, fill=(40, 20, 90, 215), outline=(200, 190, 255, 255), width=3)
+        im.alpha_composite(win)
+        d = ImageDraw.Draw(im)
+        f = face(FONT_SANS, 30, name="Bold")
+        d.text((66, 540), descriptions[choice][0], font=f, fill=(255, 255, 255, 255))
+        d.text((66, 584), descriptions[choice][1], font=f, fill=(210, 210, 240, 255))
     im.alpha_composite(hint, (W - hint.width - 30, H - hint.height - 18))
     return im
 
@@ -346,6 +351,7 @@ def main():
 
     name = lettering("Online Mode")
     labels = [lettering("Online"), lettering("Ranqueado")]
+    rooms = [lettering("Criar Sala"), lettering("Entrar em Sala"), lettering("Partida Rápida")]
     bg = background(name)
     add_fighter(bg, bust)
     hint = hints()
@@ -354,6 +360,12 @@ def main():
         "plate_text": lettering("Online Mode", scale=0.75, origin=(36, 9)),        # its word on the plate (a row of the sheet of plates)
         "online": screen(0, bg, labels, hint),
         "ranked": screen(1, bg, labels, hint),
+        # Online chosen: the three ways in (create a room, join one by its code, find an opponent)
+        "rooms_create": screen(0, bg, rooms, hint, ROOM_DESCRIPTIONS, top=150, step=100),
+        "rooms_join": screen(1, bg, rooms, hint, ROOM_DESCRIPTIONS, top=150, step=100),
+        "rooms_quick": screen(2, bg, rooms, hint, ROOM_DESCRIPTIONS, top=150, step=100),
+        # the app is making the connection: the background alone, the app puts what it knows (code, search, opponent) over it
+        "wait": screen(0, bg, [], hint, window=False),
         "soon": soon(lettering("Em breve!")),
         "description": description(),
     }

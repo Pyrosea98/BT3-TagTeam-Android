@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <initializer_list>
@@ -134,8 +135,14 @@ void guidesMenu(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
 // (set up anew, the cursor on Online Mode). On the screen: Online or Ranked with up and down, cross shows that it is
 // coming soon, triangle or circle goes back. Its pictures are drawn at the flip (overlay below), the opening's
 // music under it (opening_music.h).
-struct Screen {bool open=false,soon=false,leaving=false;std::uint32_t choice=0;int fade=0;};
+// page 0: Online or Ranked; page 1 (Online chosen): Create room, Join room, Quick match. The app reads which page is open
+// (Bt2MenuItem_OnlineState, in the engine's running counts) to show its own pieces over the game: the player's name,
+// the room code, the search. Everything that talks to the network is the app's.
+// wait: 0, or 1 + the way in chosen (create a room, join one, quick match) while the app works on it: the engine only draws
+// its background and watches for the app's word that someone is there (the file <online dir>/online_peer, the opponent's name).
+struct Screen {bool open=false,soon=false,leaving=false;std::uint32_t choice=0;int fade=0;int page=0;int wait=0;int found=0;};
 Screen screen;
+std::atomic<int> online_state{0}; // 0 closed, 1 + page while a page is open
 bool screen_next=false; // the menu was left for the screen
 std::uint32_t flips=0,menu_drawn=~0u,menu_item=0; // the menu drawn in this frame (its flip number), its item
 std::atomic<bool> menu_active{false}; // the main menu drawn this frame or the last (the renderer's thread reads it)
@@ -150,9 +157,20 @@ constexpr std::uint32_t frame_draw=0x2A0800,frame_fade_draw=0x2437E8,frame_end=0
 constexpr std::uint32_t paused=0x243BC0,pause_a=0x101890,pause_b=0x101498;
 PS2Runtime::RecompiledFunction original_menu_mode=nullptr;
 
+// The app's words, files in <BT2_ONLINE_DIR>: online_peer (an opponent is there: his name), online_back (go back to the three
+// ways in). `clear`: removes the file; else tells whether it is there.
+bool onlineFile(const char* name,bool clear) {
+    const char* dir=std::getenv("BT2_ONLINE_DIR");
+    if(!dir)return false;
+    const std::string path=std::string(dir)+"/"+name;
+    std::error_code error;
+    if(clear)return std::filesystem::remove(path,error);
+    return std::filesystem::exists(path,error);
+}
+
 void screenLoop(Guest& g) {
     const std::function<void(std::uint32_t)> effect=[&](std::uint32_t which) {g.call(sound,{0,which,0x40,0x40,1});};
-    screen={true,false,false,0,0};
+    screen={true,false,false,0,0,0,0,0};
     music_volume=ee->audio_mixer.stream_percent;ee->audio_mixer.stream_percent=0; // (the menu's music stays silent)
     music.start(disc_image);
     g.call(fade_in,{0,0,0});
@@ -161,22 +179,36 @@ void screenLoop(Guest& g) {
         if(g.call(paused)) {g.call(pause_a);g.call(pause_b);continue;}
         if(g.call(faded_out))break;
         screen.fade=std::clamp(screen.fade+(screen.leaving?-9:9),0,128);
+        online_state.store(screen.leaving?0:screen.found?14:screen.wait?10+screen.wait:1+screen.page,std::memory_order_relaxed);
         if(screen.leaving)continue;
         const std::uint32_t held=read32(g.rdram,pad+0x144),pressed=read32(g.rdram,pad+0x134);
-        if(screen.soon) {
+        if(screen.wait) { // the app is making the connection
+            if(screen.found) {
+                if(--screen.found==0) {screen.wait=0;onlineFile("online_peer",true);} // (the match itself comes next: for now, back to the three ways in)
+            } else if(pressed&0x3000 || onlineFile("online_back",true)) {screen.wait=0;onlineFile("online_peer",true);effect(2);} // triangle, circle, or the app: given up
+            else if((screen.fade&15)==0 && onlineFile("online_peer",false)) {screen.found=300;effect(1);}
+        } else if(screen.soon) {
             if(pressed&0x7000){screen.soon=false;effect(2);} // cross, circle or triangle: the message closes
-        } else if(held&0x50) {
-            screen.choice^=1;effect(0);
-        } else if(pressed&0x4000) {
-            screen.soon=true;effect(1);
-        } else if(pressed&0x3000) { // triangle, circle: back to the menu
-            screen.leaving=true;effect(2);
-            g.call(leave_fade,{0,0,0});
+        } else if(held&0x50) { // up, down: the list turns
+            const std::uint32_t n=screen.page?3u:2u;
+            screen.choice=(screen.choice+(held&0x10?n-1:1))%n;effect(0);
+        } else if(pressed&0x4000) { // cross
+            if(screen.page==0 && screen.choice==0) {screen.page=1;screen.choice=0;} // Online: the three ways in
+            else if(screen.page==1) {screen.wait=1+int(screen.choice);onlineFile("online_peer",true);onlineFile("online_back",true);} // create, join, quick: the app takes it
+            else screen.soon=true; // (Ranked: coming soon)
+            effect(1);
+        } else if(pressed&0x3000) { // triangle, circle
+            if(screen.page==1) {screen.page=0;screen.choice=0;effect(2);} // back to Online / Ranked
+            else {
+                screen.leaving=true;effect(2); // back to the menu
+                g.call(leave_fade,{0,0,0});
+            }
         }
     }
     music.stop();
     ee->audio_mixer.stream_percent=music_volume;
     screen={};
+    online_state.store(0,std::memory_order_relaxed);
 }
 
 void menuMode(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
@@ -292,10 +324,10 @@ void drawMenu(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
 // the menu's description of the item. The plate itself is the game's own Dueling plate, made into this one while the menu
 // is set up (buildPlate), so no picture of the game's is kept anywhere. The two sheets they go into are known by the
 // FNV-1a hash of their first 128 lines as the renderer decodes them (the USA disc's).
-enum Slot {online_picture,ranked_picture,soon_picture,description_picture,pictures};
+enum Slot {online_picture,ranked_picture,soon_picture,description_picture,create_picture,join_picture,quick_picture,wait_picture,pictures};
 struct Picture {std::uint32_t w=0,h=0;std::vector<std::uint8_t> rgba;};
 std::array<Picture,pictures> picture;
-constexpr std::array<const char*,pictures> picture_names{"online","ranked","soon","description"};
+constexpr std::array<const char*,pictures> picture_names{"online","ranked","soon","description","rooms_create","rooms_join","rooms_quick","wait"};
 Picture name_picture,plate_word;
 std::vector<std::uint8_t> plate_row; // the plate: 512 x 64 RGBA
 constexpr std::uint64_t names_sheet_hash=0x838260d6bb66161aull,plates_sheet_hash=0x9cb5f2297eb6c82eull;
@@ -387,6 +419,8 @@ extern "C" std::uint32_t* Bt2MenuItem_Pixels(std::uint32_t slot,std::uint32_t* v
     *version=1;*w=picture[slot].w;*h=picture[slot].h;
     return px;
 }
+// Which page of the Online Mode screen is open (0 none), for the app's pieces over the game (android_main.cpp: the engine's counts).
+extern "C" int Bt2MenuItem_OnlineState() {return online_state.load(std::memory_order_relaxed);}
 extern "C" std::uint32_t Bt2MenuItem_Version(std::uint32_t slot) {return slot<pictures && !picture[slot].rgba.empty()?1:0;}
 extern "C" std::uint64_t Bt2Hw_LastFrame(void);
 extern "C" void Bt2Hw_OverlaySprite(int fbp,int fbw,int psm,int width,int height,std::uint32_t slot,float x0,float y0,float x1,float y1,int alpha);
@@ -410,7 +444,7 @@ extern "C" void Bt2MenuItem_Overlay(std::uint64_t dispfb,std::uint64_t display) 
         if(shown!=fbp)Bt2Hw_OverlaySprite(shown,fbw,psm,width,height,slot,x0,y0,x1,y1,alpha);
     };
     if(screen.open) {
-        draw(screen.choice?ranked_picture:online_picture,0,0,float(width),float(height),screen.fade);
+        draw(screen.wait?wait_picture:screen.page?Slot(create_picture+screen.choice):screen.choice?ranked_picture:online_picture,0,0,float(width),float(height),screen.fade);
         if(screen.soon) {
             // (a pixel of the frame is shown wider than tall with the widescreen patch: the picture keeps its shape)
             static const bool wide=[]{const char* p=std::getenv("BT2_GAME_PATCHES");return p && std::strstr(p,"widescreen");}();

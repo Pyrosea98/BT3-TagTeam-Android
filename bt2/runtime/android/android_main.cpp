@@ -373,6 +373,7 @@ extern "C" __attribute__((visibility("default"))) int SDL_main(int argc,char* ar
         quitToApp();
         return 0;
     } catch(const std::exception& e) {
+            setenv("BT2_ONLINE_DIR",user.c_str(),1); // (the app and the Online Mode screens talk through files here: game/main_menu_item.cpp)
         return stop(e.what());
     }
 }
@@ -404,8 +405,10 @@ extern "C" JNIEXPORT jint JNICALL Java_com_dfdx047_dragonrage_engine_TouchBridge
 // The app's performance panel (Bt2PerfOverlay): pictures shown and fields run so far, and the game thread's id (its
 // CPU time is read from /proc by the app).
 extern "C" JNIEXPORT jlongArray JNICALL Java_com_dfdx047_dragonrage_engine_Bt2Bridge_nativeStats(JNIEnv* env,jclass) {
-    const jlong values[3]={jlong(PlayerSession::pictures_total.load()),jlong(PlayerSession::fields_total.load()),jlong(game_tid.load())};
-    jlongArray out=env->NewLongArray(3);
-    if(out)env->SetLongArrayRegion(out,0,3,values);
+    // (a fourth count since the Online Mode screen: which of its pages is open, 0 none; an older app reads three)
+    const jlong values[4]={jlong(PlayerSession::pictures_total.load()),jlong(PlayerSession::fields_total.load()),jlong(game_tid.load()),jlong(Bt2MenuItem_OnlineState())};
+    jlongArray out=env->NewLongArray(4);
+    if(out)env->SetLongArrayRegion(out,0,4,values);
     return out;
 }
+extern "C" int Bt2MenuItem_OnlineState(); // game/main_menu_item.cpp
