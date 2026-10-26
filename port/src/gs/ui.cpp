@@ -32,6 +32,10 @@ static char sGpuName[256];
 extern "C" {
 extern volatile int gPortNetMenuRequest;
 void Port_NetOptions(int rollback, int delay); // gs/net.c
+void Port_NetPrefsGet(int *delay, int *rollback);
+void Port_NetPrefsSave(int delay, int rollback);
+int Port_NetPrefsLocked(void);
+int DrRanked_Active(void), DrRanked_InSession(void), DrRanked_RematchOffer(void);
 void Port_NetRulesSet(int type, int dp, int time); // gs/net.c: the host's battle type, DP limit row, time limit
 void Port_NetSpeedSet(int percent);                // ... and the match's speed, 100..200 (set before the rules)
 int Port_NetSpeedStandard(void);                   // what a quick match runs at
@@ -774,7 +778,7 @@ static void build_net(void) {
     return;
 #endif
     static char name[17] = "Player", address[64] = "", port[8] = "7000";
-    static int tab, roll = -1, delay = 1, battle = -1, timeLimit = 3, speed = -1;
+    static int tab, roll = -1, delay = -1, battle = -1, timeLimit = 3, speed = -1;
     static bool useCode = true;       // host with a room code (no port forwarding) or on a port
     static char roomCode[8] = "";     // the code to join with
     static int lastState = 0;         // what the lobby said last (for its messages after a failure)
@@ -829,15 +833,25 @@ static void build_net(void) {
                 ImGui::SetNextItemWidth(120.0f);
                 ImGui::InputText("Port", port, sizeof(port), ImGuiInputTextFlags_CharsDecimal);
                 ImGui::EndDisabled();
-                if (roll < 0) { // the choices of last time (new names: the first ones' defaults were 4 frames and delay 1)
-                    roll = Port_RollCan() ? Port_Setting("net_rollback2", 8) / 2 : 0;
-                    delay = Port_Setting("net_delay2", -1) + 1; // 0 = automatic, else the delay + 1
+                if (roll < 0) {
+                    int savedDelay = -2, savedRoll = 8;
+                    Port_NetPrefsGet(&savedDelay, &savedRoll);
+                    roll = savedRoll / 2;
+                    delay = savedDelay == -2 ? 0 : savedDelay == -1 ? 1 : savedDelay + 2;
                     if (roll < 0 || roll > 4) { roll = 4; }
-                    if (delay < 0 || delay > 7) { delay = 0; }
+                    if (delay < 0 || delay > 10) { delay = 0; }
                 }
-                ImGui::BeginDisabled(!Port_RollCan());
+                if (!Port_NetPrefsLocked() && !ImGui::IsAnyItemActive()) {
+                    int savedDelay = -2, savedRoll = 8;
+                    Port_NetPrefsGet(&savedDelay, &savedRoll);
+                    roll = savedRoll / 2;
+                    delay = savedDelay == -2 ? 0 : savedDelay == -1 ? 1 : savedDelay + 2;
+                }
+                ImGui::BeginDisabled(!Port_RollCan() || Port_NetPrefsLocked());
                 ImGui::SetNextItemWidth(260.0f);
-                ImGui::Combo("Rollback", &roll, kRoll, 5);
+                if (ImGui::Combo("Rollback", &roll, kRoll, 5)) {
+                    Port_NetPrefsSave(delay == 0 ? -2 : delay == 1 ? -1 : delay - 2, roll * 2);
+                }
                 ImGui::EndDisabled();
                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
                     ImGui::SetTooltip("With rollback your own moves come out at once and the game corrects itself when the\n"
@@ -846,9 +860,13 @@ static void build_net(void) {
                 }
                 ImGui::SetNextItemWidth(260.0f);
                 {
-                    static const char *const kDelay[] = {"Automatic (from the connection)", "0 frames", "1 frame", "2 frames", "3 frames",
-                                                         "4 frames", "5 frames", "6 frames"};
-                    ImGui::Combo("Input delay", &delay, kDelay, 8);
+                    static const char *const kDelay[] = {"Automatic (from the connection)", "Off (0 frames)", "0 frames", "1 frame", "2 frames", "3 frames",
+                                                         "4 frames", "5 frames", "6 frames", "7 frames", "8 frames"};
+                    ImGui::BeginDisabled(Port_NetPrefsLocked());
+                    if (ImGui::Combo("Input delay", &delay, kDelay, 11)) {
+                        Port_NetPrefsSave(delay == 0 ? -2 : delay == 1 ? -1 : delay - 2, roll * 2);
+                    }
+                    ImGui::EndDisabled();
                 }
                 if (ImGui::IsItemHovered()) {
                     ImGui::SetTooltip("How long after a press your own move comes out. A slow connection needs more, or the game\n"

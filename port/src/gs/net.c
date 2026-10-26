@@ -100,10 +100,79 @@ static int sCfgAcked;
 
 void Port_TestSlow(int what, int amount);
 
+/* Shared Android/launcher preferences: delay is -2 automatic, -1 off, or 0..8; rollback is 0 or 2..8. */
+extern const char *Port_FileRoot(void);
+extern int DrRanked_Active(void), DrRanked_InSession(void), DrRanked_RematchOffer(void);
+static int netplay_read(int *delay, int *rollback) {
+    char path[600], a[64], b[64];
+    FILE *f;
+    long d, r;
+    char *end;
+    SDL_snprintf(path, sizeof(path), "%s/netplay_options.txt", Port_FileRoot());
+    if ((f = fopen(path, "rb")) == NULL) { return 0; }
+    if (fgets(a, sizeof(a), f) == NULL || fgets(b, sizeof(b), f) == NULL || fgetc(f) != EOF || ferror(f)) {
+        fclose(f); return 0;
+    }
+    fclose(f);
+    a[strcspn(a, "\r\n")] = '\0';
+    b[strcspn(b, "\r\n")] = '\0';
+    if (strncmp(a, "delay=", 6) != 0 || strncmp(b, "rollback=", 9) != 0) { return 0; }
+    memmove(a, a + 6, strlen(a + 6) + 1);
+    memmove(b, b + 9, strlen(b + 9) + 1);
+    if (strcmp(a, "auto") == 0) { d = -2; }
+    else if (strcmp(a, "off") == 0) { d = -1; }
+    else {
+        d = strtol(a, &end, 10);
+        if (*a == '\0' || *end != '\0' || d < 0 || d > 8) { return 0; }
+    }
+    r = strtol(b, &end, 10);
+    if (*b == '\0' || *end != '\0' || !(r == 0 || (r >= 2 && r <= 8 && r % 2 == 0))) { return 0; }
+    *delay = (int)d; *rollback = (int)r;
+    return 1;
+}
+
+void Port_NetPrefsGet(int *delay, int *rollback) {
+    int d = -2, r = 8;
+    (void)netplay_read(&d, &r);
+    if (delay != NULL) { *delay = d; }
+    if (rollback != NULL) { *rollback = r; }
+}
+
+void Port_NetPrefsSave(int delay, int rollback) {
+    char path[600], tmp[620], text[64];
+    FILE *f;
+    int ok;
+    if (!(delay == -2 || delay == -1 || (delay >= 0 && delay <= 8)) ||
+        !(rollback == 0 || (rollback >= 2 && rollback <= 8 && rollback % 2 == 0))) { return; }
+    SDL_snprintf(path, sizeof(path), "%s/netplay_options.txt", Port_FileRoot());
+    SDL_snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    if (delay == -2) { SDL_snprintf(text, sizeof(text), "delay=auto\nrollback=%d\n", rollback); }
+    else if (delay == -1) { SDL_snprintf(text, sizeof(text), "delay=off\nrollback=%d\n", rollback); }
+    else { SDL_snprintf(text, sizeof(text), "delay=%d\nrollback=%d\n", delay, rollback); }
+    if ((f = fopen(tmp, "wb")) == NULL) { return; }
+    ok = fwrite(text, 1, strlen(text), f) == strlen(text);
+    ok = fclose(f) == 0 && ok;
+    if (ok) {
+        remove(path);
+        ok = rename(tmp, path) == 0;
+    }
+    if (!ok) { remove(tmp); }
+}
+
 void Port_NetOptions(int rollback, int delay) {
-    sOptRoll = rollback;
-    sOptAuto = delay == -2; /* -2: automatic; -1: not said; else the delay in blanks */
-    sOptDelay = delay >= 0 ? delay : -1;
+    int prefDelay = -2, prefRoll = 8;
+    int havePrefs = netplay_read(&prefDelay, &prefRoll);
+    (void)rollback; (void)delay;
+    if (DrRanked_Active() || DrRanked_InSession() || DrRanked_RematchOffer()) {
+        prefDelay = -2; prefRoll = 8;
+    } else if (!havePrefs) {
+        prefDelay = -2; prefRoll = 8;
+    }
+    if (prefRoll < 0 || prefRoll > 8 || (prefRoll != 0 && prefRoll % 2 != 0)) { prefRoll = 8; }
+    if (prefDelay < -2 || prefDelay > 8) { prefDelay = -2; }
+    sOptRoll = prefRoll;
+    sOptAuto = prefDelay == -2;
+    sOptDelay = prefDelay >= 0 ? prefDelay : prefDelay == -1 ? 0 : -1;
 }
 
 #define NAME_LEN 20
@@ -952,11 +1021,11 @@ static void net_start(int role, const char *host, const char *join) {
         Port_NetLeave();
         return;
     }
-    if (sMode == 2 && sCfgGot) { /* the host's choices, unless this side was started with its own */
-        if ((getenv("BT3_NET_DELAY") == NULL || sAutoDelay) && sCfgDelay >= 0 && sCfgDelay <= 30) {
+    if (sMode == 2 && sCfgGot) { /* the joining side always follows the host's negotiated choices */
+        if ((getenv("BT3_NET_DELAY") == NULL || sAutoDelay) && sCfgDelay >= 0 && sCfgDelay <= 8) {
             sDelay = sCfgDelay;
         }
-        if (getenv("BT3_NET_ROLLBACK") == NULL && sOptRoll < 0 && sCfgRoll >= 0 && sCfgRoll <= 30) {
+        if (getenv("BT3_NET_ROLLBACK") == NULL && sCfgRoll >= 0 && sCfgRoll <= 8 && (sCfgRoll == 0 || sCfgRoll % 2 == 0)) {
             sRollMax = Port_RollCan() ? sCfgRoll : 0;
         }
     }
@@ -1674,6 +1743,10 @@ static int sLobby; /* 0 idle, 1 waiting, 2 found, -1 failed */
 static int sLobbyRole, sLobbyPort;
 static char sLobbyAddr[128];
 static uint64_t sLobbyLast;
+
+int Port_NetPrefsLocked(void) {
+    return sLobby > 0 || Port_NetActive() || DrRanked_Active() || DrRanked_InSession() || DrRanked_RematchOffer();
+}
 
 /* Room codes (net_match.c, port/matchmaking): the lobby's states 3 (asking the matchmaking service; the host's code
    is known at some point, Port_LobbyCode) and, once the other player's addresses are known, 1 as with an address:

@@ -457,6 +457,41 @@ static void page_controls(void) {
 }
 
 static void page_online(void) {
+    card_begin("netplay", T("Casual match settings", "Opções de partidas casuais", "Opciones de partidas casuales"));
+    {
+        static const int delayVals[] = {-2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8};
+        static const char *const delayNames[] = {T("Automatic", "Automático", "Automático"), T("Off", "Desligado", "Apagado"), "0", "1", "2", "3", "4", "5", "6", "7", "8"};
+        static const int rollVals[] = {0, 2, 4, 6, 8};
+        static const char *const rollNames[] = {T("Off", "Desligado", "Apagado"), "2", "4", "6", "8"};
+        int delay = -2, rollback = 8;
+        int locked = Port_NetPrefsLocked();
+        Port_NetPrefsGet(&delay, &rollback);
+        ImGui::BeginDisabled(locked);
+        if (achoice(T("Input delay", "Atraso de entrada", "Retardo de entrada"),
+                    T("For casual matches and rooms. The host's choice applies to both players.",
+                      "Em partidas casuais e salas. A escolha do anfitrião vale para os dois jogadores.",
+                      "En partidas casuales y salas. La elección del anfitrión se aplica a ambos jugadores."),
+                    &delay, delayNames, delayVals, 11)) {
+            Port_NetPrefsSave(delay, rollback);
+        }
+        if (achoice(T("Rollback limit", "Limite de rollback", "Límite de rollback"),
+                    T("Frames. Off makes both games wait for each other.", "Quadros. Desligado faz os dois jogos esperarem um pelo outro.",
+                      "Cuadros. Apagado hace que ambos juegos esperen al otro."),
+                    &rollback, rollNames, rollVals, 5)) {
+            Port_NetPrefsSave(delay, rollback);
+        }
+        ImGui::EndDisabled();
+        dim_text(T("Ranked and its rematch use Automatic delay and rollback up to 8 frames.",
+                   "A Classificatória e a revanche usam atraso Automático e rollback de até 8 quadros.",
+                   "Clasificatoria y su revancha usan retardo Automático y rollback de hasta 8 cuadros."));
+        dim_text(T("Changes apply to the next match or room.", "As mudanças valem na próxima partida ou sala.",
+                   "Los cambios se aplican en la próxima partida o sala."));
+        if (locked) { dim_text(T("Options are locked during an online session or search.",
+                                 "As opções ficam bloqueadas durante uma partida ou busca online.",
+                                 "Las opciones se bloquean durante una partida o búsqueda en línea.")); }
+    }
+    card_end();
+
     card_begin("how", T("How online works", "Como o online funciona", "Cómo funciona el online"));
     ImGui::TextWrapped("%s", T(
         "Online play is the PC version's: Dragon Rage on Android and the PC game meet in the same rooms.\n\n"
