@@ -95,3 +95,11 @@ app's pictures). Stage 3 will also raise `BT2_ENGINE_ABI` if the app and engine 
   from the library, hook on the pad); (2) pad port 1 answers with the other player's buttons; (3) exchange of the buttons each field
   over the line, waiting when the other's are late; (4) the roles (player 1 and 2 drawn by one side and told to the other) and player 1's
   map and music; (5) the names under the health bars.
+
+
+- Mode table read from the disc (2026-10-26; DBZP.BIN loaded at 0x3B3100, table at 0x421950, one handler pointer per mode 0..63): modes that share a handler are one
+  family. Handler 0x3B8360 serves modes 29..34 (Dueling is 30, so 29..34 are Dueling's variants: which one is the two-player versus is not known), 0x3B8350 modes 9..15,
+  0x3B8340 modes 23..26, 0x3B8330 modes 5..7, 0x3B8370 modes 52,53,55..57, 0x3B8380 modes 60..63, 0x3B8398 modes 47..50, 0x3B83A8 modes 42..46, 0x3B83B8 modes 37..40, 0x3B83C0 = the
+  default (the rest). The character selection is not a mode of its own: it is inside the family's handler (a sub-state), so the way in is the Dueling menus, not a mode number.
+  Next experiment (phone, needs the user to look): from the Online screen set progress +0x1C to 29, 31, 32, 33, 34 in turn (file `online_mode_test` in user/) and see which screen
+  comes; look for the one that is "1P VS 2P" and its way to the character selection (then walk the menu with pad presses the way tools/gate/pad-fight.txt does).
