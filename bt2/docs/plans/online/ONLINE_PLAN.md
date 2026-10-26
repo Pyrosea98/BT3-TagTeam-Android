@@ -120,3 +120,16 @@ then the two meet (arrived message) and the lockstep starts. Needed: a pad scrip
 adds buttons to pad+0x144 held / +0x134 pressed), the session flag and seed from the app, a fast-forward without picture/sound, and the
 repeatability proof (sync_test). The "Dueling menu has 1P VS COM, 1P VS 2P, COM VS COM, Battle Settings" is confirmed on the phone: the
 second item is the one to pick.
+
+## The online match's flow, as the user specified it (2026-10-26)
+
+1. When the two players are connected, the game goes from the Online Mode screen straight to the Dueling menu (no main menu seen: a cover over the
+   frame during the switch). Nothing is pressed for the player: he picks in the menus himself.
+2. In Dueling, **1P VS 2P is available only while someone is connected**; with an opponent connected it is the only entry open. The host (player 1,
+   drawn at random) drives the menus; only player 1 chooses the map and the music.
+3. The connection stays open for the whole match (character selection and fight, shown live as the game shows it). The names given on the
+   Online screen are shown under each health bar.
+4. If the opponent leaves or the line drops (no answer for a few seconds): the screen goes black for a moment with a message that the opponent
+   left or was disconnected, and the game goes back to the Online Mode screen.
+Needed: the line kept open after "Connected" (not closed by endWait), a drop detector on it, the Dueling menu's entries (find its pad/draw routines
+like the main menu's), the second pad, the exchange of buttons, the shared seed and choices at the start of a fight, the names under the bars.

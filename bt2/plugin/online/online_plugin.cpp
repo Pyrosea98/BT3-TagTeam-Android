@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <functional>
 #include <initializer_list>
 #include <vector>
@@ -78,7 +79,7 @@ void returnTo(Guest& g,std::uint32_t ra) {
     H->ret(g.runtime,g.c,ra,g.self);
 }
 
-constexpr int slot_init=0,slot_menu_mode=1,slot_guides=2,slot_moved=3,slot_pad=4,slot_draw=5; // (the engine's names for what it replaced)
+constexpr int slot_init=0,slot_menu_mode=1,slot_guides=2,slot_moved=3,slot_pad=4,slot_draw=5,slot_frame_pad=6; // (the engine's names for what it replaced)
 std::uint32_t plate_entry=0; // the texture entry of the third sheet of plates, given 256 lines
 
 // The third sheet of plates (512 x 128: items 8 and 9) is drawn as 512 x 256, so a third row (lines 128 to 191)
@@ -201,6 +202,9 @@ void writeLinkFile() {writeOnlineFile("online_link","rtt="+std::to_string(link.r
 // The host's relay (relay.h): the app leaves the service's TURN login in online_turn (server, user, credential, a line each);
 // once the relayed address is there it is left in online_relay for the app to give the service.
 bool relayPublished=false,localWritten=true;
+// A cover over the frame from the moment the screen is left until the next mode shows (so the main menu, which the game passes through, is not seen).
+std::atomic<int> cover{0};
+std::atomic<bool> cover_menu_seen{false};
 // The mode the game goes to when the line is up (0: back to the three ways in). For finding the way to the two-player versus: the file
 // online_mode_test of the user folder holds a mode number (29 to 34 are Dueling's), read at that moment so it can be changed between tries.
 std::uint32_t go_to_mode=0,auto_pick=0;
@@ -303,6 +307,45 @@ void screenLoop(Guest& g) {
     online_state.store(0,std::memory_order_relaxed);
 }
 
+// The walk: buttons pressed for the game, by a script, through the menus to the character selection of a two-player versus (what BT3 does with
+// a fresh start-up: the same on both sides, so both arrive at the same state). online_walk in the user folder, a line each, "<frames to wait> <button>"
+// (up down left right cross circle triangle square start select); the default is Dueling's menu: down to "1P VS 2P", cross.
+struct WalkStep {std::uint32_t wait,bits;};
+std::vector<WalkStep> walk_steps;
+std::size_t walk_at=0;
+std::uint32_t walk_wait=0;
+bool walking=false;
+std::uint32_t buttonBits(const std::string& name) {
+    static const std::pair<const char*,std::uint32_t> table[]={{"select",0x1},{"start",0x8},{"up",0x10},{"right",0x20},{"down",0x40},{"left",0x80},
+        {"triangle",0x1000},{"circle",0x2000},{"cross",0x4000},{"square",0x8000}};
+    for(const auto& t:table)if(name==t.first)return t.second;
+    return 0;
+}
+void startWalk() {
+    walk_steps.clear();
+    std::ifstream in(onlinePath("online_walk"));
+    std::string line;
+    bool any=false;
+    while(std::getline(in,line)) {
+        std::istringstream words(line);
+        std::uint32_t wait=0;std::string button;
+        if((words>>wait>>button) && buttonBits(button)) {walk_steps.push_back({wait,buttonBits(button)});any=true;}
+    }
+    if(!any)return; // (no script: the player chooses in the menus himself)
+    walk_at=0;walk_wait=walk_steps[0].wait;walking=true;
+    std::fprintf(stderr,"Online Mode: the walk through the menus starts (%zu presses)\n",walk_steps.size());
+}
+void framePad(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
+    H->call_original(runtime,c,slot_frame_pad);
+    if(!walking)return;
+    if(walk_wait>0){--walk_wait;return;}
+    const std::uint32_t bits=walk_steps[walk_at].bits;
+    write32(rdram,pad+0x144,read32(rdram,pad+0x144)|bits);
+    write32(rdram,pad+0x134,read32(rdram,pad+0x134)|bits);
+    if(++walk_at>=walk_steps.size()){walking=false;std::fprintf(stderr,"Online Mode: the walk is over\n");}
+    else walk_wait=walk_steps[walk_at].wait;
+}
+
 void menuMode(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
     if(screen_next) {
         screen_next=false;
@@ -310,6 +353,7 @@ void menuMode(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
         const auto ra=c->r[31],a0=c->r[4],sp=c->r[29];
         screenLoop(g);
         c->r[31]=ra;c->r[4]=a0;c->r[29]=sp;c->pc=menu_mode;
+        if(go_to_mode){cover_menu_seen.store(false);cover.store(600);}
         auto_pick=go_to_mode; // the main menu comes back as a player leaves the screen; its pad step then "presses" the item (padMenu)
         go_to_mode=0;
     }
@@ -326,6 +370,7 @@ void padMenu(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
             g.set(0xF0,wrap(static_cast<std::int32_t>(item)-2));
             g.set(0xE8,item);
             held=0;pressed=0x4000;auto_pick=0;
+            startWalk();
         }
         if(held&0x50) { // up, down: the wheel turns from where it was
             g.set(0xF0,wrap(static_cast<std::int32_t>(item)-2));
@@ -553,6 +598,11 @@ static void pluginOverlay(std::uint64_t dispfb,std::uint64_t display) {
     } else if(menu && menu_item==online_item) {
         draw(description_picture,37.4f,347,348.9f,391); // (where the window's two lines are: measured on the frame)
     }
+    if(cover.load()>0) { // the screen's picture stays over the main menu until the mode after it (Dueling) is on its way
+        if(menu)cover_menu_seen.store(true);
+        else if(cover_menu_seen.load())cover.store(0);
+        if(cover.load()>0) {cover.fetch_sub(1);draw(wait_picture,0,0,float(width),float(height),128);}
+    }
 }
 
 static int pluginArtSwap(unsigned char* rgba,int w,int h) {
@@ -595,6 +645,7 @@ extern "C" __attribute__((visibility("default"))) const Bt2Plugin* bt2_plugin_in
     H->hook(pad_menu,padMenu,slot_pad);
     H->hook(draw_menu,drawMenu,slot_draw);
     H->hook(menu_mode,menuMode,slot_menu_mode);
+    H->hook(frame_pad,framePad,slot_frame_pad);
     disc_image=host->disc_image;
     H->set_music_mix(pluginMix);
     std::fprintf(stderr,"Main menu item: Online Mode, the main menu's eleventh item\n");
