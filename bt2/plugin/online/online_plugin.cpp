@@ -201,6 +201,14 @@ void writeLinkFile() {writeOnlineFile("online_link","rtt="+std::to_string(link.r
 // The host's relay (relay.h): the app leaves the service's TURN login in online_turn (server, user, credential, a line each);
 // once the relayed address is there it is left in online_relay for the app to give the service.
 bool relayPublished=false,localWritten=true;
+// The mode the game goes to when the line is up (0: back to the three ways in). For finding the way to the two-player versus: the file
+// online_mode_test of the user folder holds a mode number (29 to 34 are Dueling's), read at that moment so it can be changed between tries.
+std::uint32_t go_to_mode=0,auto_pick=0;
+std::uint32_t modeToTry() {
+    std::ifstream in(onlinePath("online_mode_test"),std::ios::binary);
+    int n=0;
+    return (in && (in>>n) && n>=1 && n<=63)?static_cast<std::uint32_t>(n):0;
+}
 void relayStep() {
     if(!link.relayStarted()) {
         std::ifstream in(onlinePath("online_turn"),std::ios::binary);
@@ -248,7 +256,11 @@ void screenLoop(Guest& g) {
             if(loop_frame%15==0)relayStep();
             if(screen.found) {
                 if(loop_frame%30==0)writeLinkFile();
-                if(--screen.found==0)endWait(); // (the match itself comes next: for now, back to the three ways in)
+                if(--screen.found==0) {
+                    const std::uint32_t mode=modeToTry();
+                    endWait(); // (the match itself comes next: for now, back to the three ways in, or the mode being tried)
+                    if(mode) {go_to_mode=mode;screen.leaving=true;effect(1);g.call(leave_fade,{0,0,0});}
+                }
             } else if(pressed&0x3000 || onlineFile("online_back",true)) {endWait();effect(2);} // triangle, circle, or the app: given up
             else if(screen.failed) {
                 // (waits for the player's triangle)
@@ -298,6 +310,8 @@ void menuMode(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
         const auto ra=c->r[31],a0=c->r[4],sp=c->r[29];
         screenLoop(g);
         c->r[31]=ra;c->r[4]=a0;c->r[29]=sp;c->pc=menu_mode;
+        auto_pick=go_to_mode; // the main menu comes back as a player leaves the screen; its pad step then "presses" the item (padMenu)
+        go_to_mode=0;
     }
     H->call_original(runtime,c,slot_menu_mode);
 }
@@ -306,7 +320,13 @@ void padMenu(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
     Guest g{rdram,c,runtime,pad_menu};const std::uint32_t ra=static_cast<std::uint32_t>(c->r[31].low),going_on=static_cast<std::uint32_t>(c->r[4].low);
     const std::function<void(std::uint32_t)> effect=[&](std::uint32_t which) {g.call(sound,{0,which,0x40,0x40,1});};
     if(g.call(layer_still,{g.state()+0x38})) {
-        const std::uint32_t held=read32(rdram,pad+0x144),pressed=read32(rdram,pad+0x134),item=g.get(0xE8);
+        std::uint32_t held=read32(rdram,pad+0x144),pressed=read32(rdram,pad+0x134),item=g.get(0xE8);
+        if(auto_pick) { // the cursor goes to the item and cross is pressed: the way a player picks it
+            for(std::uint32_t i=0;i<item_modes.size();++i)if(item_modes[i]==auto_pick)item=i;
+            g.set(0xF0,wrap(static_cast<std::int32_t>(item)-2));
+            g.set(0xE8,item);
+            held=0;pressed=0x4000;auto_pick=0;
+        }
         if(held&0x50) { // up, down: the wheel turns from where it was
             g.set(0xF0,wrap(static_cast<std::int32_t>(item)-2));
             g.set(0xE8,wrap(static_cast<std::int32_t>(item)+(held&0x10?-1:1)));

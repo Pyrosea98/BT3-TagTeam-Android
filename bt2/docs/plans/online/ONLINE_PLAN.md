@@ -103,3 +103,20 @@ app's pictures). Stage 3 will also raise `BT2_ENGINE_ABI` if the app and engine 
   default (the rest). The character selection is not a mode of its own: it is inside the family's handler (a sub-state), so the way in is the Dueling menus, not a mode number.
   Next experiment (phone, needs the user to look): from the Online screen set progress +0x1C to 29, 31, 32, 33, 34 in turn (file `online_mode_test` in user/) and see which screen
   comes; look for the one that is "1P VS 2P" and its way to the character selection (then walk the menu with pad presses the way tools/gate/pad-fight.txt does).
+
+## What BT3 does after two players connect (read 2026-10-26: port/src/gs/net.c, "warp_tick", NET_VERSION 5 note), and what BT2 will copy
+
+BT3 does not walk menus and does not jump into a mode. When a session starts it puts the game back to its first blank (a saved state) and
+**both copies run the game's own start-up again from there, with nothing pressed** (logos, card check, up to the character select), without
+picture or sound and without waiting for real time or for each other ("warp": Port_NetWarp). Both arrive at the character select in
+exactly the same state, at their own speed; a message (T_ARRIVED) tells each the other is there; from the character select on the
+real lockstep begins (inputs each blank, check values compared). The host is player 1; random numbers are seeded the same on both.
+
+BT2 has no saved state of the whole machine, so the same idea in BT2's terms: **a session = a fresh start of the game** (the app restarts
+the engine with a "session" flag and the same seed on both phones), the start-up fast-forwarded without picture or sound with a fixed
+script of presses (the probe already walks boot -> title -> menus -> Dueling -> versus -> character selection with scripted presses,
+tools/gate/pad-fight.txt, and that scripted run gives the same VU1 hash every time), arriving at the character select identical on both;
+then the two meet (arrived message) and the lockstep starts. Needed: a pad script from the library (a hook on frame_pad 0x28B090 that
+adds buttons to pad+0x144 held / +0x134 pressed), the session flag and seed from the app, a fast-forward without picture/sound, and the
+repeatability proof (sync_test). The "Dueling menu has 1P VS COM, 1P VS 2P, COM VS COM, Battle Settings" is confirmed on the phone: the
+second item is the one to pick.
