@@ -36,7 +36,7 @@ typedef struct Bt2HostApi {
     const char *pictures_dir;        /* the library's pictures (the app's assets, copied: <root>/bt2/user/menu-item) */
     const char *online_dir;          /* <root>/bt2/user: where the app and the library leave each other files */
 
-    /* Takes over a game function: `fn` runs in its place. `slot` (0 to 7) names it for call_original. */
+    /* Takes over a game function: `fn` runs in its place. `slot` (0 to 15; an engine of an earlier version has 8: the others are ignored) names it for call_original. */
     void (*hook)(uint32_t address, Bt2Hook fn, int slot);
     /* The function a slot replaced, run as it was. */
     void (*call_original)(Bt2Call *call, Bt2Regs *regs, int slot);

@@ -194,15 +194,19 @@ def background(title):
         x, y, r = random.randint(0, W), random.randint(0, H), random.choice((1, 1, 2, 3))
         sd.ellipse([x - r, y - r, x + r, y + r], fill=(255, 255, 255, random.randint(60, 200)))
     bg.alpha_composite(sp.filter(ImageFilter.GaussianBlur(0.6)))
-    band = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    ImageDraw.Draw(band).rounded_rectangle([-40, 30, 640, 120], radius=44, fill=(10, 14, 70, 200), outline=(120, 150, 255, 255), width=4)
-    bg.alpha_composite(band)
+    return bg  # (the title band is its own picture, title_sprite: the game moves it)
+
+
+def title_sprite(title):
+    """The band with the screen's title, on its own (transparent around it), 700 x 120, to be drawn at (0, 20) of the 1280 x 720 screen and made to float."""
+    im = Image.new("RGBA", (700, 120), (0, 0, 0, 0))
+    ImageDraw.Draw(im).rounded_rectangle([-40, 10, 640, 100], radius=44, fill=(10, 14, 70, 200), outline=(120, 150, 255, 255), width=4)
     t = title.resize((int(title.width * 1.7), int(title.height * 1.7)), Image.LANCZOS)
-    bg.alpha_composite(t, (20, 20))
-    return bg
+    im.alpha_composite(t, (20, 0))
+    return im
 
 
-def add_fighter(bg, bust):
+def add_fighter(bg, bust, draw_figure=True):
     W, H = SCREEN
     k = 600 / bust.height
     ch = bust.resize((int(bust.width * k), 600), Image.LANCZOS)
@@ -213,7 +217,8 @@ def add_fighter(bg, bust):
     glow = Image.new("RGBA", (W, H), (130, 180, 255, 0))
     glow.putalpha(m.point(lambda v: int(v * 0.85)))
     bg.alpha_composite(glow)
-    bg.alpha_composite(ch, (cx, cy))
+    if draw_figure:
+        bg.alpha_composite(ch, (cx, cy))   # (an animated fighter is drawn by the game over the screen: make_fighter_video.py)
 
 
 DESCRIPTIONS = [("Lute contra outros jogadores pela internet.", "Salas com código e partidas rápidas."),
@@ -346,6 +351,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--bust", type=pathlib.Path, help="the fighter, already cut out (RGBA, from the waist up)")
     ap.add_argument("--fighter", type=pathlib.Path, help="the fighter's full-length picture on a white background")
+    ap.add_argument("--animated", action="store_true", help="the fighter is a looping clip the game draws: only its glow goes into the screens")
     ap.add_argument("--out", type=pathlib.Path, default=ROOT / "android/app/src/main/assets/bt2/menu-item")
     ap.add_argument("--font-italic", default=FONT_ITALIC)
     ap.add_argument("--font-sans", default=FONT_SANS)
@@ -364,7 +370,7 @@ def main():
     labels = [lettering("Online"), lettering("Ranqueado")]
     rooms = [lettering("Criar Sala"), lettering("Entrar em Sala"), lettering("Partida Rápida")]
     bg = background(name)
-    add_fighter(bg, bust)
+    add_fighter(bg, bust, draw_figure=not args.animated)
     hint = hints()
     pictures = {
         "item_text": name,                                                         # the chosen item's name (a row of the sheet of names)
@@ -379,6 +385,7 @@ def main():
         "wait": screen(0, bg, [], hint, window=False),
         "soon": soon(lettering("Em breve!")),
         "left": left(),
+        "title": title_sprite(name),
         "shade": Image.new("RGBA", (16, 16), (0, 0, 0, 255)),  # dims the entries of Dueling's menu that are not open while an opponent is connected
         "description": description(),
     }

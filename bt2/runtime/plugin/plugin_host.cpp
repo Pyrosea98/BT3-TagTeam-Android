@@ -16,7 +16,7 @@ struct Bt2Call {
 };
 
 namespace {
-constexpr int slots = 8;
+constexpr int slots = 16;
 EeRuntime* engine = nullptr;
 std::atomic<const Bt2Plugin*> plugin{nullptr};
 Bt2Hook hooks[slots] = {};

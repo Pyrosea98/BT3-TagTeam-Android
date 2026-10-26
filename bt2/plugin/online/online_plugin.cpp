@@ -8,6 +8,8 @@
 #include <cstring>
 #include <algorithm>
 #include <filesystem>
+#include <chrono>
+#include <cmath>
 #include <fstream>
 #include <sstream>
 #include <functional>
@@ -79,7 +81,7 @@ void returnTo(Guest& g,std::uint32_t ra) {
     H->ret(g.runtime,g.c,ra,g.self);
 }
 
-constexpr int slot_init=0,slot_menu_mode=1,slot_guides=2,slot_moved=3,slot_pad=4,slot_draw=5,slot_frame_pad=6,slot_pad_connected=7; // (the engine's names for what it replaced)
+constexpr int slot_init=0,slot_menu_mode=1,slot_guides=2,slot_moved=3,slot_pad=4,slot_draw=5,slot_frame_pad=6,slot_pad_connected=7,slot_brightness=8,slot_duel_pad=9; // (the engine's names for what it replaced)
 std::uint32_t plate_entry=0; // the texture entry of the third sheet of plates, given 256 lines
 
 // The third sheet of plates (512 x 128: items 8 and 9) is drawn as 512 x 256, so a third row (lines 128 to 191)
@@ -222,6 +224,7 @@ constexpr std::uint32_t duel_mode=30;
 // the answer is "there" (padConnected), and the three other entries are dimmed over the frame (pluginOverlay).
 constexpr std::uint32_t duel_state_pointer=0x42BB84,duel_moved=0x41B648,pad_connected=0x28C4B8;
 std::atomic<bool> dim_others{false};
+constexpr std::uint32_t brightness=0x26EF88; // (layer, parameters, f12 = the entry's brightness: the draw of Dueling's menu gives 1.0, or 0.4 to a dimmed "1P VS 2P")
 std::uint32_t modeToTry() {
     std::ifstream in(onlinePath("online_mode_test"),std::ios::binary);
     int n=0;
@@ -356,8 +359,8 @@ void leaveSession(bool opponent_gone) {
     if(!session)return;
     if(!opponent_gone)link.sayBye();
     link.close();
-    session=false;duel_lock=false;
-    if(opponent_gone)left_cover.store(200);
+    session=false;duel_lock=false;dim_others.store(false);
+    if(opponent_gone)left_cover.store(900); // (kept until the Online screen is open again, 15 seconds at most)
     returning=true;return_frames=0;screen_next=true;
     std::fprintf(stderr,"Online Mode: the match ends (%s)\n",opponent_gone?"the opponent left or was lost":"the player left");
 }
@@ -428,10 +431,6 @@ void framePad(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
     if(returning) { // triangle every twenty fields until the game is at the main menu's mode (where the Online screen opens: screen_next)
         if(mode==main_menu_mode || return_frames>900)returning=false;
         else {
-            if(return_frames%20==10) {
-                write32(rdram,pad+0x144,read32(rdram,pad+0x144)|0x1000);
-                write32(rdram,pad+0x134,read32(rdram,pad+0x134)|0x1000);
-            }
             ++return_frames;
         }
     }
@@ -454,6 +453,42 @@ void padConnected(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
         return;
     }
     H->call_original(runtime,c,slot_pad_connected);
+}
+
+// Dueling's menu draws its four entries one after the other, each with a call giving its brightness: while an opponent is connected the game itself is
+// told to dim the three that are not open, as it dims "1P VS 2P" when there is no second controller.
+void brightnessHook(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
+    static unsigned entry=0;
+    const std::uint32_t ra=static_cast<std::uint32_t>(c->r[31].low);
+    static unsigned logged=0;
+    if(logged<16 && dim_others.load() && ra>=0x41A988 && ra<0x41BF08) {++logged;std::fprintf(stderr,"Online Mode: brightness from 0x%X, %.2f (entry counter %u)\n",ra,double(c->f[12]),0u);}
+    if(ra>=0x41B300 && ra<0x41B340) { // (from the entries' loop of the menu's draw)
+        const unsigned which=entry++&3;
+        if(dim_others.load(std::memory_order_relaxed) && which!=1)c->f[12]=0.02f; // (the other three are not shown: a brightness of nothing)
+    }
+    H->call_original(runtime,c,slot_brightness);
+}
+
+// Dueling's menu, while the game is being taken back to the Online screen: what its triangle does inside (the fade out, and the "going on" word
+// its caller passes set to zero), done once the menu's layers are still, instead of pressing the button.
+constexpr std::uint32_t duel_pad=0x41B7D8,layer_still_check=0x26EB60;
+void duelPad(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
+    const std::uint32_t ra=static_cast<std::uint32_t>(c->r[31].low),going_on=static_cast<std::uint32_t>(c->r[4].low);
+    const std::uint32_t state=read32(rdram,duel_state_pointer);
+    if(returning && !session && going_on && state>0x100000 && state<0x1FFFF00) {
+        Guest g{rdram,c,runtime,duel_pad};
+        if(g.call(layer_still_check,{state+0x38})) {
+            g.call(leave_fade,{0,0,0});
+            write32(rdram,going_on,0);
+            g.call(sound,{0,2,0x40,0x40,1});
+            returning=false;
+            std::fprintf(stderr,"Online Mode: out of Dueling's menu, back to the Online screen\n");
+            returnTo(g,ra);
+            return;
+        }
+        setRegister(c,31,ra);
+    }
+    H->call_original(runtime,c,slot_duel_pad);
 }
 
 void menuMode(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
@@ -579,11 +614,20 @@ void drawMenu(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
 // the menu's description of the item. The plate itself is the game's own Dueling plate, made into this one while the menu
 // is set up (buildPlate), so no picture of the game's is kept anywhere. The two sheets they go into are known by the
 // FNV-1a hash of their first 128 lines as the renderer decodes them (the USA disc's).
-enum Slot {online_picture,ranked_picture,soon_picture,description_picture,create_picture,join_picture,quick_picture,wait_picture,left_picture,shade_picture,pictures};
+enum Slot {online_picture,ranked_picture,soon_picture,description_picture,create_picture,join_picture,quick_picture,wait_picture,left_picture,shade_picture,title_picture,gohan_picture,pictures};
 struct Picture {std::uint32_t w=0,h=0;std::vector<std::uint8_t> rgba;};
 std::array<Picture,pictures> picture;
-constexpr std::array<const char*,pictures> picture_names{"online","ranked","soon","description","rooms_create","rooms_join","rooms_quick","wait","left","shade"};
+constexpr std::array<const char*,pictures> picture_names{"online","ranked","soon","description","rooms_create","rooms_join","rooms_quick","wait","left","shade","title","gohan_00"};
 Picture name_picture,plate_word;
+// The fighter of the Online screens is a looping clip: gohan_00.png, gohan_01.png ... in the pictures' folder and gohan.txt ("frames fps width height",
+// make_fighter_video.py). Its slot is drawn like the others, but its pixels are the frame of the moment, read from its file when asked for.
+struct Clip {std::uint32_t frames=0,fps=12,w=0,h=0;std::string folder;} clip;
+std::atomic<std::uint32_t> clip_frame{0};
+std::uint32_t clipNow() {
+    if(!clip.frames)return 0;
+    const auto ms=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    return static_cast<std::uint32_t>((ms*clip.fps/1000)%clip.frames);
+}
 std::vector<std::uint8_t> plate_row; // the plate: 512 x 64 RGBA
 constexpr std::uint64_t names_sheet_hash=0x838260d6bb66161aull,plates_sheet_hash=0x9cb5f2297eb6c82eull;
 std::atomic<bool> art_ready{false},plate_ready{false};
@@ -667,6 +711,17 @@ void buildPlate(std::uint8_t* rdram,std::uint32_t entry) {
 }
 
 static std::uint32_t* pluginPixels(std::uint32_t slot,std::uint32_t* version,std::uint32_t* w,std::uint32_t* h) {
+    if(slot==gohan_picture && clip.frames) { // the clip's frame of this moment
+        const std::uint32_t frame=clip_frame.load(std::memory_order_relaxed);
+        char name[32];std::snprintf(name,sizeof name,"/gohan_%02u.png",frame);
+        const Picture p=loadPicture(clip.folder+name);
+        if(p.rgba.empty())return nullptr;
+        auto* px=static_cast<std::uint32_t*>(std::malloc(p.rgba.size()));
+        if(!px)return nullptr;
+        std::memcpy(px,p.rgba.data(),p.rgba.size());
+        *version=1+frame;*w=p.w;*h=p.h;
+        return px;
+    }
     if(slot>=pictures || picture[slot].rgba.empty())return nullptr;
     auto* px=static_cast<std::uint32_t*>(std::malloc(picture[slot].rgba.size()));
     if(!px)return nullptr;
@@ -676,7 +731,10 @@ static std::uint32_t* pluginPixels(std::uint32_t slot,std::uint32_t* version,std
 }
 // Which page of the Online Mode screen is open (0 none), for the app's pieces over the game (android_main.cpp: the engine's counts).
 static int pluginOnlineState() {return online_state.load(std::memory_order_relaxed);}
-static std::uint32_t pluginVersion(std::uint32_t slot) {return slot<pictures && !picture[slot].rgba.empty()?1:0;}
+static std::uint32_t pluginVersion(std::uint32_t slot) {
+    if(slot==gohan_picture && clip.frames)return 1+clip_frame.load(std::memory_order_relaxed);
+    return slot<pictures && !picture[slot].rgba.empty()?1:0;
+}
 
 // At each flip, over the frame the game drew: the screen when it is open, else the item's description while the menu
 // shows it. Positions in the frame's own pixels (the game's 640 x 448).
@@ -698,6 +756,16 @@ static void pluginOverlay(std::uint64_t dispfb,std::uint64_t display) {
     };
     if(screen.open) {
         draw(screen.wait?wait_picture:screen.page?Slot(create_picture+screen.choice):screen.choice?ranked_picture:online_picture,0,0,float(width),float(height),screen.fade);
+        if(clip.frames) { // the fighter, where the still one stood (1280 x 720 screen: 30 from the right, 50 above the bottom)
+            clip_frame.store(clipNow(),std::memory_order_relaxed);
+            const float x0=(1280.0f-float(clip.w)-30.0f)/1280.0f*float(width),y0=(720.0f-float(clip.h)-50.0f)/720.0f*float(height);
+            H->overlay_sprite(fbp,fbw,psm,width,height,gohan_picture,x0,y0,x0+float(clip.w)/1280.0f*float(width),y0+float(clip.h)/720.0f*float(height),screen.fade);
+            if(shown!=fbp)H->overlay_sprite(shown,fbw,psm,width,height,gohan_picture,x0,y0,x0+float(clip.w)/1280.0f*float(width),y0+float(clip.h)/720.0f*float(height),screen.fade);
+        }
+        {   // the title floats: up and down a few pixels, slowly (it is drawn apart from the background, at (0, 20) of the 1280 x 720 screen)
+            const float bob=std::sin(float(flip)*0.05f)*7.0f/720.0f*float(height);
+            draw(title_picture,0,20.0f/720.0f*float(height)+bob,700.0f/1280.0f*float(width),140.0f/720.0f*float(height)+bob,screen.fade);
+        }
         if(screen.soon) {
             // (a pixel of the frame is shown wider than tall with the widescreen patch: the picture keeps its shape)
             static const bool wide=[]{const char* p=std::getenv("BT2_GAME_PATCHES");return p && std::strstr(p,"widescreen");}();
@@ -713,10 +781,7 @@ static void pluginOverlay(std::uint64_t dispfb,std::uint64_t display) {
         else if(cover_menu_seen.load())cover.store(0);
         if(cover.load()>0) {cover.fetch_sub(1);draw(wait_picture,0,0,float(width),float(height),128);}
     }
-    if(dim_others.load(std::memory_order_relaxed)) { // the three other entries of Dueling's menu dimmed (the rows are where the menu draws them: measured on the frame)
-        const float rows[3]={0.217f,0.398f,0.48f};
-        for(const float y:rows)draw(shade_picture,0.03f*float(width),(y-0.04f)*float(height),0.60f*float(width),(y+0.04f)*float(height),78);
-    }
+    if(screen.open && left_cover.load()>0 && left_cover.load()<=720)left_cover.store(0); // (the Online screen is back, and the message has been up three seconds: it goes)
     if(left_cover.load()>0) {left_cover.fetch_sub(1);draw(left_picture,0,0,float(width),float(height),128);} // (the opponent left: black, with the message)
 }
 
@@ -748,10 +813,16 @@ extern "C" __attribute__((visibility("default"))) const Bt2Plugin* bt2_plugin_in
     const std::string folder=host->pictures_dir;
     name_picture=loadPicture(folder+"/item_text.png");
     plate_word=loadPicture(folder+"/plate_text.png");
+    for(const std::string& dir:{std::string(H->online_dir?H->online_dir:"")+"/extra",folder}) { // the clip: its folder is where gohan.txt is
+        std::ifstream info(dir+"/gohan.txt");
+        std::uint32_t frames=0,fps=0,w=0,h=0;
+        if(info && (info>>frames>>fps>>w>>h) && frames && fps && w && h) {clip={frames,fps,w,h,dir};break;}
+    }
     for(std::size_t k=0;k<pictures;++k) {
-        picture[k]=loadPicture(folder+"/"+picture_names[k]+".png");
-        // (a picture not in the APK yet: the folder "extra" of the user folder, which the app leaves alone, for tries)
-        if(picture[k].rgba.empty())picture[k]=loadPicture(std::string(H->online_dir?H->online_dir:"")+"/extra/"+picture_names[k]+".png");
+        if(k==gohan_picture)continue;
+        // (for tries, a picture in the folder "extra" of the user folder, which the app leaves alone, goes before the APK's)
+        picture[k]=loadPicture(std::string(H->online_dir?H->online_dir:"")+"/extra/"+picture_names[k]+".png");
+        if(picture[k].rgba.empty())picture[k]=loadPicture(folder+"/"+picture_names[k]+".png");
     }
     if(name_picture.w!=512 || name_picture.h!=64 || plate_word.w!=512 || plate_word.h!=64) {
         std::fprintf(stderr,"Main menu item: no pictures in %s, the menu stays the game's\n",folder.c_str());
@@ -766,6 +837,8 @@ extern "C" __attribute__((visibility("default"))) const Bt2Plugin* bt2_plugin_in
     H->hook(menu_mode,menuMode,slot_menu_mode);
     H->hook(frame_pad,framePad,slot_frame_pad);
     H->hook(pad_connected,padConnected,slot_pad_connected);
+    H->hook(brightness,brightnessHook,slot_brightness);
+    H->hook(duel_pad,duelPad,slot_duel_pad);
     disc_image=host->disc_image;
     H->set_music_mix(pluginMix);
     std::fprintf(stderr,"Main menu item: Online Mode, the main menu's eleventh item\n");

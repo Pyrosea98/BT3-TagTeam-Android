@@ -139,3 +139,14 @@ like the main menu's), the second pad, the exchange of buttons, the shared seed 
   the Dueling menu, the selection loads for the other one with "Aguardando Oponente" written at the bottom (each side waits, the line tells who has
   pressed). Needs: a message "I pressed 1P VS 2P" over the line, the second pad (port 1) fed with the other phone's buttons, the exchange of buttons per
   field once both are in, and the waiting text drawn over the selection (a picture, like the others).
+
+## The Online Mode screens: the title and the fighter (2026-10-26)
+
+- The title band ("Online Mode") is its own picture (title.png) that the plugin draws floating (a slow sine of a few pixels), over the screens' pictures.
+- The fighter is a looping clip, not a still: `bt2/tools/menu_item/make_fighter_video.py <clip.mp4>` cuts the clip's frames (GStreamer; the sound is not used) into
+  gohan_NN.png (8-bit palette, a few tens of KB each) and gohan.txt ("frames fps width height"); `make_menu_item.py --bust <first frame> --animated` then draws the
+  screens with only the glow behind it. The plugin draws the frame of the moment (its slot's version changes with the frame, so the renderer takes the new pixels).
+- For tries on a phone, pictures in `<root>/bt2/user/extra/` go before the APK's (the app rewrites menu-item/ when it updates).
+- Hook slots of the engine: 16 (an engine of an earlier version has 8 and ignores the others).
+- Development triggers in the plugin (files in the user folder): online_dump (the game's memory to dump_N.bin), online_press (a button name), online_walk (a script of
+  presses), online_mode_test (the mode to go to after "Connected").
