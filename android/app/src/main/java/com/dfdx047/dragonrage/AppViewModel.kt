@@ -18,6 +18,7 @@ import com.dfdx047.dragonrage.data.CatalogState
 import com.dfdx047.dragonrage.data.EngineSettings
 import com.dfdx047.dragonrage.data.Renderer
 import com.dfdx047.dragonrage.data.Net
+import com.dfdx047.dragonrage.data.NetplayOptions
 import com.dfdx047.dragonrage.data.TextureCatalog
 import com.dfdx047.dragonrage.data.UpdateState
 import com.dfdx047.dragonrage.data.formatBytes
@@ -96,6 +97,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _settings = MutableStateFlow(settings.snapshot())
     val engineSettings: StateFlow<Map<String, Int>> = _settings.asStateFlow()
+
+    private val _netplayOptions = MutableStateFlow(NetplayOptions.read(paths.gameData))
+    val netplayOptions: StateFlow<NetplayOptions> = _netplayOptions.asStateFlow()
+
+    fun setNetplayOptions(options: NetplayOptions) {
+        val safe = if (options.delay == NetplayOptions.AUTO || options.delay == NetplayOptions.OFF || options.delay in 0..8) options else NetplayOptions.DEFAULT
+        val checked = if (safe.rollback == 0 || safe.rollback in 2..8 && safe.rollback % 2 == 0) safe else NetplayOptions.DEFAULT
+        _netplayOptions.value = checked
+        viewModelScope.launch(Dispatchers.IO) { NetplayOptions.write(paths.gameData, checked) }
+    }
 
     private val touchStore = TouchStore(paths.root)
     private val _touch = MutableStateFlow(touchStore.load())
@@ -375,6 +386,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refreshAll() {
         viewModelScope.launch(Dispatchers.IO) {
+            _netplayOptions.value = NetplayOptions.read(paths.gameData)
             _packs.value = packs.list()
             _mods.value = mods.listMods()
             _stages.value = mods.listExtras(ExtraKind.STAGE)

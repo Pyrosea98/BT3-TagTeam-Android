@@ -379,6 +379,11 @@
     <string name="online_mode_dragon">Android + Switch (Dragon Net)</string>
     <string name="online_mode_pc">PC</string>
     <string name="online_mode_text">Dragon Net: Dragon Rage y el port de Nintendo Switch (DBT-NX) en un servicio propio, con Clasificatoria (Elo) y jugadores en línea; no depende de las versiones del port de PC. PC: salas y partida rápida en el servicio del port de PC, que solo acepta su versión más nueva. También se cambia en la pantalla Dragon Net Battle del juego (Y en el mando).</string>
+    <string name="netplay_delay">Retardo de entrada</string>
+    <string name="netplay_auto">Automático</string>
+    <string name="netplay_delay_hint">Se usa en partidas casuales y salas. Clasificatoria siempre usa retardo automático.</string>
+    <string name="netplay_rollback">Límite de rollback (cuadros)</string>
+    <string name="netplay_rollback_hint">Se usa en partidas casuales y salas. Clasificatoria siempre usa rollback de hasta 8 cuadros.</string>
     <string name="online_dragon_ok_title">Dragon Net está funcionando</string>
     <string name="online_dragon_ok">Android y Switch juegan juntos: salas con código, partida rápida y Clasificatoria, desde Dragon Net Battle en el menú principal del juego.</string>
     <string name="online_dragon_version_title">Dragon Net se está actualizando</string>

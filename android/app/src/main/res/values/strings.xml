@@ -380,6 +380,11 @@
     <string name="online_mode_dragon">Android + Switch (Dragon Net)</string>
     <string name="online_mode_pc">PC</string>
     <string name="online_mode_text">Dragon Net: Dragon Rage and the Nintendo Switch port (DBT-NX) on a service of their own, with Ranked (Elo) and the players online; it does not depend on the PC port\'s releases. PC: rooms and quick match on the PC port\'s service, which only lets in its newest release. You can also switch it in the game\'s Dragon Net Battle screen (Y on a controller).</string>
+    <string name="netplay_delay">Input delay</string>
+    <string name="netplay_auto">Automatic</string>
+    <string name="netplay_delay_hint">Used in casual matches and rooms. Ranked always uses automatic delay.</string>
+    <string name="netplay_rollback">Rollback limit (frames)</string>
+    <string name="netplay_rollback_hint">Used in casual matches and rooms. Ranked always uses rollback up to 8 frames.</string>
     <string name="online_dragon_ok_title">Dragon Net is working</string>
     <string name="online_dragon_ok">Android and Switch play together: rooms with a code, quick match and Ranked, from Dragon Net Battle in the game\'s main menu.</string>
     <string name="online_dragon_version_title">Dragon Net is being updated</string>

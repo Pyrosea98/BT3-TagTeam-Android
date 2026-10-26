@@ -48,6 +48,7 @@ import com.dfdx047.dragonrage.AppViewModel
 import com.dfdx047.dragonrage.BuildConfig
 import com.dfdx047.dragonrage.data.EngineSettings
 import com.dfdx047.dragonrage.data.Renderer
+import com.dfdx047.dragonrage.data.NetplayOptions
 import com.dfdx047.dragonrage.ui.components.ScreenTitle
 import com.dfdx047.dragonrage.ui.components.SectionCard
 import com.dfdx047.dragonrage.ui.theme.Dbz
@@ -58,6 +59,7 @@ import kotlin.math.roundToInt
 fun SettingsScreen(vm: AppViewModel) {
     val s by vm.engineSettings.collectAsStateWithLifecycle()
     val ui by vm.uiState.collectAsStateWithLifecycle()
+    val netplay by vm.netplayOptions.collectAsStateWithLifecycle()
     fun get(k: String, d: Int) = s[k] ?: d
 
     Column(
@@ -160,6 +162,22 @@ fun SettingsScreen(vm: AppViewModel) {
                 onSelect = { vm.setNetMode(it) },
             )
             Text(stringResource(R.string.online_mode_text), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            HorizontalDivider()
+            Text(stringResource(R.string.netplay_delay), style = MaterialTheme.typography.titleSmall)
+            ChipRow(
+                options = listOf(stringResource(R.string.netplay_auto) to NetplayOptions.AUTO, stringResource(R.string.off) to NetplayOptions.OFF) +
+                    (0..8).map { "$it" to it },
+                selected = netplay.delay,
+                onSelect = { vm.setNetplayOptions(netplay.copy(delay = it)) },
+            )
+            Text(stringResource(R.string.netplay_delay_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.netplay_rollback), style = MaterialTheme.typography.titleSmall)
+            ChipRow(
+                options = listOf(stringResource(R.string.off) to 0) + listOf(2, 4, 6, 8).map { "$it" to it },
+                selected = netplay.rollback,
+                onSelect = { vm.setNetplayOptions(netplay.copy(rollback = it)) },
+            )
+            Text(stringResource(R.string.netplay_rollback_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
         SectionCard(stringResource(R.string.performance), Icons.Rounded.Speed, accent = MaterialTheme.colorScheme.secondary) {
