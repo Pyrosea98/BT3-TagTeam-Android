@@ -2,6 +2,12 @@
 #include "battle/btl_char_cam_int.h"
 
 extern int Port_CamSparking(void);
+extern f32 BtlUtil_ApproachF(f32 cur, f32 target, f32 step);
+
+#define CAM_KI_ZOOM 0.8f
+#define CAM_KI_PITCH (-0.03f)
+
+static f32 sChrCamKiFactor[6];
 
 /* The fighter's own camera, 0x1C4BF8-0x1C7B30. See battle/btl_char_cam.h for the structures and the frame flow.
  *
@@ -22,6 +28,7 @@ f32 ChrCam_GetOffset(ChrCamChr *chr, Vec4 *out, s32 mode) {
     f32 dist;
     f32 pitch;
     int sparking = Port_CamSparking();
+    f32 kiFactor;
 
     scale = BtlCharApi_GetHeight(chr->objId);
     pitch = 0.0f;
@@ -66,6 +73,15 @@ f32 ChrCam_GetOffset(ChrCamChr *chr, Vec4 *out, s32 mode) {
                 pitch = scale * -0.001f + -0.05f;
             }
             break;
+    }
+    if (sparking) {
+        sChrCamKiFactor[chr->player] = BtlUtil_ApproachF(sChrCamKiFactor[chr->player],
+                                                         BtlChar_TestFlag(chr, 0xC) != 0 ? 1.0f : 0.0f,
+                                                         0.4f / 30.0f);
+        kiFactor = sChrCamKiFactor[chr->player];
+        out->y *= 1.0f + (CAM_KI_ZOOM - 1.0f) * kiFactor;
+        out->z *= 1.0f + (CAM_KI_ZOOM - 1.0f) * kiFactor;
+        pitch += CAM_KI_PITCH * kiFactor;
     }
     out->w = 1.0f;
     return pitch;
