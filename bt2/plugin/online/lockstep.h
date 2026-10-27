@@ -23,6 +23,7 @@ public:
     static constexpr std::size_t max_samples = 64;       // most samples in one packet
     static constexpr std::size_t digest_every = 32;      // fields between two check values
     static constexpr std::uint32_t none = 0xFFFFFFFFu;
+    static constexpr std::uint8_t messageType = 9;       // the line's message type for these packets (link.h; session.h uses 6 to 8)
 
     // The delay for a line whose round trip is `rttMs`: the one-way time in fields (a field is 16.7 ms), rounded up, and one more for the
     // line's jitter; 1 to 8. (45 ms: 3 fields.) The host measures the round trip and tells the other (BT3: T_CONFIG).

@@ -150,22 +150,28 @@ void Link::start(const std::string& code, const std::vector<std::string>& addres
     if (candidates_.empty()) note("online: FAILED: the other player gave no usable address");
 }
 
-void Link::send(std::uint8_t type, std::uint32_t number, std::uint32_t echo, const Candidate& to) {
-    if (socket_ < 0) return;
-    std::uint8_t p[packet_size] = {};
+void Link::send(std::uint8_t type, std::uint32_t number, std::uint32_t echo, const Candidate& to, const std::uint8_t* payload, std::size_t size) {
+    if (socket_ < 0 || size > max_payload) return;
+    if (testLoss_ > 0) {
+        lossState_ ^= lossState_ << 13; lossState_ ^= lossState_ >> 17; lossState_ ^= lossState_ << 5;
+        if (int(lossState_ % 100) < testLoss_) return;
+    }
+    std::uint8_t p[packet_size + max_payload] = {};
     put32(p, magic);
     p[4] = version;
     p[5] = type;
     put32(p + 8, session_);
     put32(p + 12, number);
     put32(p + 16, echo);
+    if (size) std::memcpy(p + packet_size, payload, size);
+    const std::size_t total = packet_size + size;
     sockaddr_in a{};
     a.sin_family = AF_INET;
     a.sin_addr.s_addr = to.ip;
     a.sin_port = htons(to.port);
     ++sent_;
-    if (to.relayed) {relay_.send(socket_, p, sizeof p, to.ip, htons(to.port)); return;}
-    ::sendto(socket_, p, sizeof p, 0, reinterpret_cast<sockaddr*>(&a), sizeof a);
+    if (to.relayed) {relay_.send(socket_, p, total, to.ip, htons(to.port)); return;}
+    ::sendto(socket_, p, total, 0, reinterpret_cast<sockaddr*>(&a), sizeof a);
 }
 
 bool Link::peerAddress(std::string& out) const {
@@ -175,6 +181,19 @@ bool Link::peerAddress(std::string& out) const {
     ip.s_addr = remote_.ip;
     if (!::inet_ntop(AF_INET, &ip, text, sizeof text)) return false;
     out = std::string(text) + ":" + std::to_string(remote_.port);
+    return true;
+}
+
+bool Link::sendMessage(std::uint8_t type, const std::uint8_t* payload, std::size_t size) {
+    if (state_ != Up || type < first_message_type || size > max_payload) return false;
+    send(type, ++number_, 0, remote_, payload, size);
+    return true;
+}
+
+bool Link::popMessage(Message& out) {
+    if (inbox_.empty()) return false;
+    out = std::move(inbox_.front());
+    inbox_.pop_front();
     return true;
 }
 
@@ -264,6 +283,10 @@ void Link::poll() {
             peerLeft_ = true;
             break;
         default:
+            if (p[5] >= first_message_type && got <= static_cast<ssize_t>(packet_size + max_payload)) {
+                if (state_ == Linking) {state_ = Up; remote_ = source;}   // (the other side is already talking: it has heard us)
+                if (inbox_.size() < 256) inbox_.push_back({p[5], std::vector<std::uint8_t>(p + packet_size, p + got)});
+            }
             break;
         }
         if (before == Linking && state_ == Up) note("online: UP via " + text(remote_) + " after " + std::to_string((t - started_)) + " ms, " + std::to_string(sent_) + " sent");

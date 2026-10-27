@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <deque>
 #include <string>
 #include <vector>
 #include "relay.h"
@@ -45,13 +46,22 @@ public:
     bool relayActive() const {return relay_.active();}
     bool relayFailed() const {return relay_.failed();}
     const std::string& relayAddress() const {return relay_.relayedAddress();}
+    // Messages of the game's own conversation (session.h, lockstep.h) travel on the same line, once it is UP: a type from 6 up and a payload.
+    // Like everything here they may be lost, repeated or late: whoever sends them repeats them as long as it needs.
+    struct Message {std::uint8_t type = 0; std::vector<std::uint8_t> payload;};
+    static constexpr std::uint8_t first_message_type = 6;
+    static constexpr std::size_t max_payload = 1200;
+    bool sendMessage(std::uint8_t type, const std::uint8_t* payload, std::size_t size);   // false: the line is not UP, or the message is too big
+    bool popMessage(Message& out);                       // the oldest message that came, if any
+    std::uint16_t port() const {return port_;}           // the socket's port on this phone
+    void setTestLoss(int percent) {testLoss_ = percent;} // development and tests: that share of what is sent is dropped (BT3: BT3_NET_LOSS)
     // What happened on the line, in words, for the game's log (the plugin takes them each frame): the addresses, the hellos sent and what
     // came back, why it failed. Without this a failed match leaves nothing to tell a blocked router from a wrong address.
     std::vector<std::string> takeNotes() {auto out = std::move(notes_); notes_.clear(); return out;}
 
 private:
     struct Candidate {std::uint32_t ip = 0;std::uint16_t port = 0;bool relayed = false;};
-    void send(std::uint8_t type, std::uint32_t number, std::uint32_t echo, const Candidate& to);
+    void send(std::uint8_t type, std::uint32_t number, std::uint32_t echo, const Candidate& to, const std::uint8_t* payload = nullptr, std::size_t size = 0);
     static std::uint32_t now();
 
     void note(const std::string& text) {if (notes_.size() < 64) notes_.push_back(text);}
@@ -59,6 +69,9 @@ private:
 
     int socket_ = -1;
     std::vector<std::string> notes_;
+    std::deque<Message> inbox_;
+    int testLoss_ = 0;
+    std::uint32_t lossState_ = 2463534242u;
     std::uint32_t sent_ = 0, got_ = 0, foreign_ = 0, lastNote_ = 0;
     Candidate lastForeign_;
     State state_ = Closed;
