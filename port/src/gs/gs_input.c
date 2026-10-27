@@ -34,6 +34,8 @@ void Port_TouchPad(unsigned buttons, int lx, int ly, int rx, int ry) {
     sTouchStick[2] = (unsigned char)rx;
     sTouchStick[3] = (unsigned char)ry;
 }
+/* The on-screen controller's buttons as they are now (the bits below): a spectator's R1 changes the view (gs/ui.cpp). */
+unsigned Port_TouchButtons(void) { return sTouchButtons; }
 extern int Port_Setting(const char *name, int def); /* plat_settings.c */
 extern void Port_SettingSave(const char *name, int value), Port_SettingsWrite(void);
 
