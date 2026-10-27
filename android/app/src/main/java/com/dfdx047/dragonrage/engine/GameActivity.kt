@@ -3,6 +3,8 @@ package com.dfdx047.dragonrage.engine
 import android.app.AlertDialog
 import android.content.Intent
 import android.hardware.input.InputManager
+import android.net.wifi.WifiManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -43,6 +45,7 @@ import org.libsdl.app.SDLActivity
  * [TouchBridge] and steps aside while the engine's own window (settings, online) is open.
  */
 open class GameActivity : SDLActivity() {
+    private var wifiLock: WifiManager.WifiLock? = null
     protected lateinit var paths: GamePaths
     private lateinit var store: TouchStore
     private var pad: TouchSurface? = null
@@ -76,6 +79,7 @@ open class GameActivity : SDLActivity() {
         store = TouchStore(paths.root)
         installDataList()
         super.onCreate(savedInstanceState)
+        runCatching { window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
         hideBars()
         addTouchPad()
         if (sustained) { // (Settings: steady clocks the phone can hold, where it supports them)
@@ -190,16 +194,37 @@ open class GameActivity : SDLActivity() {
 
     override fun onResume() {
         super.onResume()
+        runCatching {
+            val lock = wifiLock ?: run {
+                val wifi = getSystemService(WIFI_SERVICE) as WifiManager
+                val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+                } else {
+                    WifiManager.WIFI_MODE_FULL_HIGH_PERF
+                }
+                wifi.createWifiLock(mode, "DragonRage:GameActivity").apply {
+                    setReferenceCounted(false)
+                    wifiLock = this
+                }
+            }
+            if (!lock.isHeld) lock.acquire()
+        }
         pad?.let { it.config = store.load() }
         handler.post(watchMenu)
         runCatching { (getSystemService(INPUT_SERVICE) as InputManager).registerInputDeviceListener(devices, handler) }
     }
 
     override fun onPause() {
+        runCatching { wifiLock?.let { if (it.isHeld) it.release() } }
         runCatching { (getSystemService(INPUT_SERVICE) as InputManager).unregisterInputDeviceListener(devices) }
         handler.removeCallbacks(watchMenu)
         TouchBridge.setPad(0, 128, 128, 128, 128)
         super.onPause()
+    }
+
+    override fun onDestroy() {
+        runCatching { wifiLock?.let { if (it.isHeld) it.release() } }
+        super.onDestroy()
     }
 
     /** The controller's own quick menu: look, opacity, layout editing, shown or not. */
