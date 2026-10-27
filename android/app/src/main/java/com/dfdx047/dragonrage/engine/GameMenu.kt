@@ -222,7 +222,7 @@ private class MenuValues(private val file: () -> EngineSettings) {
             "text_font_id", "clash_square", "clash_square_x", "chat", "game_speed", "skip_logos", "skip_intro",
             "skip_copyright", "unlock_done", "online", "fps", "net_spectators", "lobby_match", "lobby_owner", "spectating", "spec_view",
         )
-        val TEXT_KEYS = listOf("gpu", "device", "fonts_menu", "fonts_battle", "fonts_text", "lobby_code", "spec_names")
+        val TEXT_KEYS = listOf("gpu", "device", "fonts_menu", "fonts_battle", "fonts_text", "lobby_code", "lobby_server", "spec_names")
     }
 }
 
@@ -334,6 +334,7 @@ private fun NetBar(l: L, v: MenuValues, onDone: () -> Unit) {
     val watching = v.get("spectating", 0) != 0
     val names = v.texts["spec_names"].orEmpty().split('|')
     val code = v.texts["lobby_code"].orEmpty()
+    val server = v.texts["lobby_server"].orEmpty()
     fun act(a: Int) { MenuBridge.action(a); onDone() }
     Surface(
         shape = RoundedCornerShape(20.dp),
@@ -352,7 +353,7 @@ private fun NetBar(l: L, v: MenuValues, onDone: () -> Unit) {
                 l.t("Watching %s vs %s · View: %s", "Assistindo %s x %s · Câmera: %s", "Viendo %s vs %s · Cámara: %s")
                     .format(names.getOrNull(0).orEmpty(), names.getOrNull(1).orEmpty(), view)
             } else {
-                l.t("Lobby", "Lobby", "Lobby") + if (code.isNotEmpty()) "  $code" else ""
+                l.t("Lobby", "Lobby", "Lobby") + if (code.isNotEmpty()) "  $code · Server $server" else ""
             }
             Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.tertiary, fontWeight = FontWeight.Bold)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

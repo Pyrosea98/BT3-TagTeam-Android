@@ -800,7 +800,7 @@ struct NmPair { char key[32]; int value; };
 static NmPair sNmQueue[64], sNmSnap[64];
 static int sNmQueueN, sNmSnapN;
 static char sNmFonts[3][1024], sNmDevice[256];
-static char sNmLobbyCode[8], sNmSpecNames[130]; // (a lobby's code; the two names of a watched match, "a|b")
+static char sNmLobbyCode[8], sNmLobbyServer[12], sNmSpecNames[130]; // (a lobby's code and service; watched players, "a|b")
 static volatile int sNmAction; // 1 resume, 2 quit, 3 the controller's buttons (this window, Controls); 4 back to the lobby, 5 leave it, 6 the next view, 7 stop watching
 
 static void nm_lock(void) {
@@ -875,6 +875,7 @@ static void nm_snapshot(void) {
         nm_put("spectating", Port_NetSpectating() != 0);
         nm_put("spec_view", Port_NetSpecView());
         SDL_snprintf(sNmLobbyCode, sizeof(sNmLobbyCode), "%s", inLobby ? lv.code : "");
+        SDL_snprintf(sNmLobbyServer, sizeof(sNmLobbyServer), "%s", inLobby ? Port_LobbyServer() : "");
         SDL_snprintf(sNmSpecNames, sizeof(sNmSpecNames), "%s|%s", Port_NetName(0), Port_NetName(1));
     }
     nm_put("fps", (int)(ImGui::GetCurrentContext() != NULL ? ImGui::GetIO().Framerate : 0.0f));
@@ -1072,6 +1073,7 @@ int Ui_NmText(const char *key, char *out, int size) {
     else if (strcmp(key, "fonts_battle") == 0) { t = sNmFonts[1]; }
     else if (strcmp(key, "fonts_text") == 0) { t = sNmFonts[2]; }
     else if (strcmp(key, "lobby_code") == 0) { t = sNmLobbyCode; }
+    else if (strcmp(key, "lobby_server") == 0) { t = sNmLobbyServer; }
     else if (strcmp(key, "spec_names") == 0) { t = sNmSpecNames; }
     SDL_strlcpy(out, t, (size_t)size);
     SDL_UnlockMutex(sNmLock);
