@@ -23,6 +23,11 @@ extern void Demo_SetupBattle(void);
 #define REPLAY_HEADER 0x38
 #define REPLAY_BLOCK 0x1ABA8
 
+int Port_CamSparking(void) {
+    const char *e = getenv("BT3_CAM_SPARKING");
+    return e != NULL && atoi(e) != 0;
+}
+
 static int sBattles;
 static int sFromMenu;
 

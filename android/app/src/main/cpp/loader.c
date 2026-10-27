@@ -680,6 +680,7 @@ int SDL_main(int argc, char *argv[]) {
         say("lite mode on a Mali");
     }
     if (argc > 6 && strcmp(argv[6], "1") == 0) { setenv("BT3_MENU_ITEM4", "0", 0); }
+    if (argc > 7 && strcmp(argv[7], "1") == 0) { setenv("BT3_CAM_SPARKING", "1", 0); }
     area_driver(libdir);
     setenv("SDL_VIDEO_DRIVER", "android", 0);
     setenv("SDL_ANDROID_TRAP_BACK_BUTTON", "1", 0); /* the back button opens the settings (gs_gpu.c), it does not end the game */

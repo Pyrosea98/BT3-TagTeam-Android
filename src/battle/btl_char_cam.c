@@ -1,6 +1,8 @@
 #include "common.h"
 #include "battle/btl_char_cam_int.h"
 
+extern int Port_CamSparking(void);
+
 /* The fighter's own camera, 0x1C4BF8-0x1C7B30. See battle/btl_char_cam.h for the structures and the frame flow.
  *
  * Callers: BtlChar_UpdateCamera (0x1C2218) runs ChrCam_StartCut, ChrCam_UpdateDemo, ChrCam_UpdateInput;
@@ -19,6 +21,7 @@ f32 ChrCam_GetOffset(ChrCamChr *chr, Vec4 *out, s32 mode) {
     f32 scale;
     f32 dist;
     f32 pitch;
+    int sparking = Port_CamSparking();
 
     scale = BtlCharApi_GetHeight(chr->objId);
     pitch = 0.0f;
@@ -29,21 +32,39 @@ f32 ChrCam_GetOffset(ChrCamChr *chr, Vec4 *out, s32 mode) {
     switch (mode) {
         case 1:
             out->x = 0.0f;
-            out->y = -dist * 1.5f;
-            out->z = -dist * 2.8f;
-            pitch = scale * -0.001f + -0.06f;
+            if (sparking) {
+                out->y = -dist * 1.65f;
+                out->z = -dist * 3.08f;
+                pitch = (scale * -0.001f + -0.06f) * 0.9f;
+            } else {
+                out->y = -dist * 1.5f;
+                out->z = -dist * 2.8f;
+                pitch = scale * -0.001f + -0.06f;
+            }
             break;
         case 2:
             out->x = 0.0f;
-            out->y = -dist * 2.0f;
-            out->z = -dist * 3.3f;
-            pitch = scale * -0.001f + -0.1f;
+            if (sparking) {
+                out->y = -dist * 2.2f;
+                out->z = -dist * 3.63f;
+                pitch = (scale * -0.001f + -0.1f) * 0.9f;
+            } else {
+                out->y = -dist * 2.0f;
+                out->z = -dist * 3.3f;
+                pitch = scale * -0.001f + -0.1f;
+            }
             break;
         case 0:
             out->x = 0.0f;
-            out->y = -dist * 1.2f;
-            out->z = -dist * 2.4f;
-            pitch = scale * -0.001f + -0.05f;
+            if (sparking) {
+                out->y = -dist * 1.8f;
+                out->z = -dist * 3.6f;
+                pitch = (scale * -0.001f + -0.05f) * 0.9f;
+            } else {
+                out->y = -dist * 1.2f;
+                out->z = -dist * 2.4f;
+                pitch = scale * -0.001f + -0.05f;
+            }
             break;
     }
     out->w = 1.0f;

@@ -457,6 +457,7 @@ open class GameActivity : SDLActivity() {
             paths.root.path, applicationInfo.nativeLibraryDir, driver?.dir?.path ?: "", driver?.library ?: "",
             if (liteMali) "1" else "0",
             if (game == com.dfdx047.dragonrage.data.Game.BT3CAM) "1" else "0",
+            if (game == com.dfdx047.dragonrage.data.Game.BT3CAM) "1" else "0",
         )
     }
 }
