@@ -87,6 +87,7 @@ void Port_LobbyHelloAsk(void);                               // asks it whether 
 int Port_LobbyRelease(int *min, int *latest);                // this release's number; the oldest let in and the newest (0: not known)
 int Port_LobbyQueueWaiting(int queue);                       // ... as last heard, -1 if not known
 const char *Port_LobbyCode(void);                            // the host's room code, "" until it is known
+const char *Port_LobbyServer(void);                          // matchmaking service holding the room code
 const char *Port_LobbyError(void);                           // why the matchmaking failed (state -3)
 int Port_LobbyRelayed(void);                                 // the other player was reached through the relay
 int Port_LobbyPoll(void);
@@ -1042,7 +1043,7 @@ static void build_net(void) {
                 quick_status(state, lastState, name);
             } else if (state == 3 || (state == 1 && byCode)) { // a room code: asking the service, then reaching the other player
                 if (tab == 0 && Port_LobbyCode()[0] != '\0') {
-                    ImGui::TextUnformatted("Room code:");
+                    ImGui::Text("Room code (server %s):", Port_LobbyServer());
                     ImGui::SameLine();
                     ImGui::SetWindowFontScale(1.8f);
                     ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", Port_LobbyCode());
