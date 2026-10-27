@@ -109,9 +109,10 @@ void EeRuntime::frameVif1Start(std::uint32_t value) {
     // The list's words and the first word index and address of each tag; the buffers are kept between lists.
     // (Sized once and copied with memcpy: inserting the words one range at a time copied them one word at a time,
     // about 2% of the game thread in a fight on Android, measured. BT2_PERF_BASELINE: as before, to measure against.)
-    auto& words=vif1_list_words_;auto& tags=vif1_list_tags_;words.clear();tags.clear();
+    auto& words=vif1_list_words_;auto& tags=vif1_list_tags_;tags.clear();
     static const bool baseline=std::getenv("BT2_PERF_BASELINE")!=nullptr;
     if(baseline) {
+        words.clear();
         const auto append=[&](const std::uint8_t* bytes,std::size_t count) {
             const auto* from=reinterpret_cast<const std::uint32_t*>(bytes);words.insert(words.end(),from,from+count);
         };
@@ -122,6 +123,8 @@ void EeRuntime::frameVif1Start(std::uint32_t value) {
     } else {
         std::size_t total=0;
         for(const auto& c:chain.segments)total+=2+c.data.size()/4;
+        // (not cleared first: resize from empty wrote zeros into every word, which the copies below then wrote again; now only a longer list
+        // than the last one writes zeros, into its new end)
         words.resize(total);
         std::size_t at=0;
         for(const auto& c:chain.segments) {

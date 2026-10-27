@@ -38,25 +38,33 @@ struct RenderQueue {
     std::condition_variable wake,idle;
     std::vector<std::uint8_t> pending,work; // packets: their size in quadwords (4 bytes), then the bytes
     bool busy=false;
+    // Who is asleep: the worker on `wake` (nothing pending), the game thread on `idle` (a flip waiting for the queue to empty). A packet wakes the
+    // worker only when it sleeps, and the worker tells the game thread only when it waits: thousands of packets a frame each made a futex call
+    // to wake a thread that was already working (measured on Android: the unlock and the wake were about 2% of the samples of a fight).
+    bool sleeping=false,draining=false;
     double waited_seconds=0; // the game thread's waits at the flips (statistics)
     void push(std::span<const std::uint8_t> data) {
         const std::uint32_t qwc=std::uint32_t(data.size()/16);
+        const auto* size=reinterpret_cast<const std::uint8_t*>(&qwc);
+        bool wake_worker;
         {
             std::lock_guard<std::mutex> hold(lock);
-            const std::size_t at=pending.size();
-            pending.resize(at+4+data.size());
-            std::memcpy(pending.data()+at,&qwc,4);
-            std::memcpy(pending.data()+at+4,data.data(),data.size());
+            // (appended, not resized and then copied over: resize wrote zeros into every byte the copy then wrote again)
+            pending.insert(pending.end(),size,size+4);
+            pending.insert(pending.end(),data.begin(),data.end());
+            wake_worker=sleeping;
+            sleeping=false;
         }
-        wake.notify_one();
+        if(wake_worker)wake.notify_one();
     }
     void run() {
         for(;;) {
             {
                 std::unique_lock<std::mutex> hold(lock);
                 busy=false;
-                idle.notify_all();
-                wake.wait(hold,[&]{return !pending.empty();});
+                if(draining && pending.empty())idle.notify_all();
+                while(pending.empty()) {sleeping=true;wake.wait(hold);}
+                sleeping=false;
                 pending.swap(work);
                 busy=true;
             }
@@ -73,7 +81,9 @@ struct RenderQueue {
     void drain() {
         const auto begin=std::chrono::steady_clock::now();
         std::unique_lock<std::mutex> hold(lock);
+        draining=true;
         idle.wait(hold,[&]{return pending.empty() && !busy;});
+        draining=false;
         waited_seconds+=std::chrono::duration<double>(std::chrono::steady_clock::now()-begin).count();
     }
 };
