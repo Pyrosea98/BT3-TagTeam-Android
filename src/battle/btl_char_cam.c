@@ -3,9 +3,18 @@
 
 extern int Port_CamSparking(void);
 extern f32 BtlUtil_ApproachF(f32 cur, f32 target, f32 step);
+extern s32 BtlAnim_GetId(ChrCamChr *chr);
 
-#define CAM_KI_ZOOM 0.8f
-#define CAM_KI_PITCH (-0.03f)
+#define CAM_KI_ZOOM 1.2f
+#define CAM_MAXPOWER_ZOOM 1.4f
+#define CAM_KI_PITCH 0.0f
+#define CAM_KI_STEP (3.0f / 30.0f)
+#define CAM_KI_ANIM_ID 0x36
+#define CAM_KI_FLAG 0xC
+#define CAM_KI_FACTOR 1.0f
+#define CAM_MAXPOWER_FACTOR 2.0f
+#define CAM_KI_MIN_FACTOR 1.0f
+#define CAM_KI_ZERO_FACTOR 0.0f
 
 static f32 sChrCamKiFactor[6];
 
@@ -75,13 +84,23 @@ f32 ChrCam_GetOffset(ChrCamChr *chr, Vec4 *out, s32 mode) {
             break;
     }
     if (sparking) {
-        sChrCamKiFactor[chr->side] = BtlUtil_ApproachF(sChrCamKiFactor[chr->side],
-                                                         BtlChar_TestFlag(chr, 0xC) != 0 ? 1.0f : 0.0f,
-                                                         0.4f / 30.0f);
+        f32 targetFactor;
+        f32 kiZoomFactor;
+        f32 maxPowerFactor;
+        f32 zoom;
+
+        targetFactor = BtlAnim_GetId(chr) == CAM_KI_ANIM_ID
+                           ? CAM_MAXPOWER_FACTOR
+                           : (BtlChar_TestFlag(chr, CAM_KI_FLAG) != 0 ? CAM_KI_FACTOR : CAM_KI_ZERO_FACTOR);
+        sChrCamKiFactor[chr->side] = BtlUtil_ApproachF(sChrCamKiFactor[chr->side], targetFactor, CAM_KI_STEP);
         kiFactor = sChrCamKiFactor[chr->side];
-        out->y *= 1.0f + (CAM_KI_ZOOM - 1.0f) * kiFactor;
-        out->z *= 1.0f + (CAM_KI_ZOOM - 1.0f) * kiFactor;
-        pitch += CAM_KI_PITCH * kiFactor;
+        kiZoomFactor = kiFactor < CAM_KI_MIN_FACTOR ? kiFactor : CAM_KI_MIN_FACTOR;
+        maxPowerFactor = kiFactor > CAM_KI_MIN_FACTOR ? kiFactor - CAM_KI_MIN_FACTOR : CAM_KI_ZERO_FACTOR;
+        zoom = CAM_KI_FACTOR + (CAM_KI_ZOOM - CAM_KI_FACTOR) * kiZoomFactor +
+               (CAM_MAXPOWER_ZOOM - CAM_KI_ZOOM) * maxPowerFactor;
+        out->y *= zoom;
+        out->z *= zoom;
+        pitch += CAM_KI_PITCH * kiZoomFactor;
     }
     out->w = 1.0f;
     return pitch;
