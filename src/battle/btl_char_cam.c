@@ -4,13 +4,18 @@
 extern int Port_CamSparking(void);
 extern f32 BtlUtil_ApproachF(f32 cur, f32 target, f32 step);
 extern s32 BtlAnim_GetId(ChrCamChr *chr);
+extern s32 BtlMember_IsKiFull(ChrCamChr *chr);
+extern s32 BtlMember_HasBlast(ChrCamChr *chr, s32 amount);
 
 #define CAM_KI_ZOOM 1.2f
 #define CAM_MAXPOWER_ZOOM 1.4f
 #define CAM_KI_PITCH 0.0f
-#define CAM_KI_STEP (3.0f / 30.0f)
+#define CAM_KI_STEP (5.0f / 30.0f)
+#define CAM_KI_ANIM_START 0x34
+#define CAM_KI_ANIM_LOOP 0x35
 #define CAM_KI_ANIM_ID 0x36
 #define CAM_KI_FLAG 0xC
+#define CAM_BLAST_COST 100000
 #define CAM_KI_FACTOR 1.0f
 #define CAM_MAXPOWER_FACTOR 2.0f
 #define CAM_KI_MIN_FACTOR 1.0f
@@ -88,10 +93,19 @@ f32 ChrCam_GetOffset(ChrCamChr *chr, Vec4 *out, s32 mode) {
         f32 kiZoomFactor;
         f32 maxPowerFactor;
         f32 zoom;
+        s32 anim;
 
-        targetFactor = BtlAnim_GetId(chr) == CAM_KI_ANIM_ID
-                           ? CAM_MAXPOWER_FACTOR
-                           : (BtlChar_TestFlag(chr, CAM_KI_FLAG) != 0 ? CAM_KI_FACTOR : CAM_KI_ZERO_FACTOR);
+        anim = BtlAnim_GetId(chr);
+        if (anim == CAM_KI_ANIM_ID) {
+            targetFactor = CAM_MAXPOWER_FACTOR;
+        } else if (anim == CAM_KI_ANIM_START || anim == CAM_KI_ANIM_LOOP ||
+                   BtlChar_TestFlag(chr, CAM_KI_FLAG) != 0) {
+            targetFactor = BtlMember_IsKiFull(chr) != 0 && BtlMember_HasBlast(chr, CAM_BLAST_COST) != 0
+                               ? CAM_MAXPOWER_FACTOR
+                               : CAM_KI_FACTOR;
+        } else {
+            targetFactor = CAM_KI_ZERO_FACTOR;
+        }
         sChrCamKiFactor[chr->side] = BtlUtil_ApproachF(sChrCamKiFactor[chr->side], targetFactor, CAM_KI_STEP);
         kiFactor = sChrCamKiFactor[chr->side];
         kiZoomFactor = kiFactor < CAM_KI_MIN_FACTOR ? kiFactor : CAM_KI_MIN_FACTOR;
