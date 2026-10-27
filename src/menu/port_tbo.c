@@ -294,6 +294,8 @@ extern void Port_SettingsWrite(void);
 #define HUB_LEADERBOARD 8
 #define HUB_PROFILE 9
 #define HUB_COUNT 10
+#define HUB_LANG 10 /* the language of these screens: the row above the list */
+#define HUB_ITEMS 11
 
 /* Create Room's rows */
 #define CR_BATTLE 0
@@ -322,8 +324,9 @@ typedef struct TboScreen {
     s32 train;          /* it is left for the Ultimate Training, the room still open */
     s32 note;
     char noteLine[96];
-    s32 hubCur;
+    s32 hubCur;         /* the item under the cursor (HUB_*) */
     f32 hubY;           /* where the hub's cursor plate is drawn: it glides */
+    s32 lang;           /* the screens' language: 0 English, 1 Portuguese, 2 Spanish (setting tbo_lang) */
     /* the host's choices (kept in the settings) */
     s32 battle;         /* 0 one on one, 1 teams of up to five */
     s32 time;           /* 0..4: 60, 90, 180, 240 seconds, no limit */
@@ -396,9 +399,27 @@ static char *Tb_Fmt(char *format) {
     return Port_TrLine(format, buf[k], 160) ? buf[k] : format;
 }
 
-static char *sTbHubName[HUB_COUNT] = {"Quick Match", "Ranked Match", "Create Room", "Join Room", "Lobby", "Friends", "Tournament", "Replays", "Leaderboard", "Profile"};
-static const s32 sTbHubReady[HUB_COUNT] = {1, 0, 1, 1, 1, 0, 0, 0, 0, 1};
-static char *sTbHubSay[HUB_COUNT] = {
+static char *sTbHubName[HUB_ITEMS] = {"Quick Match", "Ranked Match", "Create Room", "Join Room", "Lobby", "Friends", "Tournament", "Replays", "Leaderboard", "Profile",
+                                     "Language"};
+static const s32 sTbHubReady[HUB_ITEMS] = {1, 0, 1, 1, 1, 0, 0, 0, 0, 1, 1};
+/* What the hub lists, top to bottom: the language, then what can be played. Ranked Match, Friends, Tournament, Replays
+   and Leaderboard need more of the matchmaking service than it has: not listed until they do. */
+static const s32 sTbHubOrder[] = {HUB_LANG, HUB_QUICK, HUB_CREATE, HUB_JOIN, HUB_LOBBY, HUB_PROFILE};
+#define HUB_ROWS ((s32)(sizeof(sTbHubOrder) / sizeof(sTbHubOrder[0])))
+static s32 Tb_HubRow(s32 item) {
+    s32 i;
+
+    for (i = 0; i < HUB_ROWS; i++) {
+        if (sTbHubOrder[i] == item) {
+            return i;
+        }
+    }
+    return 1;
+}
+/* the languages of the language row, in their own words (not translated) */
+static char *sTbLangName[3] = {"ENGLISH", "PORTUGU\xC3\x8AS", "ESPA\xC3\x91OL"}; /* (UTF-8 in escapes: the build reads the file as ASCII) */
+static char *sTbLangCode[3] = {"en", "pt", "es"};
+static char *sTbHubSay[HUB_ITEMS] = {
     "Fight whoever is searching right now! No time limit, and you can train while you wait.",
     "Fights that move your rank, season by season. That one is coming soon!",
     "Open a room with your own rules, then give your rival its code. No port forwarding needed!",
@@ -409,6 +430,7 @@ static char *sTbHubSay[HUB_COUNT] = {
     "Your last matches, saved to watch again. That one is coming soon!",
     "The strongest in the world, among your friends, and with each fighter. Coming soon!",
     "The name your rivals see.",
+    "Choose the language of these screens. Left and right change it.",
 };
 static void Tb_LobbyOpen(void);
 static void Tb_LobbyCreate(void);
@@ -464,7 +486,18 @@ static void Tb_SaveChoices(void) {
     Port_SettingsWrite();
 }
 
+/* The screens' language: the one chosen here before, else the launcher's (dr_lang: 0 English, 1 Portuguese,
+   2 Spanish), else English. */
+extern int Port_TboLanguage(const char *locale); /* port/src/gs/menu_translation.c */
+static void Tb_LangSet(s32 lang) {
+    sTb->lang = lang >= 0 && lang <= 2 ? lang : 0;
+    Port_TboLanguage(sTbLangCode[sTb->lang]);
+}
+
 static void Tb_LoadChoices(void) {
+    s32 lang = Port_Setting("tbo_lang", -1);
+
+    Tb_LangSet(lang >= 0 ? lang : Port_Setting("dr_lang", 0));
     sTb->battle = Port_Setting("tbo_battle", 0);
     sTb->time = Port_Setting("tbo_time", 3);
     sTb->delay = Port_Setting("net_delay2", -1);
@@ -792,13 +825,36 @@ static void Tb_QuickUpdate(s32 live) {
 static void Tb_HubUpdate(s32 live) {
     Pad *pad = &gPad[0];
 
-    Ps_Prompt(0, "Enter");
+    s32 row = Tb_HubRow(sTb->hubCur), side;
+
+    if (sTb->hubCur == HUB_LANG) {
+        Ps_Prompt(3, "Change");
+    } else {
+        Ps_Prompt(0, "Enter");
+    }
     Ps_Prompt(2, "Back");
     if (!live) {
         return;
     }
-    Ps_Move(&sTb->hubCur, HUB_COUNT);
-    if (pad->gamePressed & PADG_CROSS) {
+    if (Ps_Move(&row, HUB_ROWS)) {
+        sTb->hubCur = sTbHubOrder[row];
+    }
+    side = sTb->hubCur == HUB_LANG ? Ps_Side() : 0;
+    if (side == 0 && sTb->hubCur == HUB_LANG && (pad->gamePressed & PADG_CROSS)) {
+        side = 1;
+    }
+    if (side != 0) {
+        Snd_PlaySe(1, 0);
+        Tb_LangSet((sTb->lang + side + 3) % 3);
+        Port_SettingSave("tbo_lang", sTb->lang);
+        Port_SettingsWrite();
+    } else if (sTb->hubCur == HUB_LANG) {
+        if (pad->gamePressed & PADG_TRIANGLE) {
+            Snd_PlaySe(1, 2);
+            sTb->leaving = 1;
+            ColorFade_StartOut(0, 0, 0, 0x14);
+        }
+    } else if (pad->gamePressed & PADG_CROSS) {
         switch (sTb->hubCur) {
         case HUB_QUICK:
             Snd_PlaySe(1, 1);
@@ -1219,11 +1275,12 @@ static void Tb_Backdrop(void) {
 #define TB_HOSTS_BOX_TOP 326.0f /* the top edge of the message box (the game's, MsgWin) */
 #define TB_HOSTS_SCALE 1.2f     /* those half behind the box, larger than the pages ask */
 static void Tb_Hosts(s32 pose, f32 cx, f32 feet, f32 height) {
-    if (feet >= 300.0f) { /* (on the box's line) half the picture behind the box: its middle on the box's top edge */
-        height *= TB_HOSTS_SCALE;
-        feet = TB_HOSTS_BOX_TOP + height * 0.5f;
+    (void)pose; /* Raditz, whatever the page asked for (the announcer's poses: hosts_*.png, kept for the PC's look) */
+    if (feet >= 300.0f) { /* (on the box's line) standing on the box, arms crossed, whole: his feet at its top edge */
+        height = height * TB_HOSTS_SCALE > 280.0f ? 280.0f : height * TB_HOSTS_SCALE;
+        feet = TB_HOSTS_BOX_TOP + 4.0f;
     }
-    Ps_Stand(pose, cx, feet + 2.0f * Tb_Beat(90) - 1.0f, height, 0x80);
+    Ps_Stand(TBO_RADITZ, cx, feet + 2.0f * Tb_Beat(90) - 1.0f, height, 0x80);
 }
 
 /* The Dragon Radar of the search: its glass, its grid, the sweeping line, a few dragon balls blinking. */
@@ -1264,73 +1321,88 @@ static void Tb_Radar(f32 cx, f32 cy, f32 r) {
     Ps_Disc(cx, cy, 3.0f, Ps_Rgba(0xFF, 0x50, 0x40, 0x80), Ps_Rgba(0xA0, 0x10, 0x10, 0x80)); /* you */
 }
 
-static f32 Tb_HubRowY(s32 i) {
-    return 63.0f + 26.0f * (f32)i; /* the last bar (under the cursor: to +27) ends above the box (y 326) */
+/* The hub: the language row under the title, then the list, a plate each, large enough for a phone's screen. The
+   plates lean like the main menu's (kit_bar, kit_sel: the slant is in their ends); the one under the cursor is longer,
+   gold, and glides to where the cursor is. */
+#define TB_HUB_LANG_Y 52.0f   /* the language row: small, under the title */
+#define TB_HUB_LIST_Y 84.0f   /* the first plate of the list */
+#define TB_HUB_PITCH 47.0f    /* from plate to plate: the last one ends above the box (y 326) */
+#define TB_HUB_PLATE 40.0f    /* a plate's height */
+#define TB_HUB_END 262.0f     /* where a plate ends; under the cursor: further */
+static f32 Tb_HubRowY(s32 row) {
+    return row == 0 ? TB_HUB_LANG_Y : TB_HUB_LIST_Y + TB_HUB_PITCH * (f32)(row - 1);
 }
 
-static f32 Tb_HubRowEnd(s32 i) {
-    return 270.0f - 6.5f * (f32)i; /* the bars cascade: each a little shorter than the one above */
+static f32 Tb_HubRowH(s32 row) {
+    return row == 0 ? 26.0f : TB_HUB_PLATE;
 }
 
 static void Tb_DrawHub(void) {
-    s32 i;
+    s32 i, cur = Tb_HubRow(sTb->hubCur);
     f32 slide = (1.0f - Tb_In(0)) * -160.0f;
-    f32 target = Tb_HubRowY(sTb->hubCur);
+    f32 left = Tb_TitleLeft() - 8.0f + slide;
 
-    Tb_Hosts(TBO_HOSTS_MIC_WAVE, 396.0f - slide * 0.6f, 350.0f, 262.0f);
-    sTb->hubY += (target - sTb->hubY) * 0.35f;
-    for (i = 0; i < HUB_COUNT; i++) {
+    Tb_Hosts(TBO_RADITZ, 420.0f - slide * 0.6f, 350.0f, 270.0f);
+    sTb->hubY += (Tb_HubRowY(cur) - sTb->hubY) * 0.35f;
+    for (i = 0; i < HUB_ROWS; i++) {
         f32 y = Tb_HubRowY(i);
-        f32 x1 = Tb_HubRowEnd(i) + slide;
+        f32 end = i == 0 ? 178.0f : TB_HUB_END - 4.0f * (f32)i;
 
-        if (i != sTb->hubCur) {
-            Ps_Pill(TBO_KIT_BAR, TB_BAR_LEFT + slide, y, x1, y + 24.0f, sTbHubReady[i] ? 0x80 : 0x60);
+        if (i != cur) {
+            Ps_Pill(TBO_KIT_BAR, left + 12.0f, y, end + slide, y + Tb_HubRowH(i), 0x80);
         }
     }
-    Ps_Pill(TBO_KIT_SEL, TB_BAR_LEFT + slide, sTb->hubY - 3.0f, Tb_HubRowEnd(sTb->hubCur) + 22.0f + slide, sTb->hubY + 27.0f, 0x80);
-    for (i = 0; i < HUB_COUNT; i++) {
-        if (!sTbHubReady[i]) {
-            Ps_Pill(TBO_KIT_STEEL, Tb_HubRowEnd(i) - 46.0f + slide + (i == sTb->hubCur ? 18.0f : 0.0f), Tb_HubRowY(i) + 5.0f,
-                    Tb_HubRowEnd(i) - 6.0f + slide + (i == sTb->hubCur ? 18.0f : 0.0f), Tb_HubRowY(i) + 19.0f, 0x80);
+    {   /* the cursor's plate, gliding between the rows (its height follows: the language row is lower) */
+        f32 h = Tb_HubRowH(cur);
+        f32 end = cur == 0 ? 198.0f : TB_HUB_END + 26.0f;
+
+        Ps_Pill(TBO_KIT_SEL, left, sTb->hubY - 2.0f, end + slide, sTb->hubY + h + 2.0f, 0x80);
+        if (cur == 0) {
+            Ps_Button(3, 188.0f + slide, sTb->hubY + h * 0.5f, 18.0f);
         }
     }
 }
 
 static void Tb_DrawHubText(void) {
-    s32 i;
+    s32 i, cur = Tb_HubRow(sTb->hubCur);
     f32 slide = (1.0f - Tb_In(0)) * -160.0f;
+    f32 x = Tb_TitleLeft() + 38.0f + slide;
 
-    for (i = 0; i < HUB_COUNT; i++) {
-        f32 y = Tb_HubRowY(i);
+    for (i = 0; i < HUB_ROWS; i++) {
+        s32 item = sTbHubOrder[i];
+        f32 y = i == cur ? sTb->hubY : Tb_HubRowY(i);
+        f32 mid = y + Tb_HubRowH(i) * 0.5f;
 
-        /* each label's capitals in the middle of its bar (the bar under the cursor: hubY - 3 to hubY + 27) */
-        if (i == sTb->hubCur) {
-            Ps_Text(36.0f + slide, Ps_TextTop(sTb->hubY + 12.0f, 0.84f), sTbHubName[i], 0.84f, 0.0f, 1);
-        } else {
-            Ps_Text(36.0f + slide, Ps_TextTop(y + 12.0f, 0.7f), sTbHubName[i], 0.7f, 0.0f, sTbHubReady[i] ? 0 : 4);
-        }
-        if (!sTbHubReady[i]) {
+        if (item == HUB_LANG) { /* "Language   PORTUGUES": the label, then the language in its own words */
+            Ps_Text(x - 10.0f, Ps_TextTop(mid, 0.62f), sTbHubName[item], 0.62f, 70.0f, i == cur ? 1 : 0);
             Ps_Align(1);
-            Ps_Text(Tb_HubRowEnd(i) - 26.0f + slide + (i == sTb->hubCur ? 18.0f : 0.0f), Ps_TextTop(Tb_HubRowY(i) + 12.0f, 0.42f), "SOON", 0.42f,
-                    0.0f, 4);
+            Ps_Text(132.0f + slide, Ps_TextTop(mid, 0.66f), sTbLangName[sTb->lang], 0.66f, 80.0f, i == cur ? 1 : 3);
             Ps_Align(0);
+        } else if (i == cur) {
+            Ps_Text(x, Ps_TextTop(mid, 1.26f), sTbHubName[item], 1.26f, 230.0f, 1);
+        } else {
+            Ps_Text(x + 12.0f, Ps_TextTop(mid, 1.06f), sTbHubName[item], 1.06f, 200.0f, 0);
         }
     }
 }
 
-/* rows of label / value, as Create Room and Profile have them */
+/* rows of label / value, as Create Room and Profile have them: TB_ROW apart, TB_ROW_H high (a finger's size) */
+#define TB_ROW 42.0f
+#define TB_ROW_H 36.0f
+#define TB_ROW_LABEL 0.9f /* the label's scale, */
+#define TB_ROW_VALUE 0.72f /* the value's */
 static void Tb_DrawRows(s32 count, s32 cur, f32 y0) {
     s32 i;
 
-    Ps_Panel(TBO_KIT_WINDOW, 14.0f, y0 - 14.0f, 300.0f, y0 + 34.0f * (f32)count + 6.0f, 0x80);
+    Ps_Panel(TBO_KIT_WINDOW, 8.0f, y0 - 12.0f, 306.0f, y0 + TB_ROW * (f32)count + 4.0f, 0x80);
     for (i = 0; i < count; i++) {
-        f32 y = y0 + 34.0f * (f32)i;
+        f32 y = y0 + TB_ROW * (f32)i;
 
         if (i == cur) {
-            Ps_Pill(TBO_KIT_SEL, 20.0f, y - 2.0f, 294.0f, y + 28.0f, 0x80);
-            Ps_Button(3, 278.0f, y + 13.0f, 20.0f);
+            Ps_Pill(TBO_KIT_SEL, 14.0f, y - 2.0f, 300.0f, y + TB_ROW_H + 2.0f, 0x80);
+            Ps_Button(3, 282.0f, y + TB_ROW_H * 0.5f, 22.0f);
         } else {
-            Ps_Pill(TBO_KIT_BAR, 24.0f, y, 290.0f, y + 26.0f, 0x80);
+            Ps_Pill(TBO_KIT_BAR, 18.0f, y, 296.0f, y + TB_ROW_H, 0x80);
         }
     }
 }
@@ -1351,14 +1423,14 @@ static void Tb_DrawCreateText(void) {
     Tb_RollText(value[CR_ROLL], sTb->roll);
     value[CR_OPEN][0] = 0;
     Ps_Align(1);
-    Ps_Text(157.0f, Ps_TextTop(80.0f, 0.56f), "ROOM SETTINGS", 0.56f, 0.0f, 2);
+    Ps_Text(157.0f, Ps_TextTop(76.0f, 0.7f), "ROOM SETTINGS", 0.7f, 0.0f, 2);
     Ps_Align(0);
     for (i = 0; i < CR_COUNT; i++) {
-        f32 y = 100.0f + 34.0f * (f32)i;
+        f32 y = 100.0f + TB_ROW * (f32)i + TB_ROW_H * 0.5f;
 
-        Ps_Text(36.0f, Ps_TextTop(y + 13.0f, 0.66f), label[i], 0.66f, 120.0f, i == sTb->crCur ? 1 : 0);
+        Ps_Text(36.0f, Ps_TextTop(y, TB_ROW_LABEL), label[i], TB_ROW_LABEL, 110.0f, i == sTb->crCur ? 1 : 0);
         Ps_Align(2);
-        Ps_Text(266.0f, Ps_TextTop(y + 13.0f, 0.54f), value[i], 0.54f, 130.0f, 3);
+        Ps_Text(266.0f, Ps_TextTop(y, TB_ROW_VALUE), value[i], TB_ROW_VALUE, 120.0f, i == sTb->crCur ? 1 : 3);
         Ps_Align(0);
     }
 }
@@ -1539,67 +1611,73 @@ static void Tb_DrawName(void) {
 
 static void Tb_DrawSpar(void) {
     Tb_Hosts(TBO_HOSTS_CHEER, 406.0f, 350.0f, 200.0f);
-    Tb_DrawRows(3, sTb->spCur, 110.0f);
-    Ps_Panel(TBO_KIT_WINDOW, 14.0f, 230.0f, 300.0f, 326.0f, 0x80);
+    Tb_DrawRows(3, sTb->spCur, 96.0f);
+    Ps_Panel(TBO_KIT_WINDOW, 8.0f, 232.0f, 306.0f, 326.0f, 0x80);
 }
 
 static void Tb_DrawSparText(void) {
     static char line[64];
     s32 secs = (sTb->frames - sTb->waitFrom) / 60;
+#define SP_MID(i) (96.0f + TB_ROW * (f32)(i) + TB_ROW_H * 0.5f)
 
-    Ps_Text(26.0f, 76.0f, "SPARRING AT THE TOURNAMENT", 0.6f, 270.0f, 2);
-    Ps_Text(36.0f, 115.0f, "You", 0.66f, 70.0f, sTb->spCur == 0 ? 1 : 0);
-    Ps_Text(36.0f, 149.0f, "Partner", 0.66f, 80.0f, sTb->spCur == 1 ? 1 : 0);
-    Ps_Text(36.0f, 183.0f, "Start Training", 0.66f, 200.0f, sTb->spCur == 2 ? 1 : 0);
+    Ps_Text(22.0f, Ps_TextTop(70.0f, 0.7f), "SPARRING AT THE TOURNAMENT", 0.7f, 280.0f, 2);
+    Ps_Text(36.0f, Ps_TextTop(SP_MID(0), TB_ROW_LABEL), "You", TB_ROW_LABEL, 70.0f, sTb->spCur == 0 ? 1 : 0);
+    Ps_Text(36.0f, Ps_TextTop(SP_MID(1), TB_ROW_LABEL), "Partner", TB_ROW_LABEL, 90.0f, sTb->spCur == 1 ? 1 : 0);
+    Ps_Text(36.0f, Ps_TextTop(SP_MID(2), TB_ROW_LABEL), "Start Training", TB_ROW_LABEL, 220.0f, sTb->spCur == 2 ? 1 : 0);
     Ps_Align(2);
-    Ps_Text(266.0f, 117.0f, Tb_Fighter(sTb->spMe), 0.54f, 170.0f, 3);
-    Ps_Text(266.0f, 151.0f, Tb_Fighter(sTb->spFoe), 0.54f, 170.0f, 3);
+    Ps_Text(266.0f, Ps_TextTop(SP_MID(0), TB_ROW_VALUE), Tb_Fighter(sTb->spMe), TB_ROW_VALUE, 160.0f, sTb->spCur == 0 ? 1 : 3);
+    Ps_Text(266.0f, Ps_TextTop(SP_MID(1), TB_ROW_VALUE), Tb_Fighter(sTb->spFoe), TB_ROW_VALUE, 160.0f, sTb->spCur == 1 ? 1 : 3);
     Ps_Align(0);
-    Ps_Text(28.0f, 240.0f, sTb->host == 2 ? "QUICK MATCH SEARCH" : sTb->host ? "YOUR ROOM IS OPEN" : "JOINING A ROOM", 0.5f, 260.0f, 2);
+#undef SP_MID
+    Ps_Text(22.0f, Ps_TextTop(250.0f, 0.62f), sTb->host == 2 ? "QUICK MATCH SEARCH" : sTb->host ? "YOUR ROOM IS OPEN" : "JOINING A ROOM", 0.62f, 276.0f, 2);
     sprintf(line, Tb_Fmt("SEARCHING  %d:%02d"), (int)(secs / 60), (int)(secs % 60));
-    Ps_Text(28.0f, 264.0f, line, 0.52f, 260.0f, 5);
-    Ps_Text(28.0f, 292.0f, "THE MATCH STARTS THE MOMENT", 0.42f, 260.0f, 0);
-    Ps_Text(28.0f, 308.0f, "YOUR RIVAL ARRIVES", 0.42f, 260.0f, 0);
+    Ps_Text(22.0f, Ps_TextTop(274.0f, 0.66f), line, 0.66f, 276.0f, 5);
+    Ps_Text(22.0f, Ps_TextTop(298.0f, 0.5f), "THE MATCH STARTS THE MOMENT", 0.5f, 276.0f, 0);
+    Ps_Text(22.0f, Ps_TextTop(314.0f, 0.5f), "YOUR RIVAL ARRIVES", 0.5f, 276.0f, 0);
 }
 
 static void Tb_DrawQuick(void) {
     Tb_Hosts(TBO_HOSTS_MIC_WAVE, 404.0f, 350.0f, 240.0f);
-    Tb_DrawRows(3, sTb->qkCur, 110.0f);
-    Ps_Panel(TBO_KIT_WINDOW, 14.0f, 230.0f, 300.0f, 330.0f, 0x80);
+    Tb_DrawRows(3, sTb->qkCur, 96.0f);
+    Ps_Panel(TBO_KIT_WINDOW, 8.0f, 232.0f, 306.0f, 330.0f, 0x80);
 }
 
 static void Tb_DrawQuickText(void) {
     static char line[128];
     s32 q;
 
-    Ps_Text(26.0f, 76.0f, "PICK YOUR BATTLE", 0.62f, 0.0f, 2);
-    Ps_Text(36.0f, 115.0f, "Battle", 0.66f, 110.0f, sTb->qkCur == 0 ? 1 : 0);
+#define QK_ROW(i) Ps_TextTop(96.0f + TB_ROW * (f32)(i) + TB_ROW_H * 0.5f, TB_ROW_LABEL)
+#define QK_VAL(i) Ps_TextTop(96.0f + TB_ROW * (f32)(i) + TB_ROW_H * 0.5f, TB_ROW_VALUE)
+    Ps_Text(22.0f, Ps_TextTop(70.0f, 0.7f), "PICK YOUR BATTLE", 0.7f, 0.0f, 2);
+    Ps_Text(36.0f, QK_ROW(0), "Battle", TB_ROW_LABEL, 100.0f, sTb->qkCur == 0 ? 1 : 0);
     Ps_Align(2);
-    Ps_Text(266.0f, 117.0f, sTb->queue ? "TEAMS (UP TO 5)" : "ONE ON ONE", 0.54f, 140.0f, 3);
+    Ps_Text(266.0f, QK_VAL(0), sTb->queue ? "TEAMS (UP TO 5)" : "ONE ON ONE", TB_ROW_VALUE, 140.0f, sTb->qkCur == 0 ? 1 : 3);
     Ps_Align(0);
-    Ps_Text(36.0f, 149.0f, "Region", 0.66f, 110.0f, sTb->qkCur == 1 ? 1 : 0);
+    Ps_Text(36.0f, QK_ROW(1), "Region", TB_ROW_LABEL, 100.0f, sTb->qkCur == 1 ? 1 : 0);
     Ps_Align(2);
-    Ps_Text(266.0f, 151.0f, sTbRegionName[sTb->region], 0.54f, 150.0f, 3);
+    Ps_Text(266.0f, QK_VAL(1), sTbRegionName[sTb->region], TB_ROW_VALUE, 150.0f, sTb->qkCur == 1 ? 1 : 3);
     Ps_Align(0);
-    Ps_Text(36.0f, 183.0f, "Search", 0.66f, 110.0f, sTb->qkCur == 2 ? 1 : 0);
-    Ps_Text(28.0f, 238.0f, "WAITING RIGHT NOW", 0.52f, 0.0f, 2);
+    Ps_Text(36.0f, QK_ROW(2), "Search", TB_ROW_LABEL, 100.0f, sTb->qkCur == 2 ? 1 : 0);
+    Ps_Text(22.0f, Ps_TextTop(250.0f, 0.62f), "WAITING RIGHT NOW", 0.62f, 0.0f, 2);
     for (q = 0; q < 2; q++) {
         s32 n = Port_LobbyQueueWaiting(q);
 
-        Ps_Text(36.0f, 262.0f + 22.0f * (f32)q, q ? "Teams" : "One on One", 0.56f, 120.0f, q == sTb->queue ? 1 : 0);
+        Ps_Text(36.0f, Ps_TextTop(272.0f + 20.0f * (f32)q, 0.66f), q ? "Teams" : "One on One", 0.66f, 130.0f, q == sTb->queue ? 1 : 0);
         if (n < 0) {
             sprintf(line, "...");
         } else {
             sprintf(line, Tb_Fmt("%d WAITING"), (int)n);
         }
         Ps_Align(2);
-        Ps_Text(286.0f, 264.0f + 22.0f * (f32)q, line, 0.5f, 120.0f, n > 0 ? 5 : 3);
+        Ps_Text(290.0f, Ps_TextTop(272.0f + 20.0f * (f32)q, 0.6f), line, 0.6f, 120.0f, n > 0 ? 5 : 3);
         Ps_Align(0);
     }
     /* (the queues count everyone; what the region choice means instead of the rules, which the hosts' line says) */
     sprintf(line, Tb_Fmt("PLAYERS THERE FIRST, EVERYONE AFTER %d S"), (int)QK_REGION_WIDEN);
-    Ps_Text(28.0f, 308.0f, sTb->region == 0 ? "RIVALS NEAR YOU FIRST, THEN ANYWHERE" : sTb->region == QK_REGIONS - 1 ? "THE NEXT RIVAL, WHEREVER: THE FASTEST" : line,
-            0.42f, 264.0f, 3);
+    Ps_Text(22.0f, Ps_TextTop(312.0f, 0.5f), sTb->region == 0 ? "RIVALS NEAR YOU FIRST, THEN ANYWHERE" : sTb->region == QK_REGIONS - 1 ? "THE NEXT RIVAL, WHEREVER: THE FASTEST" : line,
+            0.5f, 276.0f, 3);
+#undef QK_ROW
+#undef QK_VAL
 }
 
 static void Tb_DrawProfile(void) {
@@ -1613,13 +1691,13 @@ static void Tb_DrawProfileText(void) {
     s32 i;
 
     Ps_Copy(value[PR_NAME], Port_NetNameGet(), 32);
-    Ps_Text(26.0f, 76.0f, "PLAYER CARD", 0.62f, 0.0f, 2);
+    Ps_Text(22.0f, Ps_TextTop(80.0f, 0.7f), "PLAYER CARD", 0.7f, 0.0f, 2);
     for (i = 0; i < PR_COUNT; i++) {
-        f32 y = 110.0f + 34.0f * (f32)i;
+        f32 y = 110.0f + TB_ROW * (f32)i + TB_ROW_H * 0.5f;
 
-        Ps_Text(36.0f, Ps_TextTop(y + 13.0f, 0.66f), label[i], 0.66f, 110.0f, i == sTb->prCur ? 1 : 0);
+        Ps_Text(36.0f, Ps_TextTop(y, TB_ROW_LABEL), label[i], TB_ROW_LABEL, 100.0f, i == sTb->prCur ? 1 : 0);
         Ps_Align(2);
-        Ps_Text(266.0f, Ps_TextTop(y + 13.0f, 0.54f), value[i], 0.54f, 140.0f, 3);
+        Ps_Text(266.0f, Ps_TextTop(y, TB_ROW_VALUE), value[i], TB_ROW_VALUE, 140.0f, i == sTb->prCur ? 1 : 3);
         Ps_Align(0);
     }
 }
@@ -3062,7 +3140,8 @@ static void Tb_DrawText(void) {
     char **title = sTbTitle;
 
     /* its capitals centred on the crest beside it (y 32); up to the player card */
-    Ps_Heading(Tb_TitleLeft() + 44.0f, Ps_TextTop(32.0f, 1.3f), title[sTb->mode], 1.3f, 248.0f, 0x80);
+    /* (it floats: a slow rise and fall of a few units) */
+    Ps_Heading(Tb_TitleLeft() + 44.0f, Ps_TextTop(32.0f + 2.2f * sinf((f32)sTb->frames * 0.045f), 1.3f), title[sTb->mode], 1.3f, 248.0f, 0x80);
     Tb_PageIn(1);
     switch (sTb->mode) {
     case TB_HUB:
@@ -3152,8 +3231,8 @@ s32 PortTbo_Run(void) {
 
     sTb = Heap_Alloc(sizeof(TboScreen), 0x20, 0, 2);
     memset(sTb, 0, sizeof(TboScreen));
-    sTb->hubCur = HUB_CREATE;
-    sTb->hubY = Tb_HubRowY(HUB_CREATE);
+    sTb->hubCur = HUB_QUICK;
+    sTb->hubY = Tb_HubRowY(Tb_HubRow(HUB_QUICK));
     Tb_LoadChoices();
     Port_NetNameGet();
     gPortTboSpar = 0;

@@ -276,6 +276,12 @@ static uint32_t clut_hash(uint32_t cbp, uint32_t cpsm, uint32_t count) {
    next to the program the first time and kept, at the PNG's own size, so it is drawn at full resolution and in the
    game's own order. */
 #include "../../../include/menu/tbo_art.h"
+#ifdef _WIN32
+#include <direct.h>
+#define getcwd _getcwd
+#else
+#include <unistd.h> /* getcwd */
+#endif
 #define TBO_NAME(id, name) name,
 static const char *const kTboNames[TBO_ART_COUNT] = {TBO_ART_LIST(TBO_NAME)};
 #undef TBO_NAME
@@ -379,6 +385,127 @@ static GsTex tbo_text_texture(uint32_t id) {
     return tex;
 }
 
+/* The backdrop as a film: tbo/ui/bg.mpg (MPEG-1, pl_mpeg), shown in place of bg.png and played round and round,
+   its last picture leading into its first. Decoded here, one picture when its time has come, only while the
+   screens draw it; a pause between two draws (the screens left and opened again) goes on from where it was. No
+   film, or one that cannot be read: bg.png, as before. */
+#define PL_MPEG_IMPLEMENTATION
+#include "../../third_party/pl_mpeg/pl_mpeg.h"
+static struct {
+    int tried;
+    plm_t *plm;
+    GsTex tex;
+    uint32_t frame, w, h;
+    uint64_t lastMs;
+    double due; /* seconds of film owed */
+} sTboFilm;
+
+static uint8_t *tbo_film_read(size_t *len) {
+    const char *base = SDL_GetBasePath();
+    char path[1024], cwd[768];
+    const char *tries[3];
+    uint8_t *bytes = NULL;
+    int i;
+
+    snprintf(path, sizeof(path), "%stbo/ui/bg.mpg", base != NULL ? base : "");
+    tries[0] = path;
+    tries[1] = getcwd(cwd, sizeof(cwd) - 16) != NULL ? strcat(cwd, "/tbo/ui/bg.mpg") : "tbo/ui/bg.mpg";
+    tries[2] = "port/tbo/ui/bg.mpg";
+    for (i = 0; i < 3 && bytes == NULL; i++) {
+        FILE *fp = fopen(tries[i], "rb");
+        long n;
+        if (fp == NULL) {
+            continue;
+        }
+        if (fseek(fp, 0, SEEK_END) == 0 && (n = ftell(fp)) > 0 && fseek(fp, 0, SEEK_SET) == 0 && (bytes = malloc((size_t)n)) != NULL) {
+            if (fread(bytes, 1, (size_t)n, fp) == (size_t)n) {
+                *len = (size_t)n;
+                fprintf(stderr, "bt3: artwork: %s (film, %ld bytes)\n", tries[i], n);
+            } else {
+                free(bytes);
+                bytes = NULL;
+            }
+        }
+        fclose(fp);
+    }
+    return bytes;
+}
+
+static GsTex tbo_film_texture(void) {
+    uint64_t now = SDL_GetTicks();
+    plm_frame_t *pic = NULL;
+    double step;
+    uint32_t *px, i;
+
+    if (!sTboFilm.tried) {
+        size_t len = 0;
+        uint8_t *bytes = tbo_film_read(&len);
+        sTboFilm.tried = 1;
+        sTboFilm.plm = bytes != NULL ? plm_create_with_memory(bytes, len, 1) : NULL;
+        if (sTboFilm.plm != NULL && (!plm_has_headers(sTboFilm.plm) || plm_get_num_video_streams(sTboFilm.plm) < 1)) {
+            plm_destroy(sTboFilm.plm);
+            sTboFilm.plm = NULL;
+        }
+        if (sTboFilm.plm == NULL) {
+            if (bytes != NULL) {
+                fprintf(stderr, "bt3: artwork: tbo/ui/bg.mpg is not an MPEG-1 film: bg.png instead\n");
+            }
+            return 0;
+        }
+        plm_set_audio_enabled(sTboFilm.plm, 0);
+        plm_set_loop(sTboFilm.plm, 1);
+        sTboFilm.w = (uint32_t)plm_get_width(sTboFilm.plm);
+        sTboFilm.h = (uint32_t)plm_get_height(sTboFilm.plm);
+    }
+    if (sTboFilm.plm == NULL) {
+        return 0;
+    }
+    if (sTboFilm.tex != 0 && sTboFilm.frame == gGsFrame) {
+        return sTboFilm.tex;
+    }
+    sTboFilm.frame = gGsFrame;
+    step = 1.0 / (plm_get_framerate(sTboFilm.plm) > 1.0 ? plm_get_framerate(sTboFilm.plm) : 24.0);
+    if (sTboFilm.lastMs != 0 && now - sTboFilm.lastMs < 500) {
+        sTboFilm.due += (double)(now - sTboFilm.lastMs) / 1000.0;
+    }
+    sTboFilm.lastMs = now;
+    if (sTboFilm.due > step * 3.0) {
+        sTboFilm.due = step * 3.0; /* a slow frame: the film waits rather than racing to catch up */
+    }
+    while (sTboFilm.tex == 0 || sTboFilm.due >= step) {
+        plm_frame_t *f = plm_decode_video(sTboFilm.plm);
+        if (f == NULL) {
+            break;
+        }
+        pic = f;
+        if (sTboFilm.tex != 0) {
+            sTboFilm.due -= step;
+        } else {
+            break;
+        }
+    }
+    if (pic == NULL) {
+        return sTboFilm.tex;
+    }
+    px = malloc((size_t)sTboFilm.w * sTboFilm.h * 4);
+    if (px == NULL) {
+        return sTboFilm.tex;
+    }
+    plm_frame_to_rgba(pic, (uint8_t *)px, (int)sTboFilm.w * 4);
+    for (i = 0; i < sTboFilm.w * sTboFilm.h; i++) {
+        px[i] = (px[i] & 0x00FFFFFFu) | 0x80000000u; /* the GS's alpha: 0x80 is opaque */
+    }
+    if (sTboFilm.tex == 0) {
+        sTboFilm.tex = sBackend->texCreate(sTboFilm.w, sTboFilm.h, GS_TEXFMT_RGBA8, 1);
+        if (sTboFilm.tex == 0) {
+            free(px);
+            return 0;
+        }
+    }
+    sBackend->texUpload(sTboFilm.tex, 0, sTboFilm.w, sTboFilm.h, GS_TEXFMT_RGBA8, px, sTboFilm.w * sTboFilm.h * 4);
+    return sTboFilm.tex;
+}
+
 static GsTex tbo_texture(uint32_t id) {
     char path[1024] = {0};
     SDL_Surface *png = NULL, *rgba = NULL;
@@ -396,6 +523,12 @@ static GsTex tbo_texture(uint32_t id) {
     }
     if (id >= TBO_ART_COUNT && !languageArt) {
         return gsWhite;
+    }
+    if (id == TBO_BG) {
+        GsTex film = tbo_film_texture();
+        if (film != 0) {
+            return film;
+        }
     }
     cached = languageArt ? &sLangTex[id - TBO_LANG_BG] : &sTboTex[id];
     missing = languageArt ? &sLangMissing[id - TBO_LANG_BG] : &sTboMissing[id];
@@ -417,7 +550,14 @@ static GsTex tbo_texture(uint32_t id) {
         snprintf(path, sizeof(path), "%stbo/ui/%s.png", base != NULL ? base : "", kTboNames[id]);
         png = SDL_LoadPNG(path);
         if (png == NULL) {
-            snprintf(path, sizeof(path), "tbo/ui/%s.png", kTboNames[id]);
+            /* the current folder, written out whole: on Android SDL opens a relative path inside the APK's assets,
+               not in the app's folder where GameActivity copies tbo/ui (every picture was then white) */
+            char cwd[768];
+            if (getcwd(cwd, sizeof(cwd)) != NULL) {
+                snprintf(path, sizeof(path), "%s/tbo/ui/%s.png", cwd, kTboNames[id]);
+            } else {
+                snprintf(path, sizeof(path), "tbo/ui/%s.png", kTboNames[id]);
+            }
             png = SDL_LoadPNG(path);
         }
         if (png == NULL) { /* a source checkout: the pictures where they are kept (port/tbo/ui) */
