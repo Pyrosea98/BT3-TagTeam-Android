@@ -508,6 +508,19 @@ static void page_online(void) {
         }
     }
     card_end();
+
+    card_begin("watch", T("Spectators and lobbies", "Espectadores e lobbies", "Espectadores y lobbies"));
+    {
+        bool watch = Port_Setting("net_spectators", 1) != 0;
+        if (aswitch(T("Let others watch my matches", "Deixar outros assistirem minhas partidas", "Dejar que otros vean mis partidas"),
+                    T("Up to six people can watch your match, by your room code or your address; they never change the fight.", "Até seis pessoas podem assistir à sua partida, pelo código da sala ou pelo seu endereço; elas nunca mudam a luta.", "Hasta seis personas pueden ver tu partida, por el código de la sala o tu dirección; nunca cambian la pelea."), &watch)) {
+            Port_SettingSave("net_spectators", watch ? 1 : 0);
+        }
+        ImGui::TextWrapped("%s", T("- Watch a match: Join, type the room code and choose Watch the match. View: player 1, player 2 or split screen (R1).\n- Lobby: Tenkaichi Budokai Online > Lobby. Up to eight people: two fight, the rest watch, with rules, Ready and chat.\n- Quick match, Region: Auto finds someone nearby first and everyone after 25 s; a region first, everyone after 40 s.\n- The pause menu (Back button) has Back to the lobby, Leave / Close the lobby, Change view and Stop watching when they apply.",
+            "- Assistir a uma partida: Entrar, digite o código da sala e escolha Watch the match. Câmera: jogador 1, jogador 2 ou tela dividida (R1).\n- Lobby: Tenkaichi Budokai Online > Lobby. Até oito pessoas: duas lutam e as outras assistem, com regras, Pronto e chat.\n- Partida rápida, Região: Auto procura alguém perto primeiro e qualquer um depois de 25 s; uma região primeiro, qualquer um depois de 40 s.\n- O menu de pausa (botão Voltar) tem Voltar ao lobby, Sair / Fechar o lobby, Trocar câmera e Parar de assistir quando valem.",
+            "- Ver una partida: Unirse, escribe el código de la sala y elige Watch the match. Cámara: jugador 1, jugador 2 o pantalla dividida (R1).\n- Lobby: Tenkaichi Budokai Online > Lobby. Hasta ocho personas: dos pelean y el resto mira, con reglas, Listo y chat.\n- Partida rápida, Región: Auto busca a alguien cerca primero y a cualquiera tras 25 s; una región primero, cualquiera tras 40 s.\n- El menú de pausa (botón Atrás) tiene Volver al lobby, Salir / Cerrar el lobby, Cambiar cámara y Dejar de ver cuando aplican."));
+    }
+    card_end();
 }
 
 static void page_cheats(void) {
@@ -810,6 +823,7 @@ static void nm_snapshot(void) {
     nm_put("clash_square", Port_ClashSquare() != 0);
     nm_put("clash_square_x", Port_ClashSquareX());
     nm_put("chat", PortChat_Enabled() != 0);
+    nm_put("net_spectators", Port_Setting("net_spectators", 1) != 0);
     nm_put("game_speed", Port_GameSpeed());
     nm_put("skip_logos", Port_Setting("skip_logos", 0) != 0);
     nm_put("skip_intro", Port_Setting("skip_intro", 0) != 0);
@@ -895,6 +909,8 @@ static void nm_apply(const char *key, int value) {
         Port_ClashSquareXSet(value);
     } else if (strcmp(key, "chat") == 0) {
         PortChat_EnabledSet(value != 0);
+    } else if (strcmp(key, "net_spectators") == 0) {
+        Port_SettingSave("net_spectators", value != 0 ? 1 : 0);
     } else if (strcmp(key, "game_speed") == 0) {
         Port_GameSpeedSet(value < 50 ? 50 : value > 200 ? 200 : value);
         Port_AudioRefresh();
