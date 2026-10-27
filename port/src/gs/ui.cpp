@@ -95,6 +95,7 @@ void Port_LobbyLaunch(void);
 #include "net_dragon.h"
 int Port_LobbySpectate(const char *address, int port);        // gs/net.c: watch the match hosted there (a spectator)
 int Port_LobbySpectateCode(const char *code);                // ... the match of that room code
+void Port_LobbyQuickArea(const char *area);                  // what the next quick match looks for: "auto", "any" or a region
 int Port_LobbySpectateWaiting(void);                         // ... the host is there and has no match yet
 int Port_NetSpectating(void);                                // this copy watches a match
 void Port_NetSpecLeave(void);                                // ... stop watching (at the game's next blank)
