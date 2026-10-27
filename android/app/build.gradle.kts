@@ -52,6 +52,10 @@ android {
     }
 
     buildTypes {
+        create("cam") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".cam"
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true

@@ -130,7 +130,7 @@ private enum class Dest(val route: String, val label: Int, val icon: ImageVector
 @Composable
 private fun DragonRageApp(vm: AppViewModel, onSwitchGame: () -> Unit) {
     // Budokai Tenkaichi 4 has no mods, cheats or drivers pages (yet): those are the BT3 engine's
-    val pages = Dest.entries.filter { vm.game == Game.BT3 || it.bt4 }
+    val pages = Dest.entries.filter { vm.game.engine == "bt3" || it.bt4 }
     val nav = rememberNavController()
     val entry by nav.currentBackStackEntryAsState()
     val current = entry?.destination?.route

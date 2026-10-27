@@ -172,7 +172,7 @@ fun SettingsScreen(vm: AppViewModel) {
             StepSlider(stringResource(R.string.sfx), { "${it * 10}%" }, fx / 10, 0..20) { vm.setting(EngineSettings.EFFECTS, it * 10) }
         }
 
-        if (vm.game == com.dfdx047.dragonrage.data.Game.BT3) { // (online: the BT3 engine's)
+        if (vm.game == com.dfdx047.dragonrage.data.Game.BT3) { // (online: the original BT3 only)
             SectionCard(stringResource(R.string.online_server_title), Icons.Rounded.Public, accent = MaterialTheme.colorScheme.secondary) {
                 val netMode = get(com.dfdx047.dragonrage.data.OnlineStatus.MODE, 0).coerceIn(0, 1)
                 Text(stringResource(R.string.online_mode_title), style = MaterialTheme.typography.titleSmall)

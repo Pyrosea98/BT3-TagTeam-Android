@@ -109,7 +109,7 @@ fun HomeScreen(vm: AppViewModel) {
     ) {
         val bt4 = vm.game == Game.BT4
         Hero(bt4)
-        if (!bt4) OnlineBanner(vm) // (online is the BT3 engine's: Dragon Net and the PC)
+        if (vm.game == Game.BT3) OnlineBanner(vm) // (Dragon Net and PC matchmaking are for the original BT3)
 
         val installed = install is InstallState.Installed
         PlayButton(enabled = installed, onClick = vm::play)

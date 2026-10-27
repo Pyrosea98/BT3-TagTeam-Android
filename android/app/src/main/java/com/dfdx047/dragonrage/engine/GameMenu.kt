@@ -239,8 +239,11 @@ private fun MenuScreen(
     val values = remember { MenuValues(settings) }
     LaunchedEffect(Unit) { values.load() }
     val pages = remember(game) {
-        if (game == Game.BT4) listOf(Page.VIDEO, Page.PERFORMANCE, Page.EFFECTS, Page.CONTROLS)
-        else Page.entries.toList()
+        when (game) {
+            Game.BT4 -> listOf(Page.VIDEO, Page.PERFORMANCE, Page.EFFECTS, Page.CONTROLS)
+            Game.BT3CAM -> Page.entries.filter { it != Page.ONLINE }
+            else -> Page.entries.toList()
+        }
     }
     var page by remember { mutableStateOf(Page.VIDEO) }
     var askQuit by remember { mutableStateOf(false) }
@@ -302,7 +305,7 @@ private fun TopBar(l: L, game: Game, onResume: () -> Unit, onQuit: () -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(
-                if (game == Game.BT4) "BUDOKAI TENKAICHI 4" else "DRAGON RAGE",
+                when (game) { Game.BT4 -> "BUDOKAI TENKAICHI 4"; Game.BT3CAM -> "BT3 CAM"; else -> "DRAGON RAGE" },
                 style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.tertiary,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
@@ -510,7 +513,7 @@ private fun VideoPage(l: L, game: Game, v: MenuValues) {
                 "${128 * s} x ${112 * s}. 1x es la del PlayStation 2. Más alta se ve más nítida y pesa más en la GPU."),
             scales.map { q -> (if (q % 4 == 0) "${q / 4}x" else "${q / 4.0}x") to q }, s,
         ) { v.set("scale4", it) }
-        if (game == Game.BT3) {
+        if (game.engine == "bt3") {
             Choice(
                 l.t("Aspect ratio", "Proporção", "Relación de aspecto"),
                 l.t("Screen: the shape of this device's screen, nothing squeezed. Wider than 4:3 shows more of the fight.",
@@ -579,7 +582,7 @@ private fun VideoPage(l: L, game: Game, v: MenuValues) {
 private fun PerformancePage(l: L, game: Game, v: MenuValues) {
     val gl = v.get("running_gl", 0) != 0
     Card(l.t("Speed", "Velocidade", "Velocidad")) {
-        if (game == Game.BT3) {
+        if (game.engine == "bt3") {
             SwitchRow(
                 l.t("Skip pictures instead of slowing down", "Pular quadros em vez de ficar lento", "Saltar cuadros en vez de ir lento"),
                 l.t("When the GPU is behind, the game keeps its speed and leaves a picture out.",
@@ -595,7 +598,7 @@ private fun PerformancePage(l: L, game: Game, v: MenuValues) {
                 "Superposición exacta de superficies en el mismo plano (cascadas, calcos). Apagado es más rápido en GPUs débiles; puede parpadear."),
             v.get("frag_depth", 0) != 0,
         ) { v.set("frag_depth", if (it) 1 else 0) }
-        if (game == Game.BT3) {
+        if (game.engine == "bt3") {
             Choice(
                 l.t("Smooth motion", "Movimento suave", "Movimiento suave"),
                 l.t("Extra pictures between the game's 30. Costs GPU; the fight itself does not change.",
@@ -627,7 +630,7 @@ private fun PerformancePage(l: L, game: Game, v: MenuValues) {
                 v.get("present", 0),
             ) { v.set("present", it) }
         }
-        if (game == Game.BT3) {
+        if (game.engine == "bt3") {
             SwitchRow(
                 l.t("Show frame rate", "Mostrar FPS", "Mostrar FPS"),
                 l.t("And the connection in an online match.", "E a conexão numa partida online.", "Y la conexión en una partida online."),
@@ -730,7 +733,7 @@ private fun ControlsPage(l: L, game: Game, v: MenuValues, actions: GameMenu.Acti
             closeMenu(); actions.touchOptions()
         }
     }
-    if (game == Game.BT3) {
+    if (game.engine == "bt3") {
         Card(l.t("Clashes", "Choques", "Choques")) {
             val cs = v.get("clash_square", 0) != 0
             SwitchRow(

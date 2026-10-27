@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import com.dfdx047.dragonrage.data.GamePaths
+import com.dfdx047.dragonrage.data.Game
 import com.dfdx047.dragonrage.engine.EngineBridge
 import com.dfdx047.dragonrage.engine.GameActivity
 
@@ -15,9 +16,15 @@ import com.dfdx047.dragonrage.engine.GameActivity
 class PlayShortcutActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val ready = GamePaths(this).installedMarker.exists() && EngineBridge.isAvailable(this)
-        val target = if (ready) GameActivity::class.java else MainActivity::class.java
-        startActivity(Intent(this, target).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        val game = Game.of(intent.getStringExtra(GameActivity.EXTRA_GAME))
+        val ready = GamePaths(this, game).installedMarker.exists() && EngineBridge.isAvailable(this)
+        val target = if (!ready) MainActivity::class.java else when (game) {
+            Game.BT4 -> com.dfdx047.dragonrage.engine.Bt4Activity::class.java
+            else -> GameActivity::class.java
+        }
+        startActivity(Intent(this, target)
+            .putExtra(GameActivity.EXTRA_GAME, game.id)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         finish()
     }
 }

@@ -250,6 +250,7 @@ class AppViewModel @JvmOverloads constructor(app: Application, val game: Game = 
     }
 
     fun checkOnline() {
+        if (game == Game.BT3CAM) return
         _online.value = OnlineState.Checking
         val mode = _settings.value[OnlineStatus.MODE] ?: 0
         viewModelScope.launch {
@@ -262,6 +263,7 @@ class AppViewModel @JvmOverloads constructor(app: Application, val game: Game = 
 
     /** Whom online plays against: 0 Dragon Net (Android + Switch), 1 the PC (also chosen in the game's online screen). */
     fun setNetMode(mode: Int) {
+        if (game == Game.BT3CAM) return
         viewModelScope.launch(Dispatchers.IO) {
             ActivityLog.info("online", "play against: ${if (mode == 0) "Android + Switch (Dragon Net)" else "PC"}")
             settings.set(OnlineStatus.MODE, mode)
@@ -710,8 +712,9 @@ class AppViewModel @JvmOverloads constructor(app: Application, val game: Game = 
         when {
             _install.value !is InstallState.Installed -> say(str(R.string.msg_install_first))
             !engineAvailable -> say(str(R.string.msg_no_engine))
-            else -> ActivityLog.info("game", "started (renderer ${_settings.value[EngineSettings.RENDERER] ?: 0}" + (if (game == Game.BT4) ", BT4 renderer ${if ((_settings.value[EngineSettings.BT4_RENDERER] ?: 1) == 1) "ARMSX2" else "Dragon Rage"}" else "") + ", online ${if ((_settings.value[OnlineStatus.MODE] ?: 0) == 0) "Dragon Net" else "PC"})").let { getApplication<android.app.Application>().startActivity(
+            else -> ActivityLog.info("game", "started (renderer ${_settings.value[EngineSettings.RENDERER] ?: 0}" + (if (game == Game.BT4) ", BT4 renderer ${if ((_settings.value[EngineSettings.BT4_RENDERER] ?: 1) == 1) "ARMSX2" else "Dragon Rage"}" else "") + (if (game == Game.BT3CAM) ", offline" else ", online ${if ((_settings.value[OnlineStatus.MODE] ?: 0) == 0) "Dragon Net" else "PC"}") + ")").let { getApplication<android.app.Application>().startActivity(
                 android.content.Intent(getApplication(), if (game == Game.BT4) com.dfdx047.dragonrage.engine.Bt4Activity::class.java else com.dfdx047.dragonrage.engine.GameActivity::class.java)
+                    .putExtra(com.dfdx047.dragonrage.engine.GameActivity.EXTRA_GAME, game.id)
                     .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
             ) }
         }
@@ -730,7 +733,8 @@ class AppViewModel @JvmOverloads constructor(app: Application, val game: Game = 
             .setIcon(androidx.core.graphics.drawable.IconCompat.createWithResource(app, R.mipmap.ic_launcher))
             .setIntent(
                 android.content.Intent(app, com.dfdx047.dragonrage.PlayShortcutActivity::class.java)
-                    .setAction(android.content.Intent.ACTION_VIEW),
+                    .setAction(android.content.Intent.ACTION_VIEW)
+                    .putExtra(com.dfdx047.dragonrage.engine.GameActivity.EXTRA_GAME, game.id),
             )
             .build()
         if (androidx.core.content.pm.ShortcutManagerCompat.requestPinShortcut(app, info, null)) say(str(R.string.shortcut_asked))

@@ -20,7 +20,7 @@ import java.io.File
  * reach it too.
  */
 class GamePaths(context: Context, val game: Game = Game.BT3) {
-    /** The app's folder; Budokai Tenkaichi 3 lives in it, Budokai Tenkaichi 4 in its bt4/ (see Game). */
+    /** The app's folder; BT3 lives in it, while BT4 and BT3 CAM use their own folders (see Game). */
     val base: File = (context.getExternalFilesDir(null) ?: context.filesDir).also { it.mkdirs() }
     val root: File = (if (game.folder.isEmpty()) base else File(base, game.folder)).also { it.mkdirs() }
     val gameData = File(root, "gamedata")

@@ -410,6 +410,7 @@
     <string name="welcome_pick">Choose the game</string>
     <string name="welcome_bt3">The original game (USA disc). Online with Dragon Net, mods, stages, songs, cheats and custom drivers.</string>
     <string name="welcome_bt4">Team BT4\'s mod: new characters, forms and stages. Experimental: its own engine (the mod recompiled), drawn by ARMSX2\'s renderer (Dragon Rage\'s is an experimental option).</string>
+    <string name="welcome_bt3cam">Experimental: Budokai Tenkaichi 3 with Sparking Zero gameplay. Uses its own game data and saves.</string>
     <string name="welcome_note">Each game keeps its own disc image, saves, textures and settings. You can switch from the menu (Game) at any time.</string>
     <string name="welcome_last">Last played</string>
     <string name="nav_switch_game">Game</string>

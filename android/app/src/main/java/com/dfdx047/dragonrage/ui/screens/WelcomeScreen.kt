@@ -70,6 +70,10 @@ fun WelcomeScreen(last: Game, onPick: (Game) -> Unit) {
                     Game.BT4, "Budokai Tenkaichi 4", stringResource(R.string.welcome_bt4), "SLUS-219.78 · Beta 14 Rev2",
                     listOf(Color(0xFF2FB8F0), Color(0xFF5A2A8C)), Color(0xFFD3A6FF), last == Game.BT4, m, onPick,
                 )
+                GameCard(
+                    Game.BT3CAM, "BT3 CAM", stringResource(R.string.welcome_bt3cam), "SLUS-21678",
+                    listOf(Color(0xFFB84CFF), Color(0xFF54228A)), Color(0xFFE4B5FF), last == Game.BT3CAM, m, onPick,
+                )
             }
             if (wide) {
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxWidth()) {

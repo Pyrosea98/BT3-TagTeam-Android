@@ -43,6 +43,8 @@ import org.libsdl.app.SDLActivity
  * [TouchBridge] and steps aside while the engine's own window (settings, online) is open.
  */
 open class GameActivity : SDLActivity() {
+    companion object { const val EXTRA_GAME = "com.dfdx047.dragonrage.game" }
+
     protected lateinit var paths: GamePaths
     private lateinit var store: TouchStore
     private var pad: TouchSurface? = null
@@ -51,7 +53,8 @@ open class GameActivity : SDLActivity() {
     private var comboHeld = 0 // START (1) and SELECT (2) held on a controller
 
     /** Which game this screen runs (the menu's look and pages). */
-    protected open val game: com.dfdx047.dragonrage.data.Game get() = com.dfdx047.dragonrage.data.Game.BT3
+    protected open val game: com.dfdx047.dragonrage.data.Game
+        get() = com.dfdx047.dragonrage.data.Game.of(intent.getStringExtra(EXTRA_GAME))
 
     private val watchMenu = object : Runnable {
         override fun run() {
@@ -62,6 +65,7 @@ open class GameActivity : SDLActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         paths = gamePaths().also { it.ensure() }
+        com.dfdx047.dragonrage.data.ActivityLog.init(paths)
         // the renderer for this start (Vulkan, or OpenGL ES for Mali when automatic): written before the engine reads it
         runCatching {
             val es = EngineSettings(paths.settings)
@@ -315,7 +319,9 @@ open class GameActivity : SDLActivity() {
      * its requests with them). The answer's text, "" when there is none.
      */
     @Suppress("unused")
-    fun netRequest(url: String, body: String?, headers: String?): String = runCatching {
+    fun netRequest(url: String, body: String?, headers: String?): String {
+        if (game == com.dfdx047.dragonrage.data.Game.BT3CAM) return ""
+        return runCatching {
         val c = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
             requestMethod = if (body != null) "POST" else "GET"
             doOutput = body != null
@@ -341,9 +347,10 @@ open class GameActivity : SDLActivity() {
         } finally {
             c.disconnect()
         }
-    }.getOrElse {
+        }.getOrElse {
         android.util.Log.w("bt3", "net: ${url.substringAfterLast('/')} failed: $it")
         ""
+        }
     }
 
     /**
@@ -366,7 +373,7 @@ open class GameActivity : SDLActivity() {
 
     /** The list of where the game's data tables come from (made with the engine, android.py) next to the game's files. */
     /** The game's folder: Budokai Tenkaichi 3's (Bt4Activity: Budokai Tenkaichi 4's). */
-    protected open fun gamePaths(): GamePaths = GamePaths(this)
+    protected open fun gamePaths(): GamePaths = GamePaths(this, game)
 
     protected open fun installDataList() {
         // the list of the game's data tables (libbt3.so.dat) and of the engine's own addresses (libbt3.so.rel, for
@@ -443,7 +450,7 @@ open class GameActivity : SDLActivity() {
     override fun getArguments(): Array<String> {
         val driver = runCatching { GpuDrivers(this, contentResolver).selected() }.getOrNull()
         // Lite mode on a Mali: the render passes' areas cut to what they draw (loader.c, area_driver)
-        val liteMali = game == com.dfdx047.dragonrage.data.Game.BT3 && runCatching {
+        val liteMali = game.engine == "bt3" && runCatching {
             EngineSettings(paths.settings).get(EngineSettings.LITE, 0) != 0 && Renderer.isMali(Renderer.gpuName(paths))
         }.getOrDefault(false)
         return arrayOf(
