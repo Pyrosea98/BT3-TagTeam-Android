@@ -118,6 +118,17 @@ Adding an ID to a JSON file alone cannot translate an arbitrary hardcoded
 string: the code or data that displays it must use the corresponding
 translation system.
 
+## The online screens' own language
+
+Tenkaichi Budokai Online (src/menu/port_tbo.c) has a language row at the top of its hub: English, Português, Español,
+changed with left and right and kept in the setting `tbo_lang` (until it is chosen: the launcher's `dr_lang`). It
+changes only those screens, at once, without a restart: `Port_TboLanguage` (port/src/gs/menu_translation.c) loads
+`translations/tbo/pt.json` or `es.json` (`port/translations/tbo/` in the source) into the table of the screens'
+lines, which `MenuTranslation_Line` reads; English is the screens' own text. The two files are written by
+`python3 port/tools/tbo_translations.py`, which holds every line in the three languages, checks each English line
+against the strings of port_tbo.c, and names the screen's lines that have no translation. They live apart from
+`translations/port/`, so they do not add languages to the game's language list.
+
 ## What happens when a translation does not cover every ID?
 
 Each catalog handles missing entries differently:

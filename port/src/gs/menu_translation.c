@@ -391,12 +391,11 @@ static int tr_port_parse(const char *buf, size_t size, const char *locale, TrPor
     } while (tr_take(&p, ','));
     return 0;
 }
-static int tr_port_read(const char *outDir, const char *locale, TrPortCatalog *catalog) {
-    char path[1200], *data;
+static int tr_port_read_file(const char *path, const char *locale, TrPortCatalog *catalog) {
+    char *data;
     FILE *fp;
     long size;
     int ok;
-    if (snprintf(path, sizeof(path), "%s/translations/port/%s.json", outDir, locale) >= (int)sizeof(path)) return 0;
     fp = fopen(path, "rb");
     if (!fp) return 0;
     if (fseek(fp, 0, SEEK_END) || (size = ftell(fp)) < 1 || size > TR_PORT_MAX_FILE || fseek(fp, 0, SEEK_SET)) { fclose(fp); return 0; }
@@ -407,6 +406,11 @@ static int tr_port_read(const char *outDir, const char *locale, TrPortCatalog *c
     if (ok) { data[size] = 0; ok = tr_port_parse(data, (size_t)size, locale, catalog); }
     free(data);
     return ok;
+}
+static int tr_port_read(const char *outDir, const char *locale, TrPortCatalog *catalog) {
+    char path[1200];
+    if (snprintf(path, sizeof(path), "%s/translations/port/%s.json", outDir, locale) >= (int)sizeof(path)) return 0;
+    return tr_port_read_file(path, locale, catalog);
 }
 static void tr_port_load(const char *outDir, const char *locale) {
     static TrPortCatalog catalog; /* (big: not on the stack) */
@@ -980,6 +984,31 @@ int Port_TrLine(const char *original, char *out, int size) {
     if (t == NULL || out == NULL || size <= 0) return 0;
     snprintf(out, (size_t)size, "%s", t);
     return 1;
+}
+/* The online screens' own language (menu/port_tbo.c, the hub's language row): "pt" or "es" takes their lines from
+   translations/tbo/<locale>.json beside the program (port/tools/tbo_translations.py), anything else leaves them in
+   English. Taken at once: the table before is kept, a line may be in use. 1 when the lines are in that language. */
+int Port_TboLanguage(const char *locale) {
+    static TrPortCatalog catalog; /* (big: not on the stack) */
+    char dir[1024], path[1300];
+    int ok = 0;
+    if (locale != NULL && (!strcmp(locale, "pt") || !strcmp(locale, "es")) && tr_bundled_dir(dir, sizeof(dir)) &&
+        snprintf(path, sizeof(path), "%s/tbo/%s.json", dir, locale) < (int)sizeof(path)) {
+        ok = tr_port_read_file(path, locale, &catalog);
+    }
+    if (ok && catalog.lines != NULL) {
+        fprintf(stderr, "bt3: the online screens in %s (%d lines)\n", locale, catalog.lines->count);
+        __atomic_store_n(&sLines, catalog.lines, __ATOMIC_RELEASE);
+    } else {
+        if (locale != NULL && strcmp(locale, "en")) {
+            fprintf(stderr, "bt3: no translation of the online screens in %s: English\n", locale);
+        }
+        tr_lines_free(catalog.lines);
+        __atomic_store_n(&sLines, (TrLines *)NULL, __ATOMIC_RELEASE);
+        ok = 0;
+    }
+    catalog.lines = NULL;
+    return ok;
 }
 const char *MenuTranslation_PortText(const char *id) {
     int i;

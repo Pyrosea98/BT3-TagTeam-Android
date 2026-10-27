@@ -14,6 +14,7 @@
     X(TBO_HOSTS_PUZZLED, "hosts_puzzled") \
     X(TBO_HOSTS_CHEER, "hosts_cheer") \
     X(TBO_HOSTS_THUMBS_UP, "hosts_thumbs_up") \
+    X(TBO_RADITZ, "raditz")                 /* the one who stands by the screens now (Tb_Hosts), whatever the pose */ \
     X(TBO_KIT_SEL, "kit_sel")               /* the interface pieces: the chosen bar, */ \
     X(TBO_KIT_BAR, "kit_bar")               /* a bar, */ \
     X(TBO_KIT_DIALOG, "kit_dialog")         /* the hosts' box, */ \
