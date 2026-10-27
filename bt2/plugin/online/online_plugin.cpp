@@ -175,8 +175,11 @@ constexpr std::uint32_t paused=0x243BC0,pause_a=0x101890,pause_b=0x101498;
 std::string onlinePath(const char* name) {return std::string(H->online_dir?H->online_dir:"")+"/"+name;}
 void writeOnlineFile(const char* name,const std::string& text) {
     if(!H->online_dir)return;
-    std::ofstream out(onlinePath(name),std::ios::binary|std::ios::trunc);
-    out<<text;
+    // (written aside and renamed: the app reads these files at any moment and must never see one half written)
+    const std::string path=onlinePath(name),aside=path+".tmp";
+    {std::ofstream out(aside,std::ios::binary|std::ios::trunc);out<<text;}
+    std::error_code error;
+    std::filesystem::rename(aside,path,error);
 }
 bool onlineFile(const char* name,bool clear) {
     const char* dir=H->online_dir;
@@ -235,6 +238,11 @@ std::uint32_t modeToTry() {
     int n=0;
     return (in && (in>>n) && n>=1 && n<=63)?static_cast<std::uint32_t>(n):0;
 }
+// The line's notes (link.h) go to the game's log: the run log of the player's phone then says what the network did.
+void flushNotes() {
+    if(!H->log)return;
+    for(const auto& n:link.takeNotes())H->log(n.c_str());
+}
 void relayStep() {
     if(!link.relayStarted()) {
         std::ifstream in(onlinePath("online_turn"),std::ios::binary);
@@ -278,7 +286,10 @@ void screenLoop(Guest& g) {
                 writeOnlineFile("online_local",lines);
                 writeOnlineFile("online_nat",link.symmetricRouter()?"symmetric\n":"cone-or-unknown\n");
                 localWritten=true;
+                std::string flat=lines;for(auto& ch:flat)if(ch=='\n')ch=' ';
+                if(H->log){const std::string note="online: addresses for the app: "+flat+(link.symmetricRouter()?"(the router gives a port per destination)":"");H->log(note.c_str());}
             }
+            flushNotes();
             if(loop_frame%15==0)relayStep();
             if(screen.found) {
                 if(loop_frame%30==0)writeLinkFile();
@@ -294,7 +305,8 @@ void screenLoop(Guest& g) {
             } else if(!screen.linking) {
                 std::string name,code;std::vector<std::string> addresses;
                 if(loop_frame%8==0 && readPeer(name,code,addresses)) {
-                    if(addresses.empty()) {screen.found=300;effect(1);} // (an app that gives no addresses: the opponent is shown as before)
+                    // (an opponent with no address to reach him by, because his own game found none: there is no line to make, and "Connected" would be a lie)
+                    if(addresses.empty()) {screen.failed=1;writeOnlineFile("online_nat","no-address\n");}
                     else {link.start(code,addresses);screen.linking=1;}
                 }
             } else if(link.state()==Link::Up) {
@@ -311,8 +323,10 @@ void screenLoop(Guest& g) {
             if(screen.page==0 && screen.choice==0) {screen.page=1;screen.choice=0;} // Online: the three ways in
             else if(screen.page==1) { // create, join, quick: the app takes it; the socket first, for the addresses it will give the service
                 screen.wait=1+int(screen.choice);
-                for(const char* name:{"online_peer","online_back","online_link"})onlineFile(name,true);
+                // (online_local too: one left by a run that ended badly would give the app a port nobody listens on)
+                for(const char* name:{"online_peer","online_back","online_link","online_local","online_nat"})onlineFile(name,true);
                 localWritten=!link.open(); // (the addresses are written once the STUN answers are in: the loop below)
+                if(localWritten)writeOnlineFile("online_local","error\n"); // (no socket: the app says so instead of giving a port nobody listens on)
             }
             else screen.soon=true; // (Ranked: coming soon)
             effect(1);
@@ -402,7 +416,11 @@ void framePad(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
     const std::uint32_t mode=progress?read32(rdram,progress+0x1C):0;
     if(session) {
         link.poll();
-        if(link.state()!=Link::Up || link.peerLeft() || link.silentMs()>6000)leaveSession(true);
+        flushNotes();
+        if(link.state()!=Link::Up || link.peerLeft() || link.silentMs()>6000) {
+            if(H->log){const std::string note=std::string("online: the match ends: ")+(link.peerLeft()?"the other player said goodbye":link.state()!=Link::Up?"the line is not up":"no packet for "+std::to_string(link.silentMs())+" ms");H->log(note.c_str());}
+            leaveSession(true);
+        }
     }
     if(transition_mute && ++mute_frames>1800) {transition_mute=false;mute_frames=0;H->set_stream_percent(music_volume);}
     if(session && auto_phase) {

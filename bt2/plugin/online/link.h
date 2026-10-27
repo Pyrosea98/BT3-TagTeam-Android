@@ -45,13 +45,22 @@ public:
     bool relayActive() const {return relay_.active();}
     bool relayFailed() const {return relay_.failed();}
     const std::string& relayAddress() const {return relay_.relayedAddress();}
+    // What happened on the line, in words, for the game's log (the plugin takes them each frame): the addresses, the hellos sent and what
+    // came back, why it failed. Without this a failed match leaves nothing to tell a blocked router from a wrong address.
+    std::vector<std::string> takeNotes() {auto out = std::move(notes_); notes_.clear(); return out;}
 
 private:
     struct Candidate {std::uint32_t ip = 0;std::uint16_t port = 0;bool relayed = false;};
     void send(std::uint8_t type, std::uint32_t number, std::uint32_t echo, const Candidate& to);
     static std::uint32_t now();
 
+    void note(const std::string& text) {if (notes_.size() < 64) notes_.push_back(text);}
+    static std::string text(const Candidate& c);
+
     int socket_ = -1;
+    std::vector<std::string> notes_;
+    std::uint32_t sent_ = 0, got_ = 0, foreign_ = 0, lastNote_ = 0;
+    Candidate lastForeign_;
     State state_ = Closed;
     std::uint16_t port_ = 0;
     std::uint32_t session_ = 0, number_ = 0, started_ = 0, lastHello_ = 0, lastPing_ = 0;

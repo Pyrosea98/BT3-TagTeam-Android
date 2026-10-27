@@ -28,6 +28,14 @@ std::uint32_t fnv(const std::string& text) {
 }
 }
 
+std::string Link::text(const Candidate& c) {
+    char buffer[INET_ADDRSTRLEN] = "?";
+    in_addr ip{};
+    ip.s_addr = c.ip;
+    ::inet_ntop(AF_INET, &ip, buffer, sizeof buffer);
+    return std::string(buffer) + ":" + std::to_string(c.port) + (c.relayed ? " (relay)" : "");
+}
+
 std::uint32_t Link::now() {
     return static_cast<std::uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
 }
@@ -46,23 +54,38 @@ bool Link::open() {
     socklen_t length = sizeof any;
     ::getsockname(socket_, reinterpret_cast<sockaddr*>(&any), &length);
     port_ = ntohs(any.sin_port);
-    // this phone's addresses on its networks (not the loopback), each with the socket's port
+    // this phone's addresses on its networks (not the loopback), each with the socket's port. Wi-Fi and cable first: the other player on the same
+    // home network reaches this game by that address, and the service takes only a few; the mobile network's own addresses, the carrier's
+    // translation address (192.0.0.x) and link-local ones are of no use to anybody else and are left out.
     local_.clear();
     ifaddrs* list = nullptr;
     if (::getifaddrs(&list) == 0) {
+        std::vector<std::string> home, other;
         for (ifaddrs* a = list; a; a = a->ifa_next) {
             if (!a->ifa_addr || a->ifa_addr->sa_family != AF_INET || !(a->ifa_flags & IFF_UP) || (a->ifa_flags & IFF_LOOPBACK)) continue;
-            char text[INET_ADDRSTRLEN];
             const auto* in = reinterpret_cast<sockaddr_in*>(a->ifa_addr);
-            if (::inet_ntop(AF_INET, &in->sin_addr, text, sizeof text) && local_.size() < 4) local_.push_back(std::string(text) + ":" + std::to_string(port_));
+            const std::uint32_t ip = ntohl(in->sin_addr.s_addr);
+            if ((ip >> 24) == 0 || (ip >> 16) == 0xA9FE || (ip >> 8) == 0xC00000) continue;   // 0.x, 169.254.x.x, 192.0.0.x
+            char text[INET_ADDRSTRLEN];
+            if (!::inet_ntop(AF_INET, &in->sin_addr, text, sizeof text)) continue;
+            const std::string name = a->ifa_name ? a->ifa_name : "";
+            const bool lan = name.rfind("wlan", 0) == 0 || name.rfind("swlan", 0) == 0 || name.rfind("eth", 0) == 0 || name.rfind("ap", 0) == 0;
+            (lan ? home : other).push_back(std::string(text) + ":" + std::to_string(port_));
         }
         ::freeifaddrs(list);
+        for (const auto* group : {&home, &other})
+            for (const auto& a : *group) if (local_.size() < 3) local_.push_back(a);
     }
     state_ = Open;
     rtt_ = -1;
     peerLeft_ = false;
+    sent_ = got_ = foreign_ = 0;
+    notes_.clear();
     openedAt_ = now();
     stun_.begin();
+    std::string mine;
+    for (const auto& a : local_) mine += " " + a;
+    note("online: socket open on port " + std::to_string(port_) + ", own addresses:" + (mine.empty() ? " none" : mine));
     return true;
 }
 
@@ -83,7 +106,15 @@ std::vector<std::string> Link::localAddresses() const {
     return out;
 }
 
-bool Link::addressesReady() const {return stun_.finished() || now() - openedAt_ > 1200;}
+// The router's address is what lets a player on another network reach this game (and lets the service tell a household from strangers), so it
+// is worth waiting for: ready when the STUN answers are in, or, with none yet, until 3.5 s have passed (a slow first name lookup on mobile
+// data); with one answer already, 1.2 s are enough for the second.
+bool Link::addressesReady() const {
+    const std::uint32_t waited = now() - openedAt_;
+    if (stun_.finished() && !stun_.mapped().empty()) return true;
+    if (!stun_.mapped().empty()) return waited > 1200;
+    return waited > 3500;
+}
 
 void Link::start(const std::string& code, const std::vector<std::string>& addresses) {
     if (state_ != Open) return;
@@ -110,7 +141,13 @@ void Link::start(const std::string& code, const std::vector<std::string>& addres
     lastHello_ = started_ - hello_every;
     lastPing_ = 0;
     number_ = 0;
+    lastNote_ = started_;
     state_ = candidates_.empty() ? Failed : Linking;
+    std::string to;
+    for (const auto& c : candidates_) to += " " + text(c);
+    note("online: linking, room " + code + ", " + std::to_string(candidates_.size()) + " address(es) to say hello to:" + (to.empty() ? " none" : to) +
+         "; the router looked " + (stun_.symmetric() ? "symmetric" : stun_.mapped().empty() ? "unknown (no STUN answer)" : "cone"));
+    if (candidates_.empty()) note("online: FAILED: the other player gave no usable address");
 }
 
 void Link::send(std::uint8_t type, std::uint32_t number, std::uint32_t echo, const Candidate& to) {
@@ -126,6 +163,7 @@ void Link::send(std::uint8_t type, std::uint32_t number, std::uint32_t echo, con
     a.sin_family = AF_INET;
     a.sin_addr.s_addr = to.ip;
     a.sin_port = htons(to.port);
+    ++sent_;
     if (to.relayed) {relay_.send(socket_, p, sizeof p, to.ip, htons(to.port)); return;}
     ::sendto(socket_, p, sizeof p, 0, reinterpret_cast<sockaddr*>(&a), sizeof a);
 }
@@ -155,7 +193,17 @@ void Link::poll() {
     if (state_ == Open || state_ == Failed) {
         // (nothing to say yet, or nothing more: answers from the relay are still read below)
     } else if (state_ == Linking) {
-        if (t - started_ > give_up_after) {state_ = Failed; return;}
+        if (t - started_ > give_up_after) {
+            state_ = Failed;
+            note("online: FAILED after " + std::to_string((t - started_) / 1000) + " s: " + std::to_string(sent_) + " packets sent, " + std::to_string(got_) +
+                 " came back from the other game, " + std::to_string(foreign_) + " arrived that were not for this match" +
+                 (foreign_ ? " (last from " + text(lastForeign_) + ")" : "") + (got_ == 0 ? "; nothing reached this phone: the other side's router or ours blocks it" : ""));
+            return;
+        }
+        if (t - lastNote_ >= 3000) {
+            lastNote_ = t;
+            note("online: still linking (" + std::to_string((t - started_) / 1000) + " s): " + std::to_string(sent_) + " sent, " + std::to_string(got_) + " answered, " + std::to_string(foreign_) + " foreign");
+        }
         if (t - lastHello_ >= hello_every) {
             lastHello_ = t;
             for (const auto& c : candidates_) send(hello, ++number_, t, c); // (to every address: the one that works answers)
@@ -185,8 +233,14 @@ void Link::poll() {
             source = {peerIp, ntohs(peerPort), true};
         }
         if (state_ != Linking && state_ != Up) continue;
-        if (got < static_cast<ssize_t>(packet_size) || get32(p) != magic || p[4] != version || get32(p + 8) != session_) continue;
+        if (got < static_cast<ssize_t>(packet_size) || get32(p) != magic || p[4] != version || get32(p + 8) != session_) {
+            ++foreign_;
+            lastForeign_ = source;
+            continue;
+        }
+        ++got_;
         heard_ = t;
+        const State before = state_;
         const std::uint32_t echo = get32(p + 16);
         switch (p[5]) {
         case hello:
@@ -212,5 +266,6 @@ void Link::poll() {
         default:
             break;
         }
+        if (before == Linking && state_ == Up) note("online: UP via " + text(remote_) + " after " + std::to_string((t - started_)) + " ms, " + std::to_string(sent_) + " sent");
     }
 }

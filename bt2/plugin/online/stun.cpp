@@ -9,7 +9,7 @@
 namespace {
 constexpr std::uint8_t cookie[4] = {0x21, 0x12, 0xA4, 0x42};
 constexpr std::uint32_t ask_every = 400;
-constexpr int tries = 8;
+constexpr int tries = 9;
 
 std::uint32_t nowMs() {
     return static_cast<std::uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
@@ -29,9 +29,12 @@ void Stun::reset() {
 void Stun::begin() {
     reset();
     began_ = true;
-    servers_.resize(2);
-    servers_[0].host = "stun.l.google.com";     servers_[0].port = "19302";
-    servers_[1].host = "stun.cloudflare.com";   servers_[1].port = "3478";
+    // (four, from three operators: one name that does not resolve, or one operator a carrier blocks, must not leave the game without its address)
+    servers_.resize(4);
+    servers_[0].host = "stun.l.google.com";         servers_[0].port = "19302";
+    servers_[1].host = "stun.cloudflare.com";       servers_[1].port = "3478";
+    servers_[2].host = "stun1.l.google.com";        servers_[2].port = "19302";
+    servers_[3].host = "global.stun.twilio.com";    servers_[3].port = "3478";
     static std::mt19937 random{std::random_device{}() ^ nowMs()};
     for (auto& s : servers_) for (auto& b : s.transaction) b = std::uint8_t(random());
     resolver_ = std::thread([this] {

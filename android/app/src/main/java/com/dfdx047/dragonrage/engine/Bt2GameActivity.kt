@@ -90,6 +90,7 @@ class Bt2GameActivity : GameActivity() {
         applyOutputScale(Bt2Settings(paths).load().outputScale)
         refreshPerfOverlay()
         (SDLActivity.getContentView() as? ViewGroup)?.let { online.start(it) }
+        holdWifi()
         // The whole screen for the game: the status and navigation bars come back with a swipe.
         WindowCompat.getInsetsController(window, window.decorView).apply {
             hide(WindowInsetsCompat.Type.systemBars())
@@ -119,7 +120,23 @@ class Bt2GameActivity : GameActivity() {
     override fun onPause() {
         perf.hide()
         online.stop()
+        wifiLock?.let { runCatching { if (it.isHeld) it.release() } }
         super.onPause()
+    }
+
+    /** Wi-Fi in low-latency mode while the game is in front: on 2.4 GHz especially (and on 5 GHz too) the radio's power saving holds packets
+     *  for tens of milliseconds, which is what makes an online fight stutter; the mode keeps it awake. Without a Wi-Fi connection it does nothing. */
+    private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
+
+    private fun holdWifi() {
+        runCatching {
+            val manager = applicationContext.getSystemService(WIFI_SERVICE) as android.net.wifi.WifiManager
+            val lock = wifiLock ?: manager.createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_LOW_LATENCY, "dragonrage:bt2-online").also {
+                it.setReferenceCounted(false)
+                wifiLock = it
+            }
+            if (!lock.isHeld) lock.acquire()
+        }
     }
 
     /** What the app puts over the Online Mode screens: the player's online name (Bt2OnlineOverlay). */

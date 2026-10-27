@@ -183,7 +183,7 @@ class Bt2OnlineOverlay(private val activity: Activity, private val paths: GamePa
         val login = room.turn.takeIf { it.size == 3 && it[0].isNotEmpty() }
             ?: runCatching { File(dir, "dragonnet_turn.txt").readLines().map { it.trim() }.filter { it.isNotEmpty() } }.getOrNull()?.takeIf { it.size == 3 }
             ?: return
-        runCatching { dir.mkdirs(); File(dir, "online_turn").writeText(login.joinToString("\n") + "\n") }
+        putFile("online_turn", login.joinToString("\n") + "\n")
     }
 
     private fun publishRelay(s: Session, room: Bt2Online.Room, mine: List<String>) {
@@ -194,18 +194,35 @@ class Bt2OnlineOverlay(private val activity: Activity, private val paths: GamePa
     }
 
     /** The addresses the game opened for the line to the other game (online_local, a moment after the screen asked). */
-    private fun localAddresses(): List<String> {
-        repeat(20) {
-            runCatching { File(dir, "online_local").readLines().map { it.trim() }.filter { it.isNotEmpty() } }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { return it }
+    private fun localAddresses(s: Session): List<String>? {
+        // (the game waits up to 3.5 s for the router's address, then writes the file: wait a little longer than that. "error": it could not open its socket.)
+        repeat(60) {
+            if (s.cancelled) return null
+            val lines = runCatching { File(dir, "online_local").readLines().map { it.trim() }.filter { it.isNotEmpty() } }.getOrNull()
+            if (lines != null && lines.isNotEmpty()) return lines.takeIf { it[0] != "error" }
             Thread.sleep(100)
         }
-        return emptyList()
+        return null
+    }
+
+    /** A file the game reads at any moment: written aside and renamed, so it never sees half of it. */
+    private fun putFile(name: String, text: String) {
+        runCatching {
+            dir.mkdirs()
+            val aside = File(dir, "$name.tmp")
+            aside.writeText(text)
+            if (!aside.renameTo(File(dir, name))) File(dir, name).writeText(text)
+        }
     }
 
     /** On the worker thread: the request, then the wait for the other player. */
     private fun work(s: Session, typedCode: String? = null) {
         val name = name() ?: ""
-        val mine = localAddresses()
+        val mine = localAddresses(s)
+        if (mine == null) {
+            if (!s.cancelled) say("O jogo não conseguiu abrir a conexão de rede.", detail = "Confira se o celular está com internet e aperte △ para voltar.", error = true)
+            return
+        }
         try {
             val first = when (s.kind) {
                 1 -> Bt2Online.host(s.base, name, mine)
@@ -219,10 +236,18 @@ class Bt2OnlineOverlay(private val activity: Activity, private val paths: GamePa
             if (s.kind == 1) say("Sala criada!", code = first.code, detail = "Passe este código para um amigo (toque para copiar).\nAguardando ele entrar…", spinner = true)
             var room = first
             var since = System.currentTimeMillis()
+            var lost = 0
             while (!s.cancelled) {
                 Thread.sleep(1000)
                 publishRelay(s, room, mine)
-                Bt2Online.poll(s.base, room)?.let { return connected(s, it) }
+                // (a poll that fails for a moment, a signal that dips on mobile data, must not end the wait: the room is still there; ~15 in a row do)
+                val peer = try {
+                    Bt2Online.poll(s.base, room).also { lost = 0 }
+                } catch (e: Bt2Online.Failure) {
+                    if (e.why != "network" || ++lost > 15) throw e
+                    null
+                }
+                peer?.let { return connected(s, it) }
                 // (a room the service keeps ten minutes: a search that waits longer asks again)
                 if (s.kind == 3 && System.currentTimeMillis() - since > 9 * 60_000) {
                     Bt2Online.leave(s.base, room)
@@ -242,7 +267,7 @@ class Bt2OnlineOverlay(private val activity: Activity, private val paths: GamePa
         if (s.cancelled) return
         s.peerName = peer.name
         val code = s.room?.code ?: ""
-        runCatching { dir.mkdirs(); File(dir, "online_peer").writeText((listOf(peer.name, code) + peer.addrs).joinToString("\n")) }
+        putFile("online_peer", (listOf(peer.name, code) + peer.addrs).joinToString("\n") + "\n")
         say("Conectando com ${peer.name}…", spinner = true)
     }
 
@@ -256,8 +281,26 @@ class Bt2OnlineOverlay(private val activity: Activity, private val paths: GamePa
         when (state) {
             15 -> say("Conectando com ${s.peerName}…", spinner = true)
             14 -> say("Conectado!", detail = "Oponente: ${s.peerName}" + if (rtt >= 0) "\nAtraso: $rtt ms" else "")
-            else -> say("Não foi possível conectar com ${s.peerName}.", detail = "Por enquanto os dois jogos precisam estar na mesma rede.\nAperte △ para voltar.", error = true)
+            else -> say("Não foi possível conectar com ${s.peerName}.", detail = failureReason() + "\nAperte △ para voltar.", error = true)
         }
+    }
+
+    /** Why the line could not be made, as far as the game can tell (online_nat: what its own router looked like). */
+    private fun failureReason(): String = when (runCatching { File(dir, "online_nat").readText().trim() }.getOrNull()) {
+        else -> if (peerSymmetric()) "A rede da outra pessoa (provavelmente dados móveis) não aceita conexão direta. Peça para ela tentar no Wi-Fi." else otherReason()
+    }
+
+    /** The other player's router gives one port per destination (the same address with different ports among what he told the service). */
+    private fun peerSymmetric(): Boolean {
+        val lines = runCatching { File(dir, "online_peer").readLines() }.getOrNull()?.drop(2).orEmpty()
+        return lines.mapNotNull { it.trim().takeIf { l -> Regex("""[0-9.]+:\d+""").matches(l) } }.groupBy({ it.substringBefore(':') }, { it.substringAfter(':') })
+            .any { it.value.distinct().size > 1 }
+    }
+
+    private fun otherReason(): String = when (runCatching { File(dir, "online_nat").readText().trim() }.getOrNull()) {
+        "symmetric" -> "A sua rede (provavelmente os dados móveis da operadora) não aceita conexão direta com outra rede. Tente no Wi-Fi."
+        "no-address" -> "A outra pessoa não conseguiu descobrir o endereço dela na internet. Peça para ela trocar de rede (Wi-Fi ou dados) e tentar de novo."
+        else -> "Pode ser a rede de um dos dois (alguns Wi-Fi e dados móveis bloqueiam conexão direta). Tente trocar de Wi-Fi para dados, ou o contrário."
     }
 
     private fun endSession() {
