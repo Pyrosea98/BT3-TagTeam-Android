@@ -3183,6 +3183,7 @@ static char sCodeText[8], sCodeError[256];
 static uint64_t sCodeSince;
 
 const char *Port_LobbyCode(void) { return sCodeText; }
+const char *Port_LobbyServer(void) { return Match_ServerLabel(); }
 const char *Port_LobbyError(void) { return sCodeError; }
 
 int Port_LobbyStart(int host, const char *address, int port) {
