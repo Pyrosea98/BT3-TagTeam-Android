@@ -26,7 +26,6 @@ static int sLobbyLast;                       // the lobby's last state worth tel
 static Uint64 sSearchSince, sFoundAt;
 static bool sRankedLobby;                    // the lobby was started for a ranked match
 static float sK = 1.0f;                      // FontSizeBase per pixel of text
-static int sRegion = -1;                     // Quick match's region (the PC's screens' setting tbo_region: the same choice in both)
 // The PC's Quick Match regions (src/menu/port_tbo.c): what the matchmaking service is told, and their names here.
 static const char *const kRegionArea[9] = {"auto", "NA", "SA", "EU", "ME", "AF", "AS", "OC", "any"};
 
@@ -496,8 +495,9 @@ static void screen_create(void) {
         Port_SettingSave("net_battle", sBattle);
         Port_LobbyCancel();
         Port_NetNameSet(sName);
-        // (the rules as Create Room has them: no time limit, the competitive speed, rollback 8, a delay of 2; the lobby's page changes them)
-        if (Port_LobbyCreate(1, 0, sBattle, 4, Port_Setting("net_speed_host", Port_NetSpeedStandard()), Port_RollCan() ? 8 : 0, 2) >= 0) {
+        // (the rules as Create Room has them: no time limit, the competitive speed, rollback 8, the delay from the connection
+        // (the lobby's 0 = auto, as rules_set's -2); the lobby's page changes them)
+        if (Port_LobbyCreate(1, 0, sBattle, 4, Port_Setting("net_speed_host", Port_NetSpeedStandard()), Port_RollCan() ? 8 : 0, 0) >= 0) {
             set_open(false);
             DrNet_PresenceActive(0);
             DrChat_Close();
@@ -632,9 +632,9 @@ static void screen_watch_wait(void) {
                                               "El anfitrión está: esperando que empiece la partida...")
               : st == 1 ? T("Room found. Connecting...", "Sala encontrada. Conectando...", "Sala encontrada. Conectando...")
                         : T("Looking for the room...", "Procurando a sala...", "Buscando la sala..."), col(1.0f, 0.86f, 0.30f));
-    footer(T("You will see the match about a second behind; your controller does nothing in it. START: view.",
-             "Você verá a partida cerca de um segundo atrás; seu controle não mexe nela. START: câmera.",
-             "Verás la partida un segundo atrás; tu control no hace nada en ella. START: cámara."), "", T("B: cancel", "B: cancelar", "B: cancelar"));
+    footer(T("You will see the match about a second behind; your controller does nothing in it. R1: view. START: menu (view, stop watching).",
+             "Você verá a partida cerca de um segundo atrás; seu controle não mexe nela. R1: câmera. START: menu (câmera, parar de assistir).",
+             "Verás la partida un segundo atrás; tu control no hace nada en ella. R1: cámara. START: menú (cámara, dejar de ver)."), "", T("B: cancel", "B: cancelar", "B: cancelar"));
 }
 
 static void screen_join_wait(void) {
@@ -659,7 +659,8 @@ static void screen_quick(void) {
     card_start(u * 4.2f, u * 5.15f, T("CHOOSE YOUR FIGHT", "ESCOLHA SEU COMBATE", "ELIGE TU COMBATE"));
     int m = padMove();
     if (m != 0) { sRow = (sRow + m + 3) % 3; }
-    if (sRegion < 0 || sRegion > 8) { sRegion = Port_Setting("tbo_region", 0); if (sRegion < 0 || sRegion > 8) { sRegion = 0; } }
+    int region = Port_Setting("tbo_region", 0); // (the PC's screens' setting: the same choice here and in Tenkaichi Budokai Online)
+    if (region < 0 || region > 8) { region = 0; }
     char val[64];
     int waiting = Port_LobbyQueueWaiting(sQueue2);
     if (waiting > 0) { SDL_snprintf(val, sizeof(val), T("%s (%d waiting)", "%s (%d esperando)", "%s (%d esperando)"), battle_name(sQueue2), waiting); }
@@ -676,9 +677,9 @@ static void screen_quick(void) {
             {"Europe", "Europa", "Europa"}, {"Middle East", "Oriente Médio", "Oriente Medio"}, {"Africa", "África", "África"},
             {"Asia", "Ásia", "Asia"}, {"Oceania", "Oceania", "Oceanía"}, {"Anywhere", "Qualquer lugar", "Cualquier lugar"}};
         int rch = 0;
-        card_row(1, u * 2.0f, T("Region", "Região", "Región"), T(names[sRegion][0], names[sRegion][1], names[sRegion][2]), &rch);
+        card_row(1, u * 2.0f, T("Region", "Região", "Región"), T(names[region][0], names[region][1], names[region][2]), &rch);
         if (sRow == 1) { rch += padSide(); if (padA()) { rch = 1; } }
-        if (rch != 0) { sRegion = (sRegion + rch + 9) % 9; Port_SettingSave("tbo_region", sRegion); }
+        if (rch != 0) { region = (region + rch + 9) % 9; Port_SettingSave("tbo_region", region); Port_SettingsWrite(); }
     }
     bool go = card_row(2, u * 3.55f, T("Search for a rival", "Buscar rival", "Buscar rival"), "") || (sRow == 2 && padA());
     const char *err = lobby_error(sLobbyLast);
@@ -687,7 +688,7 @@ static void screen_quick(void) {
         sLobbyLast = 0;
         rules_set(sQueue2);
         Port_SettingSave("net_queue", sQueue2);
-        Port_LobbyQuickArea(kRegionArea[sRegion]);
+        Port_LobbyQuickArea(kRegionArea[region]);
         Port_LobbyStartQuick(sQueue2);
         sSearchSince = SDL_GetTicks();
         sFoundAt = 0;

@@ -115,6 +115,9 @@ static bool sNet;                              // the open window is the online 
 // for it here; the controller's START and the key bound to it reach it through the pad.
 extern "C" volatile int gPortSpecMenuAsk;
 volatile int gPortSpecMenuAsk;
+#ifdef __ANDROID__
+extern "C" unsigned Port_TouchButtons(void); // gs/gs_input.c: the on-screen controller's buttons now
+#endif
 extern "C" void Port_UiNotice(const char *text);
 static void spec_view_next(void);               // watching a match: the next view (player 1, player 2, both)
 static const char *spec_view_name(int view);
@@ -2884,6 +2887,16 @@ static bool frame_build(void) {
             }
         }
     }
+#ifdef __ANDROID__
+    { // the on-screen controller's R1 while watching: the next view, as a controller's R1 (its buttons are no SDL events)
+        static bool held;
+        const bool r1 = (Port_TouchButtons() & 0x0800u) != 0;
+        if (r1 && !held && sReady && !sOpen && !sNativeOpen && Port_NetSpectating()) {
+            spec_view_next();
+        }
+        held = r1;
+    }
+#endif
     if (sReady && !sUpdTold && update_latest() > PORT_RELEASE && SDL_GetTicks() >= sNoticeUntil) {
         int latest = update_latest(); // (told once, and not over another notice)
         sUpdTold = true;

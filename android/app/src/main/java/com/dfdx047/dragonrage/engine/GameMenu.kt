@@ -220,9 +220,9 @@ private class MenuValues(private val file: () -> EngineSettings) {
             "frame_skip", "frag_depth", "interp", "present", "meter", "fx_off", "glow", "music", "effects", "voices",
             "stage_sounds", "music_follows_speed", "hud_layout", "menus_43", "side_bars", "menu_font_id", "battle_font_id",
             "text_font_id", "clash_square", "clash_square_x", "chat", "game_speed", "skip_logos", "skip_intro",
-            "skip_copyright", "unlock_done", "online", "fps",
+            "skip_copyright", "unlock_done", "online", "fps", "net_spectators", "lobby_match", "lobby_owner", "spectating", "spec_view",
         )
-        val TEXT_KEYS = listOf("gpu", "device", "fonts_menu", "fonts_battle", "fonts_text")
+        val TEXT_KEYS = listOf("gpu", "device", "fonts_menu", "fonts_battle", "fonts_text", "lobby_code", "spec_names")
     }
 }
 
@@ -257,6 +257,10 @@ private fun MenuScreen(
             Column(Modifier.fillMaxSize()) {
                 TopBar(l, game, onResume = onResume, onQuit = { askQuit = true })
                 Spacer(Modifier.height(8.dp))
+                if (game != Game.BT4 && (values.get("lobby_match", 0) != 0 || values.get("spectating", 0) != 0)) {
+                    NetBar(l, values, onDone = onResume)
+                    Spacer(Modifier.height(8.dp))
+                }
                 if (wide) {
                     Row(Modifier.fillMaxSize()) {
                         Column(
@@ -318,6 +322,57 @@ private fun TopBar(l: L, game: Game, onResume: () -> Unit, onQuit: () -> Unit) {
             Icon(Icons.Rounded.PlayArrow, null, Modifier.size(22.dp))
             Spacer(Modifier.width(8.dp))
             Text(l.t("Resume", "Continuar", "Continuar"), fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+/** A lobby's match or a watched match: the ways back and out, as the engine's window has them (the PC's at its top). */
+@Composable
+private fun NetBar(l: L, v: MenuValues, onDone: () -> Unit) {
+    val lobby = v.get("lobby_match", 0) != 0
+    val owner = v.get("lobby_owner", 0) != 0
+    val watching = v.get("spectating", 0) != 0
+    val names = v.texts["spec_names"].orEmpty().split('|')
+    val code = v.texts["lobby_code"].orEmpty()
+    fun act(a: Int) { MenuBridge.action(a); onDone() }
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.92f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            val title = if (watching) {
+                val view = when (v.get("spec_view", 0)) {
+                    0 -> names.getOrNull(0)?.ifEmpty { null } ?: l.t("player 1", "jogador 1", "jugador 1")
+                    1 -> names.getOrNull(1)?.ifEmpty { null } ?: l.t("player 2", "jogador 2", "jugador 2")
+                    else -> l.t("both (split screen)", "os dois (tela dividida)", "los dos (pantalla dividida)")
+                }
+                l.t("Watching %s vs %s · View: %s", "Assistindo %s x %s · Câmera: %s", "Viendo %s vs %s · Cámara: %s")
+                    .format(names.getOrNull(0).orEmpty(), names.getOrNull(1).orEmpty(), view)
+            } else {
+                l.t("Lobby", "Lobby", "Lobby") + if (code.isNotEmpty()) "  $code" else ""
+            }
+            Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.tertiary, fontWeight = FontWeight.Bold)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (watching) {
+                    OutlinedButton(onClick = {
+                        MenuBridge.action(MenuBridge.ACTION_SPEC_VIEW)
+                        v.map["spec_view"] = (v.get("spec_view", 0) + 1) % 3
+                    }) { Text(l.t("Change view", "Trocar câmera", "Cambiar cámara")) }
+                }
+                if (lobby && owner) {
+                    OutlinedButton(onClick = { act(MenuBridge.ACTION_LOBBY_BACK) }) { Text(l.t("Back to the lobby", "Voltar ao lobby", "Volver al lobby")) }
+                }
+                if (lobby) {
+                    OutlinedButton(onClick = { act(MenuBridge.ACTION_LOBBY_LEAVE) }) {
+                        Text(if (owner) l.t("Close the lobby", "Fechar o lobby", "Cerrar el lobby") else l.t("Leave the lobby", "Sair do lobby", "Salir del lobby"))
+                    }
+                } else if (watching) {
+                    OutlinedButton(onClick = { act(MenuBridge.ACTION_SPEC_STOP) }) { Text(l.t("Stop watching", "Parar de assistir", "Dejar de ver")) }
+                }
+            }
         }
     }
 }
