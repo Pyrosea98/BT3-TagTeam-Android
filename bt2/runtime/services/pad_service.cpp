@@ -1,6 +1,7 @@
 #include "ee/ee_runtime.h"
 #include "services/pad_block.h"
 #include <array>
+#include <cstdio>
 #include <cstdlib>
 
 // Native controller service in place of DBCMAN (servers 0x80001300 main, 0x8000131C, 0x8000131E
@@ -15,13 +16,16 @@
 //   0x1038002) or 1 (query 0x101800C); port 1 is unchanged. Word 35 is the result.
 // - port requests (services 0x8000131E/F) {port, ...}: echo; word 35 is the result.
 // Results: 1 for the connected port 0, -23 for the empty port 1.
+// Online play (pad_second, set by the library through the plugin API): a second DualShock 2 on port 1 that answers every request as port 0
+// does (the game's pad library treats its two sockets alike: it copies the socket table, opens socket k only when word k of it is 1, then reads
+// the slot's two buffers; docs/plans/online/LOCKSTEP_PLAN.md). The other player's controller is written to slot 1's buffers like port 0's.
 // Each VBlank, once slot 0 is open and DBCMAN's detection has run (27 fields), the pad state is
 // written to the slot's two buffers alternately: a 128-byte block in the DualShock 2 report layout.
 
 struct NativePadState {
-    DualShock2 pad;
-    std::array<std::uint32_t,2> buffers{};std::uint32_t table=0;bool open=false;
-    unsigned fields_open=0,transfers=0;
+    DualShock2 pad,pad2;
+    std::array<std::uint32_t,2> buffers{},buffers2{};std::uint32_t table=0;bool open=false,open2=false;
+    unsigned fields_open=0,transfers=0,transfers2=0;
 };
 
 namespace {
@@ -41,7 +45,9 @@ bool EeRuntime::nativePadCall(std::uint8_t* rdram,R5900Context* context,const Si
     if(r.send_size!=dbc_words*4 || r.recv_size!=dbc_words*4 || r.receive!=r.send_source)throw UnsupportedSyscall(0x77,context->pc);
     auto& state=nativePadState();
     std::array<std::uint32_t,dbc_words> w;for(unsigned n=0;n<dbc_words;++n)w[n]=read32(rdram,r.send_source+n*4);
-    const auto port_result=[&](std::uint32_t port){return port==0?dbc_connected:dbc_no_device;};
+    const bool second=pad_second.load(std::memory_order_relaxed);
+    const auto connected=[&](std::uint32_t port){return port==0 || (port==1 && second);};
+    const auto port_result=[&](std::uint32_t port){return connected(port)?dbc_connected:dbc_no_device;};
     bool startup=false;
     if(server.id==dbc_main) {
         switch(r.rpc_number) {
@@ -55,11 +61,12 @@ bool EeRuntime::nativePadCall(std::uint8_t* rdram,R5900Context* context,const Si
             if(w[2]>1)throw UnsupportedSyscall(0x77,context->pc);
             w[9]=w[2];
             if(w[2]==0){if(!state.table)throw UnsupportedSyscall(0x77,context->pc);state.buffers={w[10],w[11]};state.open=true;}
+            else if(second){state.buffers2={w[10],w[11]};state.open2=true;std::fprintf(stderr,"Pad: slot 1 opened (buffers 0x%X 0x%X)\n",w[10],w[11]);}
             startup=true;break;
         case dbc_attach: w[1]=0;break;
         case dbc_query:
             if(w[1]!=0x1038002 && w[1]!=0x101800C)throw UnsupportedSyscall(0x77,context->pc);
-            if(w[0]==0){w[2]=1;w[3]=w[1]==0x1038002?3:1;}
+            if(connected(w[0])){w[2]=1;w[3]=w[1]==0x1038002?3:1;}
             w[dbc_result]=port_result(w[0]);break;
         default: throw UnsupportedSyscall(0x77,context->pc);
         }
@@ -90,7 +97,16 @@ NativePadState& EeRuntime::nativePadState() {
 void EeRuntime::nativePadVblank(std::uint8_t* rdram) {
     auto& state=nativePadState();
     state.pad.advanceField(); // Scripted input changes at field starts; fields count every VBlank.
-    if(on_pad_input && !state.pad.script.empty()) on_pad_input(); // (the session's pause and settings still run)
+    const bool second=pad_second.load(std::memory_order_relaxed);
+    bool exchanged=false;
+    if(second && on_pad_exchange) {
+        // Online play: the controller of this field goes to the other side and what both players made comes back (it may wait for it).
+        // Until the exchange begins (the start-up walks the menus by script) the script holds player 1's buttons and player 2 is neutral.
+        const PadInput local=on_pad_input?on_pad_input():PadInput{};
+        PadInput first,other;
+        if((exchanged=on_pad_exchange(local,first,other))){state.pad.hold(first);state.pad2.hold(other);}
+        else {state.pad2.hold(PadInput{});if(state.pad.script.empty())state.pad.hold(local);}
+    } else if(on_pad_input && !state.pad.script.empty()) on_pad_input(); // (the session's pause and settings still run)
     else if(on_pad_input) {
         const auto before=state.pad.buttons;state.pad.hold(on_pad_input());
         if(on_pad_change && state.pad.buttons!=before)on_pad_change(state.pad.field,std::uint16_t(~state.pad.buttons));
@@ -100,6 +116,13 @@ void EeRuntime::nativePadVblank(std::uint8_t* rdram) {
         // Detection complete: the socket table reports the connected device.
         checkMemory(rdram,state.table,128);
         for(unsigned n=0;n<dbc_detected_table.size();++n)write32(rdram,state.table+n*4,dbc_detected_table[n]);
+        if(second)write32(rdram,state.table+4,1); // word k of the table: socket k has a device (the game's pad library checks it before opening socket k)
+    }
+    if(second && state.open2) {
+        const auto buffer2=state.buffers2[state.transfers2%2];checkMemory(rdram,buffer2,128);
+        const auto block2=nativePadBlock(state.pad2,state.transfers2);
+        for(unsigned n=0;n<block2.size();++n)write32(rdram,buffer2+n*4,block2[n]);
+        ++state.transfers2;
     }
     const auto buffer=state.buffers[state.transfers%2];checkMemory(rdram,buffer,128);
     const auto block=nativePadBlock(state.pad,state.transfers);

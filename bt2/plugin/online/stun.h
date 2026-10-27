@@ -1,8 +1,8 @@
 #pragma once
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <string>
-#include <thread>
 #include <vector>
 
 // What the other player must be told to reach this game from another network: the address the home's router shows to the internet.
@@ -14,8 +14,7 @@
 // know the port in advance, and only a relay will do).
 class Stun {
 public:
-    ~Stun();
-    void begin();                                        // the names are resolved on a thread of their own
+    void begin();                                        // the names are looked up on threads of their own, one each, which nobody waits for
     void reset();
     void poll(int socket);                               // sends the requests that are due
     // A packet that came in: true when it was a STUN answer (consumed).
@@ -25,8 +24,11 @@ public:
     bool symmetric() const;                              // two answers with different ports
 
 private:
+    // A name lookup that takes long (no internet, a slow resolver) must never hold the game up: the lookup belongs to its own thread, which
+    // keeps the server's record alive by itself and writes into it; the game only reads the records whose lookup is done.
     struct Server {
         std::string host, port;
+        std::atomic<bool> ready{false};                  // the lookup is over (ip 0: the name did not resolve)
         std::uint32_t ip = 0;
         std::uint16_t portNet = 0;
         std::uint8_t transaction[12] = {};
@@ -34,9 +36,7 @@ private:
         std::uint32_t mappedIp = 0;
         std::uint16_t mappedPort = 0;
     };
-    std::vector<Server> servers_;
-    std::thread resolver_;
-    std::atomic<int> resolved_{0};
+    std::vector<std::shared_ptr<Server>> servers_;
     bool began_ = false;
     int rounds_ = 0;
     std::uint32_t lastAsk_ = 0;

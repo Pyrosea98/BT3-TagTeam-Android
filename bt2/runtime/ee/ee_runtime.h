@@ -3,6 +3,7 @@
 // The full EE runtime (hand-written code only). Generated code sees just its base, PS2Runtime
 // (ps2_runtime.h), so edits here do not recompile generated units. Broader PS2 APIs fail explicitly.
 #include <string>
+#include <atomic>
 #include <algorithm>
 #include <array>
 #include <map>
@@ -554,6 +555,10 @@ public:
     bool vif1_running=false; // While a VIF1 transfer runs: what reaches the GS sink is VU1's and VIF1's output.
     std::function<void()> on_field_end; // At each VBLANK, before anything of the next field runs (state hash); never changes guest state.
     std::function<PadInput()> on_pad_input; // Live controller input, asked once per field; unset for scripted runs.
+    // Online play: with a second pad on (pad_second), asked once per field with the local controller; fills both players' controllers (it may
+    // wait inside for the other side's). False: no exchange now (the local controller is player 1's, player 2's is neutral).
+    std::function<bool(const PadInput& local,PadInput& player1,PadInput& player2)> on_pad_exchange;
+    std::atomic<bool> pad_second{false};
     std::function<void(unsigned field,std::uint16_t pressed)> on_pad_change; // Live input whose buttons changed, with the pad script's field number.
     unsigned graph_startup_phase=0;
     // Main's display re-initialization after the first archive load. The startup clear routine

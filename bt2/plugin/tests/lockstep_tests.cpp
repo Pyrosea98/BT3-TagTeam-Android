@@ -105,7 +105,7 @@ Result run(unsigned seed, unsigned delay, int loss, int dup, int corrupt, int mi
     for (int i = 0; i < 2; ++i) {
         bool same = s[i].seen.size() == fields;
         for (unsigned f = 0; same && f < fields; ++f) {
-            const Lockstep::Pair want = f < delay ? Lockstep::Pair{Sample{}, Sample{}} : Lockstep::Pair{script[0][f - delay], script[1][f - delay]};
+            const Lockstep::Pair want = f < delay ? Lockstep::Pair{Lockstep::neutralSample(), Lockstep::neutralSample()} : Lockstep::Pair{script[0][f - delay], script[1][f - delay]};
             if (s[i].seen[f].p1 != want.p1 || s[i].seen[f].p2 != want.p2) {
                 CHECK(false, "seed %u delay %u loss %d: side %d saw another controller at field %u", seed, delay, loss, i, f);
                 same = false;

@@ -9,9 +9,11 @@ import com.dfdx047.dragonrage.data.Bt2Drivers
 import com.dfdx047.dragonrage.data.Bt2Engine
 import com.dfdx047.dragonrage.data.Bt2MenuItem
 import com.dfdx047.dragonrage.data.Bt2Settings
+import com.dfdx047.dragonrage.data.Bt2Unlock
 import com.dfdx047.dragonrage.data.Game
 import com.dfdx047.dragonrage.data.GpuDriver
 import com.dfdx047.dragonrage.data.Renderer
+import android.content.Intent
 import java.io.File
 import org.libsdl.app.SDLActivity
 
@@ -141,6 +143,25 @@ class Bt2GameActivity : GameActivity() {
 
     /** What the app puts over the Online Mode screens: the player's online name (Bt2OnlineOverlay). */
     private val online by lazy { Bt2OnlineOverlay(this, paths) }
+
+    /**
+     * The engine again in a new process (Bt2RelaunchActivity): for an online match (its own card first, so both players start from the same one) or,
+     * when the match is over, as it normally is. The game's own process ends, as it does when the player quits (GameActivity.quitToApp).
+     */
+    fun restartEngine(forMatch: Boolean) {
+        if (forMatch) {
+            if (!Bt2Unlock.makeMatchCard(applicationContext, paths)) {
+                runCatching { File(paths.bt2Root, "user/online_session").delete() }
+            }
+        } else {
+            runCatching { File(paths.bt2Root, "user/online_session").delete() }
+        }
+        runCatching { File(paths.bt2Root, "user/online_match").delete() }
+        runOnUiThread {
+            startActivity(Intent(this, Bt2RelaunchActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ android.os.Process.killProcess(android.os.Process.myPid()) }, 400)
+    }
 
     /** The performance panel (Bt2PerfOverlay) as the setting has it: the BT2 tab's or the in-game menu's switch. */
     private val perf by lazy { Bt2PerfOverlay(this) }

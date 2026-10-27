@@ -31,6 +31,15 @@ object Bt2Unlock {
         return true
     }
 
+    /**
+     * The card of an online match: a fresh copy of the 100% save from the APK's assets, in the user folder (never the player's own card, which
+     * their play may have changed). Both players start the match from the same bytes; the engine takes it when a match is on (android_main.cpp).
+     */
+    fun makeMatchCard(context: Context, paths: GamePaths): Boolean {
+        val card = File(paths.bt2Root, "user/online-card")
+        return runCatching { card.deleteRecursively(); copyAssets(context, ASSETS, card) }.isSuccess
+    }
+
     private fun copyAssets(context: Context, path: String, into: File) {
         val names = context.assets.list(path).orEmpty()
         if (names.isEmpty()) { // a file

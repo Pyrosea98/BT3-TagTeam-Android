@@ -26,6 +26,7 @@ public:
     double waited_seconds=0; // Time spent waiting, for statistics: a field's work is its length minus this.
     unsigned late_fields=0;  // Fields whose deadline had passed when they asked.
     bool free_run=false;     // Fast forward: nothing is waited for; pacing starts afresh when it ends.
+    bool fast() const {return free_run;}
 
     FramePacer() {
         timeBeginPeriod(1);
@@ -53,7 +54,7 @@ public:
         return now>deadline_?std::chrono::duration<double>(now-deadline_).count():0;
     }
     void wait() {
-        if(free_run) {started_=false;return;}
+        if(fast()) {started_=false;return;}
         if(!started_ || waited_)return;
         waited_=true;
         const auto begin=Clock::now();
@@ -72,7 +73,7 @@ public:
     // field period has passed since the last one shown, so the run does not spend its time reading
     // back and drawing pictures nobody can see.
     bool pictureDue() {
-        if(!free_run)return true;
+        if(!fast())return true;
         const auto now=Clock::now();
         if(now-last_picture_<std::chrono::duration<double>(field_seconds))return false;
         last_picture_=now;return true;
@@ -87,10 +88,14 @@ private:
 #include <chrono>
 #include <cstdlib>
 #include <thread>
+#include <atomic>
 
 // The same clock elsewhere (Android, Linux): the system's sleep is already fine-grained, so the wait
 // sleeps to within a millisecond of the deadline and yields for the rest. On Android each field's work
 // (its length less the wait) is reported to the system's performance hints (host/sdl/android_performance.h).
+// Fast forward asked from outside the pacer: the online library runs a session's start-up without waiting for the clock.
+inline std::atomic<bool> bt2_fast_forward{false};
+
 class FramePacer {
 public:
     using Clock=std::chrono::steady_clock;
@@ -98,6 +103,7 @@ public:
     double waited_seconds=0;
     unsigned late_fields=0;
     bool free_run=false;
+    bool fast() const {return free_run || bt2_fast_forward.load(std::memory_order_relaxed);}
 
     void fieldStarted(double factor=1.0) {
         const auto period=std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(field_seconds*std::clamp(factor,0.99,1.01)));
@@ -126,7 +132,7 @@ public:
         return now>deadline_?std::chrono::duration<double>(now-deadline_).count():0;
     }
     void wait() {
-        if(free_run) {started_=false;return;}
+        if(fast()) {started_=false;return;}
         if(!started_ || waited_)return;
         waited_=true;
         const auto begin=Clock::now();
@@ -138,7 +144,7 @@ public:
         waited_seconds+=std::chrono::duration<double>(end-begin).count();
     }
     bool pictureDue() {
-        if(!free_run)return true;
+        if(!fast())return true;
         const auto now=Clock::now();
         if(now-last_picture_<std::chrono::duration<double>(field_seconds))return false;
         last_picture_=now;return true;

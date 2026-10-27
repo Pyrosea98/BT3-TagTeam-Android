@@ -42,7 +42,7 @@ std::uint32_t Link::now() {
 
 Link::~Link() {close();}
 
-bool Link::open() {
+bool Link::open(std::uint16_t wanted) {
     close();
     socket_ = ::socket(AF_INET, SOCK_DGRAM, 0);
     if (socket_ < 0) return false;
@@ -50,7 +50,15 @@ bool Link::open() {
     sockaddr_in any{};
     any.sin_family = AF_INET;
     any.sin_addr.s_addr = htonl(INADDR_ANY);
-    if (::bind(socket_, reinterpret_cast<sockaddr*>(&any), sizeof any) != 0) {close(); return false;}
+    bool bound = false, fell = false;
+    if (wanted) {
+        const int yes = 1;
+        ::setsockopt(socket_, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof yes);
+        any.sin_port = htons(wanted);
+        bound = ::bind(socket_, reinterpret_cast<sockaddr*>(&any), sizeof any) == 0;
+        if (!bound) {fell = true; any.sin_port = 0;}
+    }
+    if (!bound && ::bind(socket_, reinterpret_cast<sockaddr*>(&any), sizeof any) != 0) {close(); return false;}
     socklen_t length = sizeof any;
     ::getsockname(socket_, reinterpret_cast<sockaddr*>(&any), &length);
     port_ = ntohs(any.sin_port);
@@ -81,6 +89,7 @@ bool Link::open() {
     peerLeft_ = false;
     sent_ = got_ = foreign_ = 0;
     notes_.clear();
+    if (fell) note("online: port " + std::to_string(wanted) + " is not free, " + std::to_string(port_) + " instead (the other side's router knows the old one)");
     openedAt_ = now();
     stun_.begin();
     std::string mine;
@@ -212,7 +221,7 @@ void Link::poll() {
     if (state_ == Open || state_ == Failed) {
         // (nothing to say yet, or nothing more: answers from the relay are still read below)
     } else if (state_ == Linking) {
-        if (t - started_ > give_up_after) {
+        if (t - started_ > giveUp_) {
             state_ = Failed;
             note("online: FAILED after " + std::to_string((t - started_) / 1000) + " s: " + std::to_string(sent_) + " packets sent, " + std::to_string(got_) +
                  " came back from the other game, " + std::to_string(foreign_) + " arrived that were not for this match" +

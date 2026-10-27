@@ -53,15 +53,47 @@ one side (found on both, at the right field); random bytes into `receive` (never
 The first run of the tests found a real defect: a side dropped its own samples as soon as its game was past them, while the other could still be
 waiting for them (every lossy run hung). Samples are now kept until the other side confirms them.
 
-## Next, in this order
+## Built (2026-10-27), compiled and tested on a computer, NOT yet run in the game
 
-1. **Is a run repeatable across two phones?** `sync_test = 1` then `2` on one phone (written, never run), and the same scripted run on two phones with the
-   state hashes compared (`tools/ps2recomp/compare_state_hash.py`). Everything below depends on it.
-2. **The second pad.** Dump 0x3B0B00.. in a fight and find where player 2's held / pressed / sticks are; the pad service answers "no device" for port 1.
-3. **The per-field loop in the plugin**: read the local controller (as the game has it after `frame_pad`), `pushLocal`, send, `link.poll`, wait for `ready`
-   (the game thread sleeps in short steps, keeps polling the line and gives up with the existing silence rule), write both players' fields, `done`.
-4. **A session start both sides share**: the app starts the engine with a session flag, a card of its own with everything unlocked (the app already carries
-   one), the start-up walked by script to the character select, the two meet (an "arrived" message), the host is player 1 (drawn at random), lockstep begins.
-   The line must survive that restart, or be made again quickly (the socket is new, so its address changes): decide after step 1.
-5. **Checks**: pick the digest (both fighters' health, position, the clock) and note it every 32 fields; show a message on a difference.
-6. **Clock balance and the meter** (delay, waits, ping), then the names under the health bars and the stage and music chosen by player 1 only.
+The whole path is written. What is tested is everything that does not need the game (892 + 2144 + 36 + 41 checks, with sanitizers); what is not tested is
+how the game takes it. In the order a match goes:
+
+1. **Lobby** (the Online Mode screens, as before). When the line is up and both names are shown (5 s), the plugin writes `online_session` (role, the lobby socket's
+   port, the room's code, both names, the other side's addresses, the time) and `online_restart` = `session`; the line stays up meanwhile.
+2. **The app** (`Bt2OnlineOverlay.checkRestart` -> `Bt2GameActivity.restartEngine`) makes `user/online-card` (a fresh copy of the 100% save from the APK's assets: both
+   sides start from the same bytes, never the player's own card), starts `Bt2RelaunchActivity` (main process) and ends the game's process; the relaunch opens
+   `Bt2GameActivity` afresh. A start from the launcher deletes any old `online_session`.
+3. **The match's engine** (`android_main.cpp`: the card, 60 fps off, the widescreen patch on, whatever the player chose; `plugin/online/online_plugin.cpp`:
+   `startFightProcess`): the plugin finds `online_session` (renamed to `.last` at once; older than 5 minutes is ignored), turns on the second pad, fast forward
+   (the pacer's new global switch) and silence, covers the picture, and `FightSession` opens the socket **on the lobby's port** and says hello to the other side's
+   addresses for up to 90 s (the other engine starts a few seconds either way).
+4. **The walk** (state-driven, not a script of fields): `start` and `cross` every 24 frames until the game's mode is the main menu's; then the lobby's own
+   automation (`auto_pick` = Dueling, "1P VS 2P" lit by `padConnected`, the cursor set, `cross`, the one-step walk) takes it to the character select.
+5. **The meeting** (`FightSession`, `SessionControl`): the host offers the delay (from the round trip), who is player 1 (drawn) and a seed and repeats until
+   confirmed; each game says "arrived" with its count of fields; the first to arrive WAITS inside the pad service (its time stands still). Both counts are
+   logged; if they differ the log says the two games may not be in the same state.
+6. **The lockstep**, once per field from the pad service (`EeRuntime::nativePadVblank` -> `on_pad_exchange` -> the plugin's `pad_field`): the local controller goes
+   out, the game gets both players' controllers (player 1's on port 0, player 2's on port 1, a real second DualShock 2 for the game's own pad library), waits when
+   the other's is missing, and every 32 fields notes a check value of the memory (a sampled hash of 4 of the 32 MB; advisory: it is logged, and ends the match only
+   with the file `online_strict`). Names go to the app (`online_match`) and are drawn under the health bars.
+7. **The end**: the other side leaving (BYE), silence for 6 s, the line lost, or the player going back to the main menu ends it; the picture goes black with the
+   "left" message for 4 s and the app starts the engine as it normally is.
+
+**The second pad** (`services/pad_service.cpp`): the game's pad library copies the socket table and opens socket k only when word k of it is 1; the service sets
+word 1 once detection ends, opens slot 1, answers the device queries and port requests of port 1 as port 0's, and writes the other player's block to slot 1's buffers
+each field. This follows the traced behaviour of port 0 and the library's code (`FUN_00313760`, `FUN_003149F8`); port 1 itself was never traced on real hardware.
+
+### What to look at in the first test
+
+- the run log, lines `online:` (the socket on the lobby's port, `UP via`, `the host offers`, `at the character select after N fields`, `both are at the character select
+  (fields A and B: the same / DIFFERENT)`, `the match ends: ...`) and `Pad: slot 1 opened`;
+- if the game stops with an unsupported pad request: that is port 1's protocol differing from port 0's (the request is named in the log);
+- if the walk does not reach the character select: the start-up's presses (`fightFrame`) or the lobby's automation need another step (files `online_walk`);
+- if the two arrive at different fields, or the check values differ: the game is not repeatable between the two phones (see the first item below).
+
+## Next
+
+1. **Is a run repeatable across two phones?** `sync_test = 1` then `2` on one phone, then the match's own check values on two. Everything depends on it.
+2. Anything the first test shows: the walk, the second pad, the arrival, the waiting.
+3. The stage and the music chosen only by player 1 (player 2's controller muted during that screen), the clock balance (`ahead` is already sent), the meter, and a relay for the
+   networks that do not let a direct line through.

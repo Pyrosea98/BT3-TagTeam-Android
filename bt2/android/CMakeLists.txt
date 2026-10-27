@@ -62,6 +62,7 @@ add_library(bt2online SHARED
     "${BT2_SOURCE_ROOT}/plugin/online/link.cpp"
     "${BT2_SOURCE_ROOT}/plugin/online/lockstep.cpp"
     "${BT2_SOURCE_ROOT}/plugin/online/session.cpp"
+    "${BT2_SOURCE_ROOT}/plugin/online/fight_session.cpp"
     "${BT2_SOURCE_ROOT}/plugin/online/relay.cpp"
     "${BT2_SOURCE_ROOT}/plugin/online/stun.cpp")
 set_target_properties(bt2online PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)

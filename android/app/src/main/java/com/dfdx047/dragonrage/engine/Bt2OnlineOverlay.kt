@@ -120,6 +120,8 @@ class Bt2OnlineOverlay(private val activity: Activity, private val paths: GamePa
     }
 
     private fun update() {
+        checkRestart()
+        showMatch()
         val state = runCatching { Bt2Bridge.nativeStats().getOrElse(3) { 0L } }.getOrDefault(0L).toInt()
         when (state) {
             1, 2 -> { endSession(); showBox() }
@@ -127,6 +129,63 @@ class Bt2OnlineOverlay(private val activity: Activity, private val paths: GamePa
             14, 15, 16 -> { hideBox(); showLine(state) } // the game is making the line to the other one, has it, or could not
             else -> { endSession(); hideBox() }
         }
+    }
+
+    // ---- a match
+
+    /** The engine asks to be started again: for a match ("session": its own card first), or as it normally is when the match is over ("normal"). */
+    private fun checkRestart() {
+        val file = File(dir, "online_restart")
+        if (!file.isFile) return
+        val what = runCatching { file.readText().trim() }.getOrDefault("")
+        file.delete()
+        (activity as? Bt2GameActivity)?.restartEngine(what == "session")
+    }
+
+    private val nameOne = matchName(Gravity.START)
+    private val nameTwo = matchName(Gravity.END)
+    private var matchShown = ""
+
+    private fun matchName(side: Int) = TextView(activity).apply {
+        textSize = 13f
+        setTextColor(Color.WHITE)
+        typeface = Typeface.DEFAULT_BOLD
+        gravity = side or Gravity.CENTER_VERTICAL
+        val p = (8 * density).toInt()
+        setPadding(p, p / 3, p, p / 3)
+        background = rounded(Color.argb(150, 10, 14, 64), 12f)
+        setShadowLayer(3f, 1f, 1f, Color.BLACK)
+        isClickable = false
+    }
+
+    /** The two players' names under their health bars while a match runs (the engine leaves them in online_match: p1=, p2=, me=1 or 2). */
+    private fun showMatch() {
+        val into = layout ?: return
+        val lines = runCatching { File(dir, "online_match").readLines() }.getOrNull()
+        val text = lines?.joinToString("\n").orEmpty()
+        if (text == matchShown) return
+        matchShown = text
+        if (lines == null || lines.size < 2) {
+            (nameOne.parent as? ViewGroup)?.removeView(nameOne)
+            (nameTwo.parent as? ViewGroup)?.removeView(nameTwo)
+            return
+        }
+        val one = lines.firstOrNull { it.startsWith("p1=") }?.substring(3).orEmpty()
+        val two = lines.firstOrNull { it.startsWith("p2=") }?.substring(3).orEmpty()
+        nameOne.text = one
+        nameTwo.text = two
+        val m = activity.resources.displayMetrics
+        // (under the two health bars, which the game draws at the upper corners; the places are the widescreen picture's)
+        fun place(v: TextView, left: Boolean) {
+            if (v.parent == null) into.addView(v, ViewGroup.MarginLayoutParams((m.widthPixels * 0.28f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT))
+            (v.layoutParams as ViewGroup.MarginLayoutParams).apply {
+                topMargin = (m.heightPixels * 0.13f).toInt()
+                leftMargin = if (left) (m.widthPixels * 0.03f).toInt() else (m.widthPixels * 0.69f).toInt()
+            }
+            v.requestLayout()
+        }
+        place(nameOne, true)
+        place(nameTwo, false)
     }
 
     // ---- the ways in
@@ -267,6 +326,7 @@ class Bt2OnlineOverlay(private val activity: Activity, private val paths: GamePa
         if (s.cancelled) return
         s.peerName = peer.name
         val code = s.room?.code ?: ""
+        putFile("online_role", if (s.room?.hosting == true) "host\n" else "guest\n")   // (the match's engine needs it: who offers the settings)
         putFile("online_peer", (listOf(peer.name, code) + peer.addrs).joinToString("\n") + "\n")
         say("Conectando com ${peer.name}…", spinner = true)
     }

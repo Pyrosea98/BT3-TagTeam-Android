@@ -24,7 +24,9 @@ public:
     enum State {Closed, Open, Linking, Up, Failed};
 
     ~Link();
-    bool open();                                         // the socket, any port; false: none could be made
+    // The socket; `wanted` is the port to take if it is free (a match restarts the engine, and the other side's router only knows the
+    // port this phone used before), else any port. False: no socket could be made.
+    bool open(std::uint16_t wanted = 0);
     void close();
     // This game's addresses for the other side: the one the router shows to the internet first (from STUN, stun.h), then the home's own.
     std::vector<std::string> localAddresses() const;
@@ -54,6 +56,7 @@ public:
     bool sendMessage(std::uint8_t type, const std::uint8_t* payload, std::size_t size);   // false: the line is not UP, or the message is too big
     bool popMessage(Message& out);                       // the oldest message that came, if any
     std::uint16_t port() const {return port_;}           // the socket's port on this phone
+    void setGiveUpMs(std::uint32_t ms) {giveUp_ = ms;}   // how long the hellos go on without an answer (15 s; a match that restarts the engine waits for the other side's start)
     void setTestLoss(int percent) {testLoss_ = percent;} // development and tests: that share of what is sent is dropped (BT3: BT3_NET_LOSS)
     // What happened on the line, in words, for the game's log (the plugin takes them each frame): the addresses, the hellos sent and what
     // came back, why it failed. Without this a failed match leaves nothing to tell a blocked router from a wrong address.
@@ -71,6 +74,7 @@ private:
     std::vector<std::string> notes_;
     std::deque<Message> inbox_;
     int testLoss_ = 0;
+    std::uint32_t giveUp_ = 15000;
     std::uint32_t lossState_ = 2463534242u;
     std::uint32_t sent_ = 0, got_ = 0, foreign_ = 0, lastNote_ = 0;
     Candidate lastForeign_;

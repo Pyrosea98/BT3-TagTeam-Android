@@ -98,7 +98,7 @@ bool play(unsigned seed, int lossPercent, unsigned fields, bool hostIsP1, unsign
         const bool p1 = (i == 0) == hostIsP1;                      // this side's controller is player 1's
         bool same = g[i].seen.size() == fields;
         for (unsigned f = 0; same && f < fields; ++f) {
-            Sample want1{}, want2{};
+            Sample want1 = Lockstep::neutralSample(), want2 = Lockstep::neutralSample();
             if (f >= delay) {
                 want1 = g[hostIsP1 ? 0 : 1].script[f - delay];     // player 1's controller, made `delay` fields before
                 want2 = g[hostIsP1 ? 1 : 0].script[f - delay];

@@ -218,6 +218,8 @@ class Bt2ViewModel(app: Application) : AndroidViewModel(app) {
                 withContext(Dispatchers.IO) {
                     settingsFile.applyPhoneDefaults()
                     Bt2Renderer(paths).applyPhoneDefaults()
+                    // (a match that ended badly must not make this start one: the engine takes online_session for a match's)
+                    for (name in listOf("online_session", "online_restart", "online_match")) runCatching { File(paths.bt2Root, "user/$name").delete() }
                     val s = _settings.value
                     note("I", "run started: ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE}, GPU ${Renderer.gpuName(paths)}")
                     note("I", "settings: super-sampling ${s.superSampling}x, widescreen ${s.widescreen}, 60 fps ${s.sixtyFps}, " +

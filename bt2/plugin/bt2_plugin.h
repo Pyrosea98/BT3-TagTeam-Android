@@ -59,6 +59,13 @@ typedef struct Bt2HostApi {
                            float x0, float y0, float x1, float y1, int alpha);
 
     void (*log)(const char *line);
+
+    /* Online play (added at the end: an engine that has no such entry has a smaller `size`). A second controller on port 1 of the pad service
+       (the game then sees two DualShock 2: the other player's), on or off; set before the game opens its sockets. */
+    void (*set_second_pad)(int on);
+    /* A session's start-up runs without waiting for the clock (no picture is held back for it either), and with the whole output silent. */
+    void (*set_fast_forward)(int on);
+    void (*set_master_percent)(unsigned percent);
 } Bt2HostApi;
 
 /* What the library gives the engine (the renderer and the app ask for these through the engine). */
@@ -73,6 +80,11 @@ typedef struct Bt2Plugin {
     int (*art_swap)(unsigned char *rgba, int w, int h);
     /* which of its screens is open, for the app's pieces over the game (0 none) */
     int (*online_state)(void);
+    /* Online play (at the end; `size` says whether it is there). Asked once per field by the pad service while a second pad is on: the local
+       controller of this field in (buttons active high, 2 bytes little endian, then the four sticks), the two players' controllers out
+       (player 1's, player 2's). The library may wait inside the call for the other side's input (the lockstep). 0: no exchange now, the
+       engine uses the local controller as player 1's and a neutral player 2. */
+    int (*pad_field)(const uint8_t local[6], uint8_t p1[6], uint8_t p2[6]);
 } Bt2Plugin;
 
 /* The library's one entry: the table in, the library's table out (NULL: it cannot work with this engine). */

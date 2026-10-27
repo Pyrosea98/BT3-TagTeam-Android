@@ -9,8 +9,6 @@ std::uint32_t get32(const std::uint8_t* p) {return std::uint32_t(p[0]) | std::ui
 std::uint64_t get64(const std::uint8_t* p) {return std::uint64_t(get32(p)) | std::uint64_t(get32(p + 4)) << 32;}
 }
 
-Lockstep::Sample Lockstep::neutral() {return Sample{};}
-
 void Lockstep::begin(int role, unsigned delay) {
     *this = Lockstep{};
     active_ = true;
@@ -26,7 +24,7 @@ void Lockstep::pushLocal(std::uint32_t field, const Sample& sample) {
     const std::uint32_t eff = field + delay_;
     if (eff < pushedEnd_) return;                       // (the game waited and asks again for the same field)
     if (eff >= localFloor_ + ring) return;              // (far beyond what is kept: cannot happen while the game waits for `ready`)
-    for (std::uint32_t f = pushedEnd_; f < eff; ++f) {L(f).s = neutral(); L(f).have = true;}   // (fields the game skipped asking for: neutral)
+    for (std::uint32_t f = pushedEnd_; f < eff; ++f) {L(f).s = neutralSample(); L(f).have = true;}   // (fields the game skipped asking for: neutral)
     L(eff).s = sample;
     L(eff).have = true;
     pushedEnd_ = eff + 1;
@@ -38,7 +36,7 @@ bool Lockstep::ready(std::uint32_t field) const {
 }
 
 Lockstep::Pair Lockstep::pair(std::uint32_t field) const {
-    Sample mine = neutral(), theirs = neutral();
+    Sample mine = neutralSample(), theirs = neutralSample();
     if (active_ && field >= delay_) {
         const Slot& l = local_[field % ring];
         const Slot& r = remote_[field % ring];
@@ -90,7 +88,7 @@ std::size_t Lockstep::makePacket(std::uint8_t* out, std::size_t cap, std::uint32
     put64(out + 20, latestDigest_ != none ? mine_[(latestDigest_ / digest_every) % 16].value : 0);
     for (std::size_t i = 0; i < count; ++i) {
         const Slot& s = local_[(first + i) % ring];
-        std::memcpy(out + head + i * 6, s.have ? s.s.data() : neutral().data(), 6);
+        std::memcpy(out + head + i * 6, s.have ? s.s.data() : neutralSample().data(), 6);
     }
     put32(out + 28, check(out, head + count * 6));
     return head + count * 6;

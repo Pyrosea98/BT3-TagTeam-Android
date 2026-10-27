@@ -23,6 +23,7 @@ public:
     static constexpr std::size_t max_samples = 64;       // most samples in one packet
     static constexpr std::size_t digest_every = 32;      // fields between two check values
     static constexpr std::uint32_t none = 0xFFFFFFFFu;
+    static Sample neutralSample() {return Sample{0, 0, 0x80, 0x80, 0x80, 0x80};}   // no button, the four sticks at rest (0x80)
     static constexpr std::uint8_t messageType = 9;       // the line's message type for these packets (link.h; session.h uses 6 to 8)
 
     // The delay for a line whose round trip is `rttMs`: the one-way time in fields (a field is 16.7 ms), rounded up, and one more for the
@@ -91,7 +92,6 @@ private:
     unsigned compared_ = 0;
     std::uint32_t lastCompared_ = none;
 
-    static Sample neutral();
     Slot& L(std::uint32_t f) {return local_[f % ring];}
     Slot& R(std::uint32_t f) {return remote_[f % ring];}
     const Slot& R(std::uint32_t f) const {return remote_[f % ring];}

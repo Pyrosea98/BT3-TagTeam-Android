@@ -1,5 +1,7 @@
 #include "bt2_plugin.h"
 #include "link.h"
+#include "fight_session.h"
+#include <ctime>
 #include "opening_music.h"
 #include <array>
 #include <atomic>
@@ -264,6 +266,33 @@ void endWait(bool keep_link=false) {
     relayPublished=false;localWritten=true;
 }
 
+// The lobby: the other player as the app gave him, kept until the line is up and the match is asked for.
+std::string pending_name,pending_code;
+std::vector<std::string> pending_addresses;
+bool restarting=false;
+
+bool hostHas(std::size_t upTo) {return H && H->size>=upTo;}
+bool fightAvailable() { // an engine that has the second pad, fast forward and volume, and no file that turns the match off
+    return hostHas(offsetof(Bt2HostApi,set_master_percent)+sizeof(H->set_master_percent)) && H->set_second_pad && H->set_fast_forward && H->set_master_percent &&
+        !onlineFile("online_nofight",false) && !pending_addresses.empty();
+}
+// The line is up and both sides are shown: the match's settings go to a file and the app starts the engine again (the lobby's line stays up meanwhile).
+void restartForMatch() {
+    SessionFile file;
+    std::string role;
+    {std::ifstream in(onlinePath("online_role")); in>>role;}
+    {std::ifstream in(onlinePath("online_name")); std::getline(in,file.myName);}
+    file.host=role=="host";
+    file.port=link.port();
+    file.code=pending_code;
+    file.peerName=pending_name;
+    file.addresses=pending_addresses;
+    file.at=std::time(nullptr);
+    writeOnlineFile("online_session",formatSessionFile(file));
+    writeOnlineFile("online_restart","session\n");
+    cover.store(1<<30);
+    std::fprintf(stderr,"online: the match starts in a fresh engine (%s, port %u, %zu address(es))\n",file.host?"host":"guest",unsigned(file.port),file.addresses.size());
+}
 void screenLoop(Guest& g) {
     const std::function<void(std::uint32_t)> effect=[&](std::uint32_t which) {g.call(sound,{0,which,0x40,0x40,1});};
     screen={true,false,false,0,0,0,0,0};
@@ -293,7 +322,9 @@ void screenLoop(Guest& g) {
             if(loop_frame%15==0)relayStep();
             if(screen.found) {
                 if(loop_frame%30==0)writeLinkFile();
-                if(--screen.found==0) {
+                if(restarting) {} // (the app is starting the engine again for the match; the line stays up so the other side does not think this one left)
+                else if(--screen.found==0 && fightAvailable()) {restartForMatch();restarting=true;screen.found=1;}
+                else if(screen.found==0) {
                     const std::uint32_t mode=modeToTry()?modeToTry():duel_mode; // (the file online_mode_test tries another mode)
                     endWait(true); // the line stays: the match is on
                     go_to_mode=mode;screen.leaving=true;effect(1);g.call(leave_fade,{0,0,0});
@@ -307,7 +338,7 @@ void screenLoop(Guest& g) {
                 if(loop_frame%8==0 && readPeer(name,code,addresses)) {
                     // (an opponent with no address to reach him by, because his own game found none: there is no line to make, and "Connected" would be a lie)
                     if(addresses.empty()) {screen.failed=1;writeOnlineFile("online_nat","no-address\n");}
-                    else {link.start(code,addresses);screen.linking=1;}
+                    else {pending_name=name;pending_code=code;pending_addresses=addresses;link.start(code,addresses);screen.linking=1;}
                 }
             } else if(link.state()==Link::Up) {
                 screen.linking=0;screen.found=300;writeLinkFile();effect(1);
@@ -385,6 +416,78 @@ void leaveSession(bool opponent_gone) {
     std::fprintf(stderr,"Online Mode: the match ends (%s)\n",opponent_gone?"the opponent left or was lost":"the player left");
 }
 
+// ---- A match's own process (fight_session.h). The lobby (the Online screens) writes `online_session` and asks the app to start the engine again
+// (`online_restart`); that fresh engine finds the file here, makes the line again on the lobby's port, lets the game walk its menus by itself (silent, not
+// held to the clock, the picture covered) to the character select of the two-player versus, waits there for the other side and runs the lockstep.
+// When the match is over the app is asked to start the engine once more as it normally is.
+FightSession fight;
+std::atomic<bool> fight_on{false};
+bool fight_booted=false;                    // the game reached the main menu (the walk takes over from there)
+std::uint32_t fight_frames=0,fight_menu_frames=0,fight_over_frames=0;
+std::atomic<bool> fight_over{false};
+void startFightProcess(const SessionFile& file) {
+    FightSession::Env env;
+    env.log=[](const std::string& text) {std::fprintf(stderr,"%s\n",text.c_str());};
+    env.ram=H->ram;
+    env.ramSize=0x2000000;
+    env.strictDesync=onlineFile("online_strict",false);
+    env.onMet=[]() { // both are at the character select: the picture and the sound come back, and the app is told who plays
+        H->set_fast_forward(0);
+        H->set_master_percent(100);
+        H->set_stream_percent(100);
+        cover.store(0);
+        const bool first=fight.iAmPlayer1();
+        writeOnlineFile("online_match",std::string("p1=")+(first?fight.myName():fight.peerName())+"\np2="+(first?fight.peerName():fight.myName())+"\nme="+(first?"1":"2")+"\n");
+    };
+    env.onEnded=[](const std::string& why) {
+        H->set_fast_forward(0);
+        H->set_master_percent(100);
+        H->set_stream_percent(100);
+        onlineFile("online_match",true);
+        if(why!="the player left")left_cover.store(900); // (black, with the message that the other player left)
+        fight_over.store(true,std::memory_order_release);
+    };
+    if(!fight.begin(file,env)) {
+        std::fprintf(stderr,"online: the match could not start; the engine goes on as it is\n");
+        return;
+    }
+    H->set_second_pad(1);
+    H->set_fast_forward(1);
+    H->set_master_percent(0);
+    H->set_stream_percent(0);
+    fight_on.store(true,std::memory_order_release);
+    // the walk of the lobby's own session (duel_lock, auto_pick): from the main menu to the character select of "1P VS 2P"
+    session=true;duel_lock=true;auto_phase=true;auto_pick=duel_mode;mode_frames=0;ready_frames=0;walk_end_wait=0;down_sent=false;auto_frames=0;
+    cover.store(1<<30);
+}
+// Each frame of a match's process, from the game's own frame hook.
+void fightFrame(std::uint8_t* rdram,std::uint32_t mode) {
+    ++fight_frames;
+    if(fight_over.load(std::memory_order_acquire)) { // over: the message for a few seconds, then the app starts the engine as it normally is
+        if(++fight_over_frames==240) {
+            onlineFile("online_session",true);
+            writeOnlineFile("online_restart","normal\n");
+        }
+        return;
+    }
+    if(!fight_booted) { // the game's start-up: start and cross until the main menu is there
+        if(mode==main_menu_mode) {fight_booted=true;auto_frames=0;std::fprintf(stderr,"online: the main menu is up after %u frames\n",fight_frames);}
+        else if(fight_frames%24==0) {
+            const std::uint32_t bits=(fight_frames/24)%2?0x8u:0x4000u;
+            write32(rdram,pad+0x144,read32(rdram,pad+0x144)|bits);
+            write32(rdram,pad+0x134,read32(rdram,pad+0x134)|bits);
+        }
+        return;
+    }
+    if(fight.running()) { // back at the main menu: the player left the versus, which ends the match for both
+        if(mode==main_menu_mode) {if(++fight_menu_frames>45)fight.requestLeave();}
+        else fight_menu_frames=0;
+    }
+}
+int pluginPadField(const std::uint8_t local[6],std::uint8_t p1[6],std::uint8_t p2[6]) {
+    return fight_on.load(std::memory_order_relaxed)?fight.padField(local,p1,p2):0;
+}
+
 // For finding where a menu keeps its state (development only): while the file online_dump is in the user folder, the game's whole memory goes to
 // dump_<n>.bin there, one per touch of the file (compare the dumps with the cursor in other places).
 void dumpMemory(std::uint8_t* rdram) {
@@ -414,7 +517,8 @@ void framePad(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
     pressFromFile(rdram);
     const std::uint32_t progress=read32(rdram,progress_pointer);
     const std::uint32_t mode=progress?read32(rdram,progress+0x1C):0;
-    if(session) {
+    if(fight_on.load(std::memory_order_relaxed))fightFrame(rdram,mode);
+    if(session && !fight_on.load(std::memory_order_relaxed)) {
         link.poll();
         flushNotes();
         if(link.state()!=Link::Up || link.peerLeft() || link.silentMs()>6000) {
@@ -449,10 +553,17 @@ void framePad(std::uint8_t* rdram,R5900Context* c,PS2Runtime* runtime) {
     if(session && auto_phase) { // the end of the walk: a moment after its last press the screen and the sound come back
         const bool done=!duel_lock && !walking && walk_steps.size() && walk_at>=walk_steps.size();
         if(done && walk_end_wait==0)walk_end_wait=90;
-        if((walk_end_wait && --walk_end_wait==0) || ++auto_frames>2400) {
-            auto_phase=false;cover.store(0);
-            if(transition_mute){transition_mute=false;mute_frames=0;H->set_stream_percent(music_volume);}
-            std::fprintf(stderr,"Online Mode: at the end of the walk (%u fields), screen and sound back\n",auto_frames);
+        if(fight_on.load(std::memory_order_relaxed) && !fight_booted) {} // (the start-up is still on its way to the main menu)
+        else if((walk_end_wait && --walk_end_wait==0) || ++auto_frames>2400) {
+            auto_phase=false;
+            if(fight_on.load(std::memory_order_relaxed)) { // the picture stays covered until the other side is here too (FightSession::onMet)
+                fight.arrived();
+                std::fprintf(stderr,"online: the walk reached the character select (%u frames after the main menu)\n",auto_frames);
+            } else {
+                cover.store(0);
+                if(transition_mute){transition_mute=false;mute_frames=0;H->set_stream_percent(music_volume);}
+                std::fprintf(stderr,"Online Mode: at the end of the walk (%u fields), screen and sound back\n",auto_frames);
+            }
         }
     }
     static unsigned cover_check=0;
@@ -869,6 +980,21 @@ extern "C" __attribute__((visibility("default"))) const Bt2Plugin* bt2_plugin_in
     disc_image=host->disc_image;
     H->set_music_mix(pluginMix);
     std::fprintf(stderr,"Main menu item: Online Mode, the main menu's eleventh item\n");
-    static const Bt2Plugin plugin{BT2_PLUGIN_API,sizeof(Bt2Plugin),pluginOverlay,pluginPixels,pluginVersion,pluginArtSwap,pluginOnlineState};
+    {   // the app started this engine for a match (the lobby's file): taken once, a file that is old is not a match
+        const std::string path=onlinePath("online_session");
+        std::ifstream in(path);
+        std::stringstream text;
+        text<<in.rdbuf();
+        SessionFile file;
+        if(in && parseSessionFile(text.str(),file)) {
+            std::error_code error;
+            std::filesystem::rename(path,path+".last",error);
+            const bool fresh=std::time(nullptr)-file.at<300;
+            pending_addresses=file.addresses; // (fightAvailable asks)
+            if(fresh && fightAvailable())startFightProcess(file);
+            else std::fprintf(stderr,"online: a match was asked for but %s\n",fresh?"this engine cannot run one":"the file is old");
+        }
+    }
+    static const Bt2Plugin plugin{BT2_PLUGIN_API,sizeof(Bt2Plugin),pluginOverlay,pluginPixels,pluginVersion,pluginArtSwap,pluginOnlineState,pluginPadField};
     return &plugin;
 }

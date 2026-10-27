@@ -5,6 +5,7 @@
 #include <netdb.h>
 #include <random>
 #include <sys/socket.h>
+#include <thread>
 
 namespace {
 constexpr std::uint8_t cookie[4] = {0x21, 0x12, 0xA4, 0x42};
@@ -16,12 +17,8 @@ std::uint32_t nowMs() {
 }
 }
 
-Stun::~Stun() {if (resolver_.joinable()) resolver_.join();}
-
 void Stun::reset() {
-    if (resolver_.joinable()) resolver_.join();
-    servers_.clear();
-    resolved_ = 0;
+    servers_.clear();                                    // (a lookup still running keeps its record and ends alone)
     began_ = false;
     rounds_ = 0;
 }
@@ -30,52 +27,56 @@ void Stun::begin() {
     reset();
     began_ = true;
     // (four, from three operators: one name that does not resolve, or one operator a carrier blocks, must not leave the game without its address)
-    servers_.resize(4);
-    servers_[0].host = "stun.l.google.com";         servers_[0].port = "19302";
-    servers_[1].host = "stun.cloudflare.com";       servers_[1].port = "3478";
-    servers_[2].host = "stun1.l.google.com";        servers_[2].port = "19302";
-    servers_[3].host = "global.stun.twilio.com";    servers_[3].port = "3478";
+    const char* names[4][2] = {{"stun.l.google.com", "19302"}, {"stun.cloudflare.com", "3478"}, {"stun1.l.google.com", "19302"}, {"global.stun.twilio.com", "3478"}};
     static std::mt19937 random{std::random_device{}() ^ nowMs()};
-    for (auto& s : servers_) for (auto& b : s.transaction) b = std::uint8_t(random());
-    resolver_ = std::thread([this] {
-        for (auto& s : servers_) {
+    for (const auto& n : names) {
+        auto s = std::make_shared<Server>();
+        s->host = n[0];
+        s->port = n[1];
+        for (auto& b : s->transaction) b = std::uint8_t(random());
+        servers_.push_back(s);
+        std::thread([s] {
             addrinfo hints{}, *res = nullptr;
             hints.ai_family = AF_INET;
             hints.ai_socktype = SOCK_DGRAM;
-            if (::getaddrinfo(s.host.c_str(), s.port.c_str(), &hints, &res) == 0 && res) {
+            if (::getaddrinfo(s->host.c_str(), s->port.c_str(), &hints, &res) == 0 && res) {
                 const auto* a = reinterpret_cast<sockaddr_in*>(res->ai_addr);
-                s.ip = a->sin_addr.s_addr;
-                s.portNet = a->sin_port;
+                s->ip = a->sin_addr.s_addr;
+                s->portNet = a->sin_port;
             }
             if (res) ::freeaddrinfo(res);
-        }
-        resolved_ = 1;
-    });
+            s->ready.store(true, std::memory_order_release);
+        }).detach();
+    }
 }
 
 void Stun::poll(int socket) {
-    if (!began_ || resolved_ != 1 || socket < 0 || finished()) return;
+    if (!began_ || socket < 0 || finished()) return;
+    bool any = false;
+    for (const auto& s : servers_) any = any || (s->ready.load(std::memory_order_acquire) && s->ip != 0 && !s->answered);
+    if (!any) return;                                    // (no name is resolved yet: the tries do not count)
     const std::uint32_t t = nowMs();
     if (rounds_ > 0 && t - lastAsk_ < ask_every) return;
     lastAsk_ = t;
     ++rounds_;
     for (auto& s : servers_) {
-        if (s.answered || s.ip == 0) continue;
+        if (!s->ready.load(std::memory_order_acquire) || s->answered || s->ip == 0) continue;
         std::uint8_t m[20] = {0x00, 0x01, 0x00, 0x00};   // a Binding request without attributes
         std::memcpy(m + 4, cookie, 4);
-        std::memcpy(m + 8, s.transaction, 12);
+        std::memcpy(m + 8, s->transaction, 12);
         sockaddr_in a{};
         a.sin_family = AF_INET;
-        a.sin_addr.s_addr = s.ip;
-        a.sin_port = s.portNet;
+        a.sin_addr.s_addr = s->ip;
+        a.sin_port = s->portNet;
         ::sendto(socket, m, sizeof m, 0, reinterpret_cast<sockaddr*>(&a), sizeof a);
     }
 }
 
 bool Stun::handle(const std::uint8_t* p, int size, std::uint32_t fromIp, std::uint16_t fromPort) {
     if (!began_ || size < 20 || std::memcmp(p + 4, cookie, 4) != 0) return false;
-    for (auto& s : servers_) {
-        if (s.ip != fromIp || s.portNet != fromPort || std::memcmp(p + 8, s.transaction, 12) != 0) continue;
+    for (auto& sp : servers_) {
+        Server& s = *sp;
+        if (!s.ready.load(std::memory_order_acquire) || s.ip != fromIp || s.portNet != fromPort || std::memcmp(p + 8, s.transaction, 12) != 0) continue;
         if ((unsigned(p[0]) << 8 | p[1]) == 0x0101) {   // Binding success: XOR-MAPPED-ADDRESS (0x0020), or the older MAPPED-ADDRESS (0x0001)
             for (int at = 20; at + 4 <= size;) {
                 const unsigned type = unsigned(p[at]) << 8 | p[at + 1];
@@ -102,17 +103,15 @@ bool Stun::handle(const std::uint8_t* p, int size, std::uint32_t fromIp, std::ui
 
 bool Stun::finished() const {
     if (!began_) return true;
-    if (resolved_ == 1) {
-        bool all = true;
-        for (const auto& s : servers_) all = all && (s.answered || s.ip == 0);
-        if (all) return true;
-    }
-    return rounds_ >= tries;
+    bool all = true;
+    for (const auto& s : servers_) all = all && (s->answered || (s->ready.load(std::memory_order_acquire) && s->ip == 0));
+    return all || rounds_ >= tries;
 }
 
 std::vector<std::string> Stun::mapped() const {
     std::vector<std::string> out;
-    for (const auto& s : servers_) {
+    for (const auto& sp : servers_) {
+        const Server& s = *sp;
         if (!s.answered) continue;
         char text[INET_ADDRSTRLEN];
         in_addr ip{};
@@ -129,7 +128,8 @@ std::vector<std::string> Stun::mapped() const {
 bool Stun::symmetric() const {
     std::uint16_t port = 0;
     bool first = true;
-    for (const auto& s : servers_) {
+    for (const auto& sp : servers_) {
+        const Server& s = *sp;
         if (!s.answered) continue;
         if (first) {port = s.mappedPort; first = false;}
         else if (s.mappedPort != port) return true;

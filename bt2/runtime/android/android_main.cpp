@@ -311,6 +311,18 @@ extern "C" __attribute__((visibility("default"))) int SDL_main(int argc,char* ar
         setEnv("BT2_GAME_PATCHES",settings.widescreen?"widescreen":"");
         setEnv("BT2_SIXTY_FPS",settings.sixty_fps?"1":"");
         setEnv("BT2_CARD_FOLDER",folders.card(settings).string());
+        // An online match (plugin/online/fight_session.h; the lobby wrote online_session): both games start from the same memory card, a fresh copy of the
+        // 100% save the app made (user/online-card), with the same game patch and speed whatever each player has chosen, so that the two simulate the same
+        // thing. The player's own card is left alone.
+        {
+            std::error_code match_error;
+            if(fs::exists(user/"online_session",match_error) && fs::is_directory(user/"online-card",match_error)) {
+                setEnv("BT2_CARD_FOLDER",(user/"online-card").string());
+                setEnv("BT2_SIXTY_FPS","");
+                setEnv("BT2_GAME_PATCHES","widescreen");
+                std::fprintf(stderr,"Online match: the memory card is user/online-card; 60 fps off, the widescreen patch on\n");
+            }
+        }
         setEnv("BT2_SHADER_CACHE",(user/"shader-cache.bin").string()); // gs/gpu/gpu_gs_backend.cpp
         // Every 120 flips, the rate and where a frame's time goes (probe/entry_probe.cpp): in the log a player
         // sends, to tell a slow phone's CPU from its GPU.

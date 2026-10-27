@@ -1,6 +1,8 @@
 #include "plugin/plugin_host.h"
+#include "host/frame_pacer.h"
 #include "../../plugin/bt2_plugin.h"
 #include <atomic>
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <dlfcn.h>
@@ -74,6 +76,24 @@ void apiSetMusicMix(void (*mix)(std::int16_t*, std::size_t, unsigned)) {
     host_music_mix = [](std::vector<std::int16_t>& out) {if (music_mix) music_mix(out.data(), out.size(), engine->audio_mixer.master_percent);};
 }
 void apiLog(const char* line) {std::fprintf(stderr, "%s\n", line);}
+void apiSetSecondPad(int on) {
+    engine->pad_second.store(on != 0, std::memory_order_relaxed);
+    std::fprintf(stderr, "Plugin: second pad %s\n", on ? "on" : "off");
+}
+void apiSetFastForward(int on) {bt2_fast_forward.store(on != 0, std::memory_order_relaxed);}
+void apiSetMasterPercent(unsigned percent) {engine->audio_mixer.master_percent = percent;}
+// The pad service's question once per field (a second pad on): the library's answer, which may wait for the other player.
+bool padExchange(const PadInput& local, PadInput& p1, PadInput& p2) {
+    const Bt2Plugin* p = plugin.load(std::memory_order_acquire);
+    if (!p || p->size < offsetof(Bt2Plugin, pad_field) + sizeof(p->pad_field) || !p->pad_field) return false;
+    const std::uint8_t in[6] = {std::uint8_t(local.pressed), std::uint8_t(local.pressed >> 8), local.sticks[0], local.sticks[1], local.sticks[2], local.sticks[3]};
+    std::uint8_t a[6] = {}, b[6] = {};
+    if (!p->pad_field(in, a, b)) return false;
+    p1.pressed = std::uint16_t(a[0] | a[1] << 8);
+    p2.pressed = std::uint16_t(b[0] | b[1] << 8);
+    for (int i = 0; i < 4; ++i) {p1.sticks[std::size_t(i)] = a[2 + i]; p2.sticks[std::size_t(i)] = b[2 + i];}
+    return true;
+}
 }
 
 bool installPlugin(EeRuntime& runtime, const std::string& library_dir, const std::string& pictures_dir, const std::string& online_dir) {
@@ -105,6 +125,10 @@ bool installPlugin(EeRuntime& runtime, const std::string& library_dir, const std
     api.last_frame = Bt2Hw_LastFrame;
     api.overlay_sprite = Bt2Hw_OverlaySprite;
     api.log = apiLog;
+    api.set_second_pad = apiSetSecondPad;
+    api.set_fast_forward = apiSetFastForward;
+    api.set_master_percent = apiSetMasterPercent;
+    runtime.on_pad_exchange = padExchange;
     const Bt2Plugin* given = init(&api);
     if (!given || given->api != BT2_PLUGIN_API) {std::fprintf(stderr, "Plugin: libbt2online.so does not take this engine (API %u)\n", given ? given->api : 0u); return false;}
     plugin.store(given, std::memory_order_release);

@@ -144,7 +144,7 @@ int main(int argc, char** argv) {
                 // Fast forward is silent; when it ends the device's queue, run empty meanwhile, is filled
                 // to its target with silence at once instead of running dry for seconds.
                 static bool was_fast = false;
-                const bool fast = pacer && pacer->free_run;
+                const bool fast = pacer && pacer->fast();
                 if (speaker.device && !fast) {
                     if (was_fast) speaker.device->fillTo(AudioMixer::rate / 20);
                     speaker.device->write(pcm);
@@ -492,7 +492,7 @@ int main(int argc, char** argv) {
                         return;
                     }
                     in_between_started = false;
-                    if (!viewer_mode || !viewer.gpuPresented() || (pacer && pacer->free_run) || in_between->replay_only || in_between->scan_replay) return;
+                    if (!viewer_mode || !viewer.gpuPresented() || (pacer && pacer->fast()) || in_between->replay_only || in_between->scan_replay) return;
                     // Never waited for: a picture not ready at its field is left out, so the game keeps its pace.
                     if (!in_between->ready()) {if (in_between->busy()) ++in_between->late;return;}
                     if (pacer) pacer->wait();
