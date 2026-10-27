@@ -650,6 +650,56 @@ static int http_post(const char *what, const char *json, char *out, size_t size)
 }
 #define POSTB(w, j, o, s) http_post_to(base, (w), (j), (o), (s))
 
+/* A code entered on Dragon Net may belong to the other region-independent Worker. Retry only code joins and
+   spectator requests; keep the selected service in sM.url once the room is found so its later polls follow it. */
+static int retry_code_on_other_dragon_server(char *base, const char *what, const char *body, char *answer, size_t size) {
+    const char *other = NULL;
+    int dailyLimit;
+    if (DrNet_Mode() != 0 || DrRanked_Active() || SDL_getenv("BT3_MATCH_URL") != NULL ||
+        (sM.role != 2 && sM.role != 4)) {
+        return 0;
+    }
+    if (SDL_strcmp(base, DrNet_Url()) == 0) {
+        other = DrNet_UrlB();
+    } else if (SDL_strcmp(base, DrNet_UrlB()) == 0) {
+        other = DrNet_Url();
+    }
+    if (other == NULL || other[0] == '\0' || SDL_strcmp(base, other) == 0) {
+        return 0;
+    }
+    dailyLimit = SDL_strstr(answer, "\"error\":\"limit\"") != NULL ||
+                 SDL_strstr(answer, "error code: 1027") != NULL ||
+                 (SDL_strstr(answer, "429") != NULL && SDL_strstr(answer, "\"busy\"") == NULL);
+    if (SDL_strstr(answer, "no room") == NULL && !dailyLimit) {
+        return 0;
+    }
+    if (!http_post_to(other, what, body, answer, size)) {
+        return 0;
+    }
+    if (SDL_strstr(answer, "\"peer\":") == NULL || SDL_strstr(answer, "\"error\"") != NULL) {
+        return 1; /* use the second service's more relevant error, but don't claim the code lives there */
+    }
+    SDL_strlcpy(base, other, 256);
+    SDL_LockMutex(sM.lock);
+    SDL_strlcpy(sM.url, other, sizeof(sM.url));
+    SDL_UnlockMutex(sM.lock);
+    fprintf(stderr, "dragonnet: room code found on the other matchmaking server\n");
+    return 1;
+}
+
+const char *Match_ServerLabel(void) {
+    static char url[256];
+    SDL_LockMutex(sM.lock);
+    SDL_strlcpy(url, sM.url[0] != '\0' ? sM.url : match_url(), sizeof(url));
+    SDL_UnlockMutex(sM.lock);
+    if (DrNet_Mode() == 0) {
+        if (SDL_strcmp(url, DrNet_Url()) == 0) return "A";
+        if (SDL_strcmp(url, DrNet_UrlB()) == 0) return "B";
+        return "Custom";
+    }
+    return "PC";
+}
+
 /* What the window says when the service lets only official releases in (its REQUIRE_KEY) and refused this program:
    `plain` for a program without a key, or with one the service does not know. */
 static const char *key_refused(const char *answer, const char *plain) {
@@ -903,7 +953,7 @@ again:
         }
         if (!json_str(answer, "code", sM.code, sizeof(sM.code)) || !json_str(answer, "key", key, sizeof(key))) {
             fprintf(stderr, "net: the service answered: %.200s\n", answer);
-            set_state(-1, SDL_strstr(answer, "no lobbies") != NULL ? "The matchmaking service does not take lobbies yet. A lobby by address (a port) still works." :
+            set_state(-1, SDL_strstr(answer, "no lobbies") != NULL ? "This server does not support lobbies yet. Its Worker and database need the lobby update." :
                           SDL_strstr(answer, "\"old\"") != NULL ? "Update available. Online servers are unreachable until you update." :
                           KEY_REFUSED(answer) ? key_refused(answer, "Room codes need an official release of the game. Playing by address still works.") :
                           SDL_strstr(answer, "busy") != NULL ? "Too many rooms from this address; try again in a few minutes." : "The matchmaking service gave no room.");
@@ -1078,6 +1128,7 @@ again:
             set_state(-1, "The matchmaking service could not be reached (is the network up?).");
             return 0;
         }
+        (void)retry_code_on_other_dragon_server(base, "watch", body, answer, sizeof(answer));
         SDL_memset(&st, 0, sizeof(st));
         if (!json_peer(answer, &st)) {
             set_state(-1, SDL_strstr(answer, "\"old\"") != NULL ? "Update available. Online servers are unreachable until you update." :
@@ -1113,6 +1164,7 @@ again:
             set_state(-1, "The matchmaking service could not be reached (is the network up?).");
             return 0;
         }
+        (void)retry_code_on_other_dragon_server(base, "join", body, answer, sizeof(answer));
         (void)you;
         SDL_memset(&st, 0, sizeof(st));
         if (!json_peer(answer, &st)) {

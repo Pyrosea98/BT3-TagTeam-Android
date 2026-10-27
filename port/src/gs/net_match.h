@@ -43,6 +43,7 @@ int Match_UpdateLatest(void); /* its number as PORT_RELEASE counts, 0 while unkn
 int Match_Release(int *min, int *latest);
 int Match_QueueWaiting(int queue);
 void Match_Poll(MatchStatus *out);
+const char *Match_ServerLabel(void); /* A/B for Dragon Net, PC otherwise */
 void Match_Cancel(void);
 int Match_SignTest(void);    /* BT3_SIGN_TEST: see net_match.c */
 #include <stddef.h>
