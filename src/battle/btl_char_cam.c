@@ -75,10 +75,10 @@ f32 ChrCam_GetOffset(ChrCamChr *chr, Vec4 *out, s32 mode) {
             break;
     }
     if (sparking) {
-        sChrCamKiFactor[chr->player] = BtlUtil_ApproachF(sChrCamKiFactor[chr->player],
+        sChrCamKiFactor[chr->side] = BtlUtil_ApproachF(sChrCamKiFactor[chr->side],
                                                          BtlChar_TestFlag(chr, 0xC) != 0 ? 1.0f : 0.0f,
                                                          0.4f / 30.0f);
-        kiFactor = sChrCamKiFactor[chr->player];
+        kiFactor = sChrCamKiFactor[chr->side];
         out->y *= 1.0f + (CAM_KI_ZOOM - 1.0f) * kiFactor;
         out->z *= 1.0f + (CAM_KI_ZOOM - 1.0f) * kiFactor;
         pitch += CAM_KI_PITCH * kiFactor;
