@@ -1,5 +1,18 @@
 # BT3 Tag Team + Real Power Scale â€” Android
 
+## PC and Android / PC y Android
+
+- **Windows installer:** https://github.com/Pyrosea98/BT3-TagTeam-Native/releases/tag/v0.4.1
+- **Android APK:** https://github.com/Pyrosea98/BT3-TagTeam-Android/releases/tag/v0.4.1
+- **PC installer/project source:** https://github.com/Pyrosea98/BT3-TagTeam-Native
+- **PC native engine source:** https://github.com/Pyrosea98/BT3-TagTeam-Runtime/tree/decomp-native
+- **Android fork/source (Dragon Rage):** https://github.com/Pyrosea98/BT3-TagTeam-Android
+
+Both versions import your own supported Power Scale BETA 8 ISO and offer normal or optional 2x maps. No ISO is distributed. Android is the separate **BT3 Tag Team** app; see its release for device requirements and installation instructions. Use each platform's own installer.
+
+Ambas versiones importan tu propia ISO compatible de Power Scale BETA 8 y permiten elegir mapas normales o 2x. No se distribuye ninguna ISO. Android usa la app independiente **BT3 Tag Team**; consulta su publicación para ver los requisitos y la instalación. Usa el instalador correspondiente a tu plataforma.
+
+
 Our Android fork of [Dragon Rage](https://github.com/dfdx047/Tenkaichi3DecompAndroid), with the current native Tag Team / Power Scale BETA 8 code merged from the PC port.
 
 - **APK releases:** https://github.com/Pyrosea98/BT3-TagTeam-Android/releases
