@@ -20,8 +20,8 @@
       "text": "Your rival \"{name}\" is here! The match begins."
     },
     "net/lobby_joined": {
-      "original": "You are in the lobby. Its screen opens from the main menu (Tenkaichi Budokai Online).",
-      "text": "You are in the lobby. Its screen opens from the main menu (Tenkaichi Budokai Online)."
+      "original": "You are in the lobby. Its screen opens from the main menu (Dragon Net Battle).",
+      "text": "You are in the lobby. Its screen opens from the main menu (Dragon Net Battle)."
     },
     "net/rival_from": {
       "original": "Your rival \"{name}\" from {region} is here! The match begins.",

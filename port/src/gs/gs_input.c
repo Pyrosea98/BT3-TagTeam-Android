@@ -26,9 +26,15 @@ int gPortOverlayOpen, gPortInputCapture, gPortChatTyping;
 /* The on-screen controller (Android: android/.../touch/TouchPadView.kt through the loader): player 1's buttons
    (1 = pressed, the bits below) and sticks, added to whatever the keyboard and controllers give. */
 static volatile unsigned sTouchButtons;
+/* The buttons pressed since the pad was last read (Port_PadRead): a quick tap, down and up between two of the game's
+   frames, still counts as one press (read as the buttons are now, it was lost: the menus seemed not to answer). */
+static unsigned sTouchTapped;
 static volatile unsigned char sTouchStick[4] = {0x80, 0x80, 0x80, 0x80}; /* lx, ly, rx, ry */
 void Port_TouchPad(unsigned buttons, int lx, int ly, int rx, int ry) {
-    sTouchButtons = buttons & 0xFFFF;
+    unsigned now = buttons & 0xFFFF;
+
+    __atomic_fetch_or(&sTouchTapped, now & ~sTouchButtons, __ATOMIC_ACQ_REL);
+    sTouchButtons = now;
     sTouchStick[0] = (unsigned char)lx;
     sTouchStick[1] = (unsigned char)ly;
     sTouchStick[2] = (unsigned char)rx;
@@ -1114,9 +1120,10 @@ int Port_PadRead(int socket, unsigned char *data) {
 #undef HELD
     }
     if (socket == 0) {
+        unsigned touch = sTouchButtons | __atomic_exchange_n(&sTouchTapped, 0u, __ATOMIC_ACQ_REL); /* (taken even when unused) */
         btn |= script_buttons();
         if (!gPortInputCapture) {
-            btn |= sTouchSwallow ? (sTouchButtons & ~0x0009u) : sTouchButtons;
+            btn |= sTouchSwallow ? (touch & ~0x0009u) : touch;
             if (sTouchStick[0] != 0x80 || sTouchStick[1] != 0x80) {
                 lx = sTouchStick[0];
                 ly = sTouchStick[1];

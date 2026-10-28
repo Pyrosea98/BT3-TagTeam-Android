@@ -17,13 +17,81 @@ OUT = ROOT / "port/translations/tbo"
 
 # English: (Portuguese, Spanish)
 LINES = {
-    "Tenkaichi Budokai Online": ("Tenkaichi Budokai Online", "Tenkaichi Budokai Online"),
     "Language": ("Idioma", "Idioma"),
     "Choose the language of these screens. Left and right change it.":
         ("Escolha o idioma destas telas. Esquerda e direita trocam.", "Elige el idioma de estas pantallas. Izquierda y derecha lo cambian."),
     "Searching": ("Procurando", "Buscando"),
     "Quick Match": ("Partida Rápida", "Partida Rápida"),
-    "Ranked Match": ("Partida Ranqueada", "Partida Clasificatoria"),
+    "Ranked": ("Classificatória", "Clasificatoria"),
+    "Play Against": ("Jogar contra", "Jugar contra"),
+    "Fights for Elo points against Android and Switch players. Points change when both results agree.":
+        ("Lutas valendo pontos Elo contra jogadores de Android e Switch. Os pontos mudam quando os dois resultados batem.",
+         "Peleas por puntos Elo contra jugadores de Android y Switch. Los puntos cambian al confirmar ambos resultados."),
+    "Choose who you play against: Android and Switch, or the PC.":
+        ("Escolha contra quem você joga: Android e Switch, ou o PC.", "Elige contra quién juegas: Android y Switch, o el PC."),
+    "Against PC players: rooms and quick match on the PC port's service.":
+        ("Contra jogadores de PC: salas e partida rápida no serviço do port de PC.",
+         "Contra jugadores de PC: salas y partida rápida en el servicio del port de PC."),
+    "Against Android and Switch players, on Dragon Net.": ("Contra jogadores de Android e Switch, no Dragon Net.",
+                                                           "Contra jugadores de Android y Switch, en Dragon Net."),
+    "Against Android and Switch players. Online now: about %d.": ("Contra jogadores de Android e Switch. Online agora: cerca de %d.",
+                                                                  "Contra jugadores de Android y Switch. En línea ahora: unos %d."),
+    "RANKED IS AGAINST ANDROID + SWITCH: CHOOSE IT IN PLAY AGAINST": ("A CLASSIFICATÓRIA É CONTRA ANDROID + SWITCH: ESCOLHA EM JOGAR CONTRA",
+                                                                      "LA CLASIFICATORIA ES CONTRA ANDROID + SWITCH: ELÍGELO EN JUGAR CONTRA"),
+    "Search for a Rival": ("Buscar Rival", "Buscar Rival"),
+    "Ranking": ("Classificação", "Clasificación"),
+    "Update Profile": ("Atualizar Perfil", "Actualizar Perfil"),
+    "Update": ("Atualizar", "Actualizar"),
+    "Loading profile...": ("Carregando perfil...", "Cargando perfil..."),
+    "%d ELO": ("%d ELO", "%d ELO"),
+    "%d W / %d L": ("%d V / %d D", "%d V / %d D"),
+    "Position %d": ("Posição %d", "Puesto %d"),
+    "TEAM": ("EQUIPE", "EQUIPOS"),
+    "SINGLE": ("INDIVIDUAL", "INDIVIDUAL"),
+    "RANKED": ("CLASSIFICATÓRIA", "CLASIFICATORIA"),
+    "RIVAL": ("RIVAL", "RIVAL"),
+    "Bronze": ("Bronze", "Bronce"),
+    "Silver": ("Prata", "Plata"),
+    "Gold": ("Ouro", "Oro"),
+    "Platinum": ("Platina", "Platino"),
+    "Diamond": ("Diamante", "Diamante"),
+    "Master": ("Mestre", "Maestro"),
+    "Searching for a rival...": ("Procurando um rival...", "Buscando rival..."),
+    "Searching for a rival of your level...": ("Procurando um rival do seu nível...", "Buscando rival de tu nivel..."),
+    "Rival found. Connecting...": ("Rival encontrado. Conectando...", "Rival asignado. Conectando..."),
+    "Result confirmed.": ("Resultado confirmado.", "Resultado confirmado."),
+    "Search over. No points.": ("Busca encerrada. Sem pontos.", "Búsqueda finalizada. Sin puntos."),
+    "Waiting for your rival's result.": ("Esperando o resultado do rival.", "Esperando confirmación del rival."),
+    "The two results differ: no points.": ("Os dois resultados não batem: sem pontos.", "Resultados distintos: sin puntos."),
+    "Match void: no points.": ("Partida anulada: sem pontos.", "Partida anulada: sin puntos."),
+    "Ranked did not answer. Trying again...": ("O ranqueado não respondeu. Tentando de novo...", "Ranked sin respuesta. Reintentando..."),
+    "The Ranked profile could not be made.": ("Não foi possível criar o perfil ranqueado.", "No se pudo registrar el perfil Ranked."),
+    "The ranking could not be updated.": ("Não foi possível atualizar a classificação.", "No se pudo actualizar la clasificación."),
+    "The ranked room could not be published.": ("Não foi possível publicar a sala ranqueada.", "No se pudo publicar la sala Ranked."),
+    "Your last ranked match is still being confirmed.": ("Sua última partida ranqueada ainda está sendo confirmada.",
+                                                         "Tu última partida Ranked aún se está confirmando."),
+    "The Dragon Net service does not take this version yet.": ("O serviço Dragon Net ainda não aceita esta versão.",
+                                                               "El servicio Dragon Net aún no acepta esta versión."),
+    "Profile updated.": ("Perfil atualizado.", "Perfil actualizado."),
+    "Too many requests: wait a moment.": ("Muitos pedidos: espere um pouco.", "Demasiadas solicitudes: espera un momento."),
+    "Server busy (daily limit), try again later.": ("Servidor ocupado (limite diário), tente mais tarde.",
+                                                    "Servidor ocupado (límite diario), inténtalo más tarde."),
+    "Updating the ranking...": ("Atualizando a classificação...", "Actualizando clasificación..."),
+    "The ranking did not answer: X tries again.": ("A classificação não respondeu: X tenta de novo.", "La clasificación no respondió: X reintenta."),
+    "Single or team fights. No time limit, at the standard speed.": ("Lutas individuais ou em equipe. Sem limite de tempo, na velocidade padrão.",
+                                                                     "Peleas individuales o por equipos. Sin límite de tiempo, a velocidad estándar."),
+    "Find a rival of your level! Points change when both results agree.": ("Ache um rival do seu nível! Os pontos mudam quando os dois resultados batem.",
+                                                                           "¡Encuentra un rival de tu nivel! Los puntos cambian al confirmar ambos resultados."),
+    "The best fighters of the community, by their Elo points.": ("Os melhores lutadores da comunidade, pelos pontos Elo.",
+                                                                 "Los mejores luchadores de la comunidad, por sus puntos Elo."),
+    "Load your profile again from the service.": ("Carrega seu perfil de novo do serviço.", "Carga tu perfil otra vez desde el servicio."),
+    "The table shows the community's Elo points. X updates it.": ("A tabela mostra os pontos Elo da comunidade. X atualiza.",
+                                                                  "La tabla muestra los puntos Elo de la comunidad. X la actualiza."),
+    ": team": (": equipe", ": equipos"),
+    ": single": (": individual", ": individual"),
+    "Rival found. Connecting": ("Rival encontrado. Conectando", "Rival asignado. Conectando"),
+    "Ranked: searching for a rival": ("Classificatória: procurando um rival", "Clasificatoria: buscando rival"),
+    "First: ": ("Primeiro: ", "Primero: "),
     "Create Room": ("Criar Sala", "Crear Sala"),
     "Join Room": ("Entrar em Sala", "Entrar a Sala"),
     "Lobby": ("Lobby", "Lobby"),
@@ -35,9 +103,6 @@ LINES = {
     "Fight whoever is searching right now! No time limit, and you can train while you wait.":
         ("Lute com quem estiver procurando agora! Sem limite de tempo, e dá para treinar enquanto espera.",
          "¡Pelea con quien esté buscando ahora! Sin límite de tiempo, y puedes entrenar mientras esperas."),
-    "Fights that move your rank, season by season. That one is coming soon!":
-        ("Lutas que mudam sua posição, temporada a temporada. Essa chega em breve!",
-         "Peleas que mueven tu rango, temporada a temporada. ¡Esa llega pronto!"),
     "Open a room with your own rules, then give your rival its code. No port forwarding needed!":
         ("Abra uma sala com suas regras e passe o código ao rival. Sem abrir portas no roteador!",
          "Abre una sala con tus reglas y pásale el código a tu rival. ¡Sin abrir puertos!"),
@@ -90,7 +155,6 @@ LINES = {
     "COPIED: PASTE THE CODE TO YOUR RIVAL": ("COPIADO: COLE O CÓDIGO PARA O RIVAL", "COPIADO: PÉGALE EL CÓDIGO A TU RIVAL"),
     "Change": ("Trocar", "Cambiar"),
     "Start Training": ("Começar Treino", "Empezar Entrenamiento"),
-    "Next": ("Próximo", "Siguiente"),
     "Search": ("Procurar", "Buscar"),
     "Enter": ("Entrar", "Entrar"),
     "NOT OPEN YET: IT NEEDS MORE FROM THE MATCHMAKING SERVICE THAN ROOM CODES":
@@ -347,7 +411,7 @@ LINES = {
 
 # Lines that are not words to translate: keys of the settings, the keypads' rows, names and codes.
 KEEP = re.compile(r"^(tbo_|net_)|^[a-z]{2,3}$|^[A-Z]{2}$|^(ABCDEFGHI|JKLMNOPQR|STUVWXYZ0|abcdefghi|jklmnopqr|stuvwxyz0|Aa|auto|any|%dP|%d%%| vs |OK|"
-                  r"Chat: |Rollback|Lobby|LOBBY|Chat|Tenkaichi Budokai Online|AUTO|EUROPA|dr_lang|ENGLISH|PORTUGU.xC3.x8AS|ESPA.xC3.x91OL)$")
+                  r"Chat: |Rollback|Lobby|LOBBY|Chat|Dragon Net Online|ANDROID \+ SWITCH|PC|Bronce|Plata|Oro|Platino|Diamante|Maestro|AUTO|EUROPA|dr_lang|ENGLISH|PORTUGU.xC3.x8AS|ESPA.xC3.x91OL)$")
 
 
 def screen_lines():

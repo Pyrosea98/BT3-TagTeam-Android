@@ -35,7 +35,7 @@ static const struct { const char *id, *original; } kPortText[TR_PORT_TEXT_COUNT]
     {PORT_TEXT_QUIT_CONFIRM, "Close the game?\nUnsaved progress will be lost."},
     {PORT_TEXT_NET_CONNECTING, "Connecting to your rival..."},
     {PORT_TEXT_NET_RIVAL, "Your rival \"{name}\" is here! The match begins."},
-    {PORT_TEXT_LOBBY_JOINED, "You are in the lobby. Its screen opens from the main menu (Tenkaichi Budokai Online)."},
+    {PORT_TEXT_LOBBY_JOINED, "You are in the lobby. Its screen opens from the main menu (Dragon Net Battle)."},
     {PORT_TEXT_NET_RIVAL_FROM, "Your rival \"{name}\" from {region} is here! The match begins."},
     {PORT_TEXT_NET_ROUND_TRIP, "Round trip: ~{ms} ms"},
     {"region/NA", "North America"},

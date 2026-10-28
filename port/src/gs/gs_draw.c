@@ -385,32 +385,45 @@ static GsTex tbo_text_texture(uint32_t id) {
     return tex;
 }
 
-/* The backdrop as a film: tbo/ui/bg.mpg (MPEG-1, pl_mpeg), shown in place of bg.png and played round and round,
-   its last picture leading into its first. Decoded here, one picture when its time has come, only while the
-   screens draw it; a pause between two draws (the screens left and opened again) goes on from where it was. No
-   film, or one that cannot be read: bg.png, as before. */
+/* Films in place of pictures: tbo/ui/bg.mpg for the backdrop (bg.png), tbo/ui/raditz.mpg for Raditz from the waist
+   up (raditz_bust.png). MPEG-1 (pl_mpeg), played round and round, their last picture leading into their first.
+   Decoded here, one picture when its time has come, only while the screens draw it; a pause between two draws (the
+   screens left and opened again) goes on from where it was. A film with `alpha` is two pictures one above the other:
+   the colours on top, below them how solid each pixel is (white solid, black clear). No film, or one that cannot be
+   read: the picture, as before. */
 #define PL_MPEG_IMPLEMENTATION
 #include "../../third_party/pl_mpeg/pl_mpeg.h"
-static struct {
+typedef struct {
+    const char *name;
+    int alpha;
     int tried;
     plm_t *plm;
     GsTex tex;
     uint32_t frame, w, h;
     uint64_t lastMs;
     double due; /* seconds of film owed */
-} sTboFilm;
+} TboFilm;
+static TboFilm sTboFilm = {"bg", 0};
+static TboFilm sRaditzFilm = {"raditz", 1};
 
-static uint8_t *tbo_film_read(size_t *len) {
+static uint8_t *tbo_film_read(const char *name, size_t *len) {
     const char *base = SDL_GetBasePath();
-    char path[1024], cwd[768];
+    char path[1024], cwd[768], local[128];
     const char *tries[3];
     uint8_t *bytes = NULL;
     int i;
 
-    snprintf(path, sizeof(path), "%stbo/ui/bg.mpg", base != NULL ? base : "");
+    snprintf(path, sizeof(path), "%stbo/ui/%s.mpg", base != NULL ? base : "", name);
+    snprintf(local, sizeof(local), "port/tbo/ui/%s.mpg", name);
     tries[0] = path;
-    tries[1] = getcwd(cwd, sizeof(cwd) - 16) != NULL ? strcat(cwd, "/tbo/ui/bg.mpg") : "tbo/ui/bg.mpg";
-    tries[2] = "port/tbo/ui/bg.mpg";
+    if (getcwd(cwd, sizeof(cwd) - 64) != NULL) {
+        size_t n = strlen(cwd);
+        snprintf(cwd + n, sizeof(cwd) - n, "/tbo/ui/%s.mpg", name);
+        tries[1] = cwd;
+    } else {
+        tries[1] = local + 5; /* "tbo/ui/<name>.mpg" */
+    }
+    tries[2] = local;
     for (i = 0; i < 3 && bytes == NULL; i++) {
         FILE *fp = fopen(tries[i], "rb");
         long n;
@@ -431,79 +444,82 @@ static uint8_t *tbo_film_read(size_t *len) {
     return bytes;
 }
 
-static GsTex tbo_film_texture(void) {
+static GsTex tbo_film_texture(TboFilm *film) {
     uint64_t now = SDL_GetTicks();
     plm_frame_t *pic = NULL;
     double step;
-    uint32_t *px, i;
+    uint32_t *px, i, h;
 
-    if (!sTboFilm.tried) {
+    if (!film->tried) {
         size_t len = 0;
-        uint8_t *bytes = tbo_film_read(&len);
-        sTboFilm.tried = 1;
-        sTboFilm.plm = bytes != NULL ? plm_create_with_memory(bytes, len, 1) : NULL;
-        if (sTboFilm.plm != NULL && (!plm_has_headers(sTboFilm.plm) || plm_get_num_video_streams(sTboFilm.plm) < 1)) {
-            plm_destroy(sTboFilm.plm);
-            sTboFilm.plm = NULL;
+        uint8_t *bytes = tbo_film_read(film->name, &len);
+        film->tried = 1;
+        film->plm = bytes != NULL ? plm_create_with_memory(bytes, len, 1) : NULL;
+        if (film->plm != NULL && (!plm_has_headers(film->plm) || plm_get_num_video_streams(film->plm) < 1)) {
+            plm_destroy(film->plm);
+            film->plm = NULL;
         }
-        if (sTboFilm.plm == NULL) {
+        if (film->plm == NULL) {
             if (bytes != NULL) {
-                fprintf(stderr, "bt3: artwork: tbo/ui/bg.mpg is not an MPEG-1 film: bg.png instead\n");
+                fprintf(stderr, "bt3: artwork: tbo/ui/%s.mpg is not an MPEG-1 film: the picture instead\n", film->name);
             }
             return 0;
         }
-        plm_set_audio_enabled(sTboFilm.plm, 0);
-        plm_set_loop(sTboFilm.plm, 1);
-        sTboFilm.w = (uint32_t)plm_get_width(sTboFilm.plm);
-        sTboFilm.h = (uint32_t)plm_get_height(sTboFilm.plm);
+        plm_set_audio_enabled(film->plm, 0);
+        plm_set_loop(film->plm, 1);
+        film->w = (uint32_t)plm_get_width(film->plm);
+        film->h = (uint32_t)plm_get_height(film->plm);
     }
-    if (sTboFilm.plm == NULL) {
+    if (film->plm == NULL) {
         return 0;
     }
-    if (sTboFilm.tex != 0 && sTboFilm.frame == gGsFrame) {
-        return sTboFilm.tex;
+    if (film->tex != 0 && film->frame == gGsFrame) {
+        return film->tex;
     }
-    sTboFilm.frame = gGsFrame;
-    step = 1.0 / (plm_get_framerate(sTboFilm.plm) > 1.0 ? plm_get_framerate(sTboFilm.plm) : 24.0);
-    if (sTboFilm.lastMs != 0 && now - sTboFilm.lastMs < 500) {
-        sTboFilm.due += (double)(now - sTboFilm.lastMs) / 1000.0;
+    film->frame = gGsFrame;
+    step = 1.0 / (plm_get_framerate(film->plm) > 1.0 ? plm_get_framerate(film->plm) : 24.0);
+    if (film->lastMs != 0 && now - film->lastMs < 500) {
+        film->due += (double)(now - film->lastMs) / 1000.0;
     }
-    sTboFilm.lastMs = now;
-    if (sTboFilm.due > step * 3.0) {
-        sTboFilm.due = step * 3.0; /* a slow frame: the film waits rather than racing to catch up */
+    film->lastMs = now;
+    if (film->due > step * 3.0) {
+        film->due = step * 3.0; /* a slow frame: the film waits rather than racing to catch up */
     }
-    while (sTboFilm.tex == 0 || sTboFilm.due >= step) {
-        plm_frame_t *f = plm_decode_video(sTboFilm.plm);
+    while (film->tex == 0 || film->due >= step) {
+        plm_frame_t *f = plm_decode_video(film->plm);
         if (f == NULL) {
             break;
         }
         pic = f;
-        if (sTboFilm.tex != 0) {
-            sTboFilm.due -= step;
+        if (film->tex != 0) {
+            film->due -= step;
         } else {
             break;
         }
     }
     if (pic == NULL) {
-        return sTboFilm.tex;
+        return film->tex;
     }
-    px = malloc((size_t)sTboFilm.w * sTboFilm.h * 4);
+    px = malloc((size_t)film->w * film->h * 4);
     if (px == NULL) {
-        return sTboFilm.tex;
+        return film->tex;
     }
-    plm_frame_to_rgba(pic, (uint8_t *)px, (int)sTboFilm.w * 4);
-    for (i = 0; i < sTboFilm.w * sTboFilm.h; i++) {
-        px[i] = (px[i] & 0x00FFFFFFu) | 0x80000000u; /* the GS's alpha: 0x80 is opaque */
+    plm_frame_to_rgba(pic, (uint8_t *)px, (int)film->w * 4);
+    h = film->alpha ? film->h / 2 : film->h;
+    for (i = 0; i < film->w * h; i++) {
+        /* the GS's alpha: 0x80 is opaque; a film with alpha: from the lower picture's red, 0..255 */
+        uint32_t a = film->alpha ? ((px[i + film->w * h] & 0xFFu) * 128u + 127u) / 255u : 0x80u;
+        px[i] = (px[i] & 0x00FFFFFFu) | (a << 24);
     }
-    if (sTboFilm.tex == 0) {
-        sTboFilm.tex = sBackend->texCreate(sTboFilm.w, sTboFilm.h, GS_TEXFMT_RGBA8, 1);
-        if (sTboFilm.tex == 0) {
+    if (film->tex == 0) {
+        film->tex = sBackend->texCreate(film->w, h, GS_TEXFMT_RGBA8, 1);
+        if (film->tex == 0) {
             free(px);
             return 0;
         }
     }
-    sBackend->texUpload(sTboFilm.tex, 0, sTboFilm.w, sTboFilm.h, GS_TEXFMT_RGBA8, px, sTboFilm.w * sTboFilm.h * 4);
-    return sTboFilm.tex;
+    sBackend->texUpload(film->tex, 0, film->w, h, GS_TEXFMT_RGBA8, px, film->w * h * 4); /* (px is the backend's now) */
+    return film->tex;
 }
 
 static GsTex tbo_texture(uint32_t id) {
@@ -524,8 +540,8 @@ static GsTex tbo_texture(uint32_t id) {
     if (id >= TBO_ART_COUNT && !languageArt) {
         return gsWhite;
     }
-    if (id == TBO_BG) {
-        GsTex film = tbo_film_texture();
+    if (id == TBO_BG || id == TBO_RADITZ_BUST) {
+        GsTex film = tbo_film_texture(id == TBO_BG ? &sTboFilm : &sRaditzFilm);
         if (film != 0) {
             return film;
         }

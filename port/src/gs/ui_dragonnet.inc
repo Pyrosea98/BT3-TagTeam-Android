@@ -351,9 +351,9 @@ static int lobby_step(void) {
     if (st == 5) { // the code was a lobby's (the PC's 0.1.38.9): this game is its member, and the lobby's page is the game's own (the main menu opens it)
         Port_LobbyCancel(); // (the lobby has the socket now)
         const char *said = MenuTranslation_PortText(PORT_TEXT_LOBBY_JOINED);
-        Port_UiNotice(said != NULL ? said : T("You are in the lobby. Its screen opens from the main menu (Tenkaichi Budokai Online).",
-                                               "Você está no lobby. A tela dele abre pelo menu principal (Tenkaichi Budokai Online).",
-                                               "Estás en el lobby. Su pantalla se abre desde el menú principal (Tenkaichi Budokai Online)."));
+        Port_UiNotice(said != NULL ? said : T("You are in the lobby. Its screen opens from the main menu (Dragon Net Battle).",
+                                               "Você está no lobby. A tela dele abre pelo menu principal (Dragon Net Battle).",
+                                               "Estás en el lobby. Su pantalla se abre desde el menú principal (Dragon Net Battle)."));
         set_open(false);
         sNet = false;
         DrNet_PresenceActive(0);
