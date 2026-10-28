@@ -81,7 +81,16 @@ class AppViewModel @JvmOverloads constructor(app: Application, val game: Game = 
     private val bt4 = if (game == Game.BT4) Bt4Installer(app, paths, resolver) else null
     private val packs = TexturePacks(app, paths, resolver)
     private val mods = Mods(app, paths, resolver)
-    private val settings = EngineSettings(paths.settings)
+    private val settings = EngineSettings(paths.settings).also {
+        // 4:3 unless the player chose a shape: the engine's own default on Android is the screen's shape (gs_draw.c),
+        // which widens the fights and stretches the menus on a phone
+        if (game == Game.BT3 && it.get(EngineSettings.ASPECT, -1) == -1) it.set(EngineSettings.ASPECT, EngineSettings.ASPECT_DEFAULT)
+        // 1x unless the player chose a resolution (the engine's own default is 2x)
+        if (game == Game.BT3 && it.get(EngineSettings.SCALE4, -1) == -1 && it.get(EngineSettings.SCALE, -1) == -1) {
+            it.set(EngineSettings.SCALE4, 4)
+            it.set(EngineSettings.SCALE, 1)
+        }
+    }
     private val ui = UiPrefs.get(app)
 
     val uiState = ui.state

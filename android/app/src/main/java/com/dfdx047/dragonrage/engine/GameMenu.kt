@@ -517,7 +517,7 @@ private fun VideoPage(l: L, game: Game, v: MenuValues) {
                     "Tela: o formato da tela do aparelho, sem esticar. Mais largo que 4:3 mostra mais da luta.",
                     "Pantalla: la forma de la pantalla del equipo, sin estirar. Más ancho que 4:3 muestra más de la pelea."),
                 listOf(l.t("Screen", "Tela", "Pantalla") to 0, "4:3" to 1333, "16:10" to 1600, "16:9" to 1778, "20:9" to 2222, "21:9" to 2389),
-                v.get("aspect_milli", 0),
+                v.get("aspect_milli", com.dfdx047.dragonrage.data.EngineSettings.ASPECT_DEFAULT),
             ) { v.set("aspect_milli", it) }
         } else {
             Choice(

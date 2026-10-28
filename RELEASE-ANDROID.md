@@ -1,4 +1,12 @@
-# Android v0.4.1 — release record
+# Android release record
+
+## v0.4.2
+
+- 4:3 aspect ratio by default (the engine's Android default was the screen's own shape, which widens fights and stretches menus); a player's choice is kept.
+- Internal resolution 1x by default and in every GPU profile (the engine's own default was 2x; a user's phone only worked after switching to 1x).
+- The launcher no longer drops settings with names of 24+ characters when it saves one (most of the Tag Team mod's settings fell back to defaults).
+
+## v0.4.1
 
 **Published APK:** `BT3-TagTeam-v0.4.1-Android.apk`, SHA-256 `2763d1f9b0ac6ae30ceab37a18b1c45a7b6aa54ae28283b778aa7b3145f00ac8`, app ID `com.pyrosea98.bt3tagteam`, version 0.4.1 (401).
 Signed with the project's own release key (certificate SHA-256 `d168d1bc90865404a97ef6022cfcd03d0516cb7ae7afeb34af851a2bfdc524fc`), kept outside the repository. Native engine `lib/arm64-v8a/libbt3.so` SHA-256 `93db6b5ed01e523b325b87cb548a9177c34b55b97b6513baf0c82cd29973d247`.

@@ -99,7 +99,9 @@ object GpuProfiles {
             else -> null
         }?.let { p ->
             val n = gpu.lowercase().replace(Regex("\\s+"), " ")
-            (measured.firstOrNull { n.contains(it.first) }?.let { p.copy(scale4 = it.second) } ?: p).copy(lite = weakChip(gpu))
+            // (the Tag Team build keeps 1x whatever the chip: its fights carry more fighters and effects than the
+            // measured stock fights, and 1x is what it is tested at)
+            (measured.firstOrNull { n.contains(it.first) }?.let { p.copy(scale4 = it.second) } ?: p).copy(lite = weakChip(gpu), scale4 = 4)
         }
     }
 

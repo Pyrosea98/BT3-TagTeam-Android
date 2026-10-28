@@ -23,7 +23,9 @@ class EngineSettings(private val file: File) {
             if (eq <= 0) return@forEachLine
             val name = line.substring(0, eq).trim()
             val v = line.substring(eq + 1).trim().toIntOrNull() ?: return@forEachLine
-            if (name.isNotEmpty() && name.length < 24) values[name] = v
+            // (every name kept: the Tag Team mod's are up to 63 characters, and a write rewrites the whole file, so a
+            // name left out here was deleted by any change made in the launcher)
+            if (name.isNotEmpty()) values[name] = v
         }
     }
 
@@ -35,7 +37,7 @@ class EngineSettings(private val file: File) {
 
     @Synchronized
     fun set(name: String, value: Int) {
-        require(name.length < 24) { "setting name too long: $name" }
+        require(name.length < 64) { "setting name too long: $name" }
         if (values[name] == value) return
         values[name] = value
         write()
@@ -94,9 +96,9 @@ class EngineSettings(private val file: File) {
         const val TOUCH_OPACITY = "dr_touch_alpha" // 10..100 %
 
         const val GLOW_DEFAULT = 60
-        const val SCALE_DEFAULT = 2
+        const val SCALE_DEFAULT = 1             // 1x: the Tag Team build always starts at the PlayStation 2's resolution
         /** The internal resolutions offered, in quarters (the engine's settings window has the same list). */
         val SCALE_STEPS = listOf(4, 5, 6, 7, 8, 10, 12, 16, 20, 24, 32)
-        const val ASPECT_DEFAULT = 0              // 0 = the screen's own shape (the engine measures it)
+        const val ASPECT_DEFAULT = 1333           // 4:3, the game as made (0 = the screen's own shape, which the engine measures)
     }
 }
