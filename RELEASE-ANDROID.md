@@ -5,6 +5,8 @@
 - 4:3 aspect ratio by default (the engine's Android default was the screen's own shape, which widens fights and stretches menus); a player's choice is kept.
 - Internal resolution 1x by default and in every GPU profile (the engine's own default was 2x; a user's phone only worked after switching to 1x).
 - The launcher no longer drops settings with names of 24+ characters when it saves one (most of the Tag Team mod's settings fell back to defaults).
+- Wide aspect ratios: the fight's 2D (damage, timer, combo counter, READY/FIGHT, technique names) is narrowed to 4:3 in either of the game's two frame buffers (gs_sony.c / gs_draw.c); before, much of it was drawn into the buffer that was not this frame's and showed a third too wide, flickering. HUD markers are also taken on skipped frames. Verified by the owner at 16:9.
+- The "texture pack was not used" warning only appears when a texture pack is installed.
 
 ## v0.4.1
 

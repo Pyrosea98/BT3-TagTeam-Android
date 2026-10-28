@@ -11,6 +11,7 @@
 #include "../port_addr.h"
 
 extern void Port_GsGifChannel(uint32_t addr, uint32_t qwc, int chain);
+int gGsOtherFbp = -1; /* the double buffer's other frame buffer (the one shown meanwhile) */
 int gGsMainFbp = -1; /* frame-buffer address of the frame being drawn (from sceGsSwapDBuff); -1 before the first swap */
 
 typedef struct { uint64_t v, addr; } Reg;                      /* one A+D register write */
@@ -71,5 +72,6 @@ int sceGsSwapDBuff(void *p, int id) {
     DBuff *db = p;
     /* the buffer this frame is drawn into: what the renderer shows when the frame is finished */
     gGsMainFbp = (int)(((id & 1) ? db->draw1.frame.v : db->draw0.frame.v) & 0x1FF);
+    gGsOtherFbp = (int)(((id & 1) ? db->draw0.frame.v : db->draw1.frame.v) & 0x1FF);
     return sceGsPutDrawEnv((id & 1) ? db->giftag1 : db->giftag0);
 }

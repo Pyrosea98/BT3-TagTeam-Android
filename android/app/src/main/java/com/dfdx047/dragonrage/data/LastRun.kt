@@ -31,7 +31,9 @@ object LastRun {
         find("CRASH: signal")?.let { return Report(Problem.CRASH, it.substringAfter("CRASH: ").trim()) }
         // A texture pack the game did not take: no file with a PCSX2 name in it, or a fight played without one of its
         // textures being used (made for another release or region of the game, or not a PCSX2 pack)
-        find("texture pack: no replacement textures")?.let { return Report(Problem.TEXTURES, it.substringAfter("bt3: ").trim()) }
+        // (only when the player has a pack: with an empty textures folder the engine says the same, and that is no problem)
+        val hasPack = runCatching { paths.textures.walkTopDown().any { it.isFile } }.getOrDefault(false)
+        if (hasPack) find("texture pack: no replacement textures")?.let { return Report(Problem.TEXTURES, it.substringAfter("bt3: ").trim()) }
         val packLine = find("replacement textures in ")
         val replaced = find("textures replaced so far")
         if (packLine != null && replaced != null && lines.any { it.contains(", fight)") } &&

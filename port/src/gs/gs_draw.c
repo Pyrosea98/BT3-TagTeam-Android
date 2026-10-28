@@ -1678,11 +1678,32 @@ void GsGpu_Draw(int type, int ctx, const GsVertex *v) {
     /* (Not the cross-fade's picture: it is the whole frame as it was shown, wide view and all, drawn back over the
        whole frame in strips. Each strip is narrower than the screen, so the rule below took it for a piece of 2D
        art and the old shot was drawn at three quarters of the width over the new one: seen by the user.) */
+    {   /* BT3_WIDE_LOG=1 (diagnosis): in a wide fight, once a second, how many 2D pieces were narrowed to 4:3 and why
+           the others were not (the HUD shown stretched on a phone) */
+        static int on = -1;
+        static unsigned n[8], lastFrame;
+        if (on < 0) { on = getenv("BT3_WIDE_LOG") != NULL; }
+        if (on && Port_IsWide() && !gPortMenuMode && (type == 6 || fst || battleText)) {
+            int why = sWholeFrame ? 1 : d.tex_is_target ? 2 : tbo ? 3 :
+                      gsTargets[d.target].fbp != (uint32_t)gGsMainFbp && gsTargets[d.target].fbp != (uint32_t)gGsOtherFbp ? 4 : 0;
+            n[why]++;
+            if (why == 4) { n[5] = gsTargets[d.target].fbp; n[6] = (unsigned)gGsMainFbp; }
+            if (gGsFrame - lastFrame >= 60) {
+                fprintf(stderr, "wide: frame %u: 2D narrowed-path %u, whole-frame %u, into a texture %u, tbo %u, other buffer %u (fbp %u, main %u), anchor %d\n",
+                        gGsFrame, n[0], n[1], n[2], n[3], n[4], n[5], n[6], gsAnchor);
+                memset(n, 0, sizeof(n));
+                lastFrame = gGsFrame;
+            }
+        }
+    }
     if (Port_IsWide() && (!gPortMenuMode || (gsAnchor == 7 && Port_PageAspectMilli() > 1340) ||
                           (battleText && Port_PageAspectMilli() > 1340)) &&
         !sWholeFrame && !d.tex_is_target && !tbo && (type == 6 || fst || battleText || gsAnchor == 8) &&
-        gsTargets[d.target].fbp == (uint32_t)gGsMainFbp) {
-        /* Widescreen. The 3D scene is projected for a 16:9 picture by the game itself; 2D art is laid out for
+        (gsTargets[d.target].fbp == (uint32_t)gGsMainFbp || gsTargets[d.target].fbp == (uint32_t)gGsOtherFbp)) {
+        /* (Either of the two frame buffers: in a fight the game also draws its 2D into the one that is not this
+           frame's by the last swap; left un-narrowed there, the HUD's numbers, timer and announcements came out a
+           third too wide every other picture or so in wide pictures. BT3_WIDE_LOG counted it: "other buffer".)
+           Widescreen. The 3D scene is projected for a 16:9 picture by the game itself; 2D art is laid out for
            4:3 and would come out a third too wide. Each 2D piece is narrowed to 3/4 about a fixed point:
              (not in the menus: their pages are shown whole, stretched to the width; see Port_WideFactor)
              - in a fight, the left edge, the right edge or the middle for the HUD's left panel, right panel and
@@ -1995,14 +2016,10 @@ void GsGpu_FbUpload(int second) {
 }
 
 void GsGpu_Native(int effect) {
-    if (GS_NO_PICTURE) { /* a frame that is only being re-run, or one that is skipped: nothing is drawn */
-        return;
-    }
-    uint64_t sc = gGs.scissor[0];
-    GsDraw d;
-
-    /* 1 = outline. 2 (the see-through tint) is drawn by the generic table pass now (depth_clut), from the game's
-       own table. */
+    /* The markers are state, not drawing: they are taken also in a frame that is skipped or re-run. (Dropped there,
+       the next drawn frame went on with the skipped one's last marker, and a phone that skips many frames in a
+       fight showed the HUD's combo counter, damage and technique names narrowed about the wrong side, switching
+       from one picture to the next in wide pictures: "the HUD stretches when I press a button".) */
     if (effect >= 0x15 && effect <= 0x18) {
         /* 5/6: extended life bar; 7: loading page; 8: an announcement and all its effect layers. */
         gsAnchor = effect - 0x10;
@@ -2016,6 +2033,14 @@ void GsGpu_Native(int effect) {
         sInGlowChain = effect == 0x20;
         return;
     }
+    if (GS_NO_PICTURE) { /* a frame that is only being re-run, or one that is skipped: nothing is drawn */
+        return;
+    }
+    uint64_t sc = gGs.scissor[0];
+    GsDraw d;
+
+    /* 1 = outline. 2 (the see-through tint) is drawn by the generic table pass now (depth_clut), from the game's
+       own table. */
     if (effect != 1 || gsDrawCount == MAX_DRAWS || (gsFxOff & 1)) {
         return;
     }
