@@ -1025,7 +1025,7 @@ static void build_net(void) {
             if (state == 5) { // the code or address was a lobby's: this game is its member; its screen is the game's
                 Port_LobbyCancel(); // (the lobby has the socket now)
                 const char *said = MenuTranslation_PortText(PORT_TEXT_LOBBY_JOINED);
-                Port_UiNotice(said != NULL ? said : "You are in the lobby. Its screen opens from the main menu (Tenkaichi Budokai Online).");
+                Port_UiNotice(said != NULL ? said : "You are in the lobby. Its screen opens from the main menu (Dragon Net Battle).");
                 set_open(false);
                 ImGui::End();
                 return;

@@ -223,7 +223,7 @@ void MainMenu_Init(s32 section) {
         }
         gMainMenu->items[gMainMenu->itemCount++] = i;
 #ifdef PORT
-        if (i == (Port_NetMenuListed() ? 4 : 3)) {
+        if (i == 3 && !Port_NetMenuListed()) { /* (Dragon Net Battle opens these screens now: listed alone only without it) */
             gMainMenu->items[gMainMenu->itemCount++] = MAINMENU_TBO;
         }
 #endif
@@ -551,7 +551,11 @@ void MainMenu_Input(s32 *result) {
             break;
         case 4:
 #ifdef PORT
-            Port_NetMenuOpen(); /* the port's own screen for online play (port/src/gs/ui.cpp); the menu stays where it is */
+            /* Dragon Net Online: the screens of menu/port_tbo.c (Quick Match, Ranked, rooms, lobbies, against
+               Android + Switch or the PC), in the port's screen mode */
+            gPortScreen = PORT_SCREEN_TBO;
+            MAINMENU_COUNT();
+            MAINMENU_CHOOSE(MPROG_MODE_PORT_SCREEN);
 #endif
             break;
         case 5:
