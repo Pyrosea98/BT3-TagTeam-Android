@@ -32,6 +32,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Checkbox
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -98,8 +101,55 @@ fun HomeScreen(vm: AppViewModel) {
     val mods by vm.fileMods.collectAsStateWithLifecycle()
     val stages by vm.stages.collectAsStateWithLifecycle()
     val songs by vm.songs.collectAsStateWithLifecycle()
+    // the Tag Team import's choices (the PC installer's: 2x maps by default, recommended settings, completed save)
+    var maps by remember { mutableStateOf(com.dfdx047.dragonrage.data.TagTeamImport.Maps.DOUBLE) }
+    var recommended by remember { mutableStateOf(true) }
+    var completedSave by remember { mutableStateOf(true) }
+    var recipeUri by remember { mutableStateOf<android.net.Uri?>(null) }
     val pickIso = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) vm.installFromIso(uri)
+        if (uri != null) vm.importTagTeam(uri, maps, recommended, completedSave, recipeUri)
+    }
+    val pickRecipe = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) { recipeUri = uri; pickIso.launch(arrayOf("*/*")) }
+    }
+    var hasPrevious by remember { mutableStateOf(false) }
+    // an import takes a long while (tens of thousands of files): the screen stays on, or the phone locks and the
+    // system stops the app half-way (the import is then cancelled and starts over)
+    val view = androidx.compose.ui.platform.LocalView.current
+    val working = install is InstallState.Working
+    androidx.compose.runtime.DisposableEffect(working) {
+        view.keepScreenOn = working
+        onDispose { view.keepScreenOn = false }
+    }
+    val installedNow = install is InstallState.Installed
+    LaunchedEffect(installedNow) { hasPrevious = installedNow && kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { vm.hasPreviousData() } }
+    @Composable
+    fun ImportChoices() {
+        Text("Map size", style = MaterialTheme.typography.titleSmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = maps == com.dfdx047.dragonrage.data.TagTeamImport.Maps.DOUBLE,
+                onClick = { maps = com.dfdx047.dragonrage.data.TagTeamImport.Maps.DOUBLE }, label = { Text("2x maps (default)") })
+            FilterChip(selected = maps == com.dfdx047.dragonrage.data.TagTeamImport.Maps.NORMAL,
+                onClick = { maps = com.dfdx047.dragonrage.data.TagTeamImport.Maps.NORMAL }, label = { Text("Normal maps") })
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(checked = recommended, onCheckedChange = { recommended = it })
+            Text("Use recommended settings: the PC's tested setup as the game's defaults (settings you already changed are kept)", style = MaterialTheme.typography.bodySmall)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(checked = completedSave, onCheckedChange = { completedSave = it })
+            Text("Start with a completed save (only if you have no save yet)", style = MaterialTheme.typography.bodySmall)
+        }
+        Text(
+            "Pick your Power Scale BETA 8 ISO: the original, or the R4 normal / 2x image from the manual. " +
+                (if (vm.tagTeam.recipeReady()) "The import recipe is ready." else "The import recipe (429 MB) is downloaded from the v0.4.1 release first, or pick the zip if you have it.") +
+                " Saves and settings are kept.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilledTonalButton(onClick = { recipeUri = null; pickIso.launch(arrayOf("*/*")) }) { Text(stringResource(R.string.pick_iso)) }
+            if (!vm.tagTeam.recipeReady()) TextButton(onClick = { pickRecipe.launch(arrayOf("application/zip", "*/*")) }) { Text("I have the recipe zip") }
+        }
     }
     var confirmRemove by remember { mutableStateOf(false) }
 
@@ -129,11 +179,11 @@ fun HomeScreen(vm: AppViewModel) {
             when (val s = install) {
                 InstallState.NotInstalled -> {
                     Text(
-                        stringResource(if (bt4) R.string.bt4_game_data_intro else R.string.game_data_intro),
+                        "Tag Team + Real Power Scale v0.4.1: the game data is made from your own Power Scale BETA 8 image.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    FilledTonalButton(onClick = { pickIso.launch(arrayOf("*/*")) }) { Text(stringResource(R.string.pick_iso)) }
+                    ImportChoices()
                 }
                 is InstallState.Working -> {
                     Text(s.step, style = MaterialTheme.typography.bodyLarge)
@@ -151,9 +201,17 @@ fun HomeScreen(vm: AppViewModel) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.CheckCircle, null, tint = Dbz.ShenronGreen)
                         Spacer(Modifier.size(8.dp))
-                        Text(stringResource(if (s.modified) R.string.game_data_ok_mod else R.string.game_data_ok, s.files, formatBytes(s.bytes)), style = MaterialTheme.typography.bodyMedium)
+                        val imported = remember(s) { vm.importedAs() }
+                        Text(
+                            if (imported != null) {
+                                "Tag Team + Real Power Scale v0.4.1 · ${if (imported.first == "2x") "2x maps" else "normal maps"} · " +
+                                    (if (imported.second == "original") "Power Scale BETA 8" else "R4 ${imported.second.removePrefix("r4-")} image") +
+                                    " · ${s.files} files"
+                            } else stringResource(if (s.modified) R.string.game_data_ok_mod else R.string.game_data_ok, s.files, formatBytes(s.bytes)),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
                     }
-                    if (s.modified) {
+                    if (s.modified && vm.importedAs() == null) {
                         Row(verticalAlignment = Alignment.Top) {
                             Icon(Icons.Rounded.Warning, null, tint = Dbz.SaiyanGold)
                             Spacer(Modifier.size(8.dp))
@@ -164,7 +222,19 @@ fun HomeScreen(vm: AppViewModel) {
                             )
                         }
                     }
-                    TextButton(onClick = { confirmRemove = true }) { Text(stringResource(R.string.remove_game_data)) }
+                    var again by remember { mutableStateOf(false) }
+                    if (again) ImportChoices()
+                    Column {
+                        TextButton(onClick = { again = !again }) { Text(if (again) stringResource(R.string.cancel) else "Import again (update / other map size)") }
+                        TextButton(onClick = { confirmRemove = true }) { Text(stringResource(R.string.remove_game_data)) }
+                    }
+                    if (hasPrevious) {
+                        Text(
+                            "The game data the last import replaced is kept. Remove it once the new one plays well.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        TextButton(onClick = { vm.removePreviousData(); hasPrevious = false }) { Text("Remove the old game data") }
+                    }
                 }
                 is InstallState.Failed -> {
                     Row(verticalAlignment = Alignment.Top) {
@@ -173,8 +243,10 @@ fun HomeScreen(vm: AppViewModel) {
                         Text(s.message, style = MaterialTheme.typography.bodyMedium)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilledTonalButton(onClick = { pickIso.launch(arrayOf("*/*")) }) { Text(stringResource(R.string.pick_other_iso)) }
                         TextButton(onClick = vm::dismissInstallError) { Text(stringResource(R.string.close)) }
+                    }
+                    ImportChoices()
+                    Row {
                     }
                 }
             }

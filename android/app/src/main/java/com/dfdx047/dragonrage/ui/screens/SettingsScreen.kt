@@ -34,6 +34,9 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -185,6 +188,24 @@ fun SettingsScreen(vm: AppViewModel) {
             }
         }
 
+        SectionCard("Tag Team recommended settings", Icons.Rounded.AutoAwesome, accent = Dbz.SaiyanGold) {
+            Text(
+                "The PC's tested setup for the mod (fusion, assists, CPU transformations, revival, HUD, struggles...). " +
+                    "Applying sets those to the PC's values; your controls, screen and volume stay as they are.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            var ask by remember { mutableStateOf(false) }
+            FilledTonalButton(onClick = { ask = true }) { Text("Apply recommended settings") }
+            if (ask) {
+                AlertDialog(
+                    onDismissRequest = { ask = false },
+                    title = { Text("Apply recommended settings?") },
+                    text = { Text("The mod's settings you changed go back to the PC's values. Controls, screen and volume are kept.") },
+                    confirmButton = { TextButton(onClick = { ask = false; vm.applyRecommendedSettings() }) { Text("Apply") } },
+                    dismissButton = { TextButton(onClick = { ask = false }) { Text(stringResource(R.string.cancel)) } },
+                )
+            }
+        }
         SectionCard(stringResource(R.string.performance), Icons.Rounded.Speed, accent = MaterialTheme.colorScheme.secondary) {
             val gpu by vm.gpuName.collectAsStateWithLifecycle()
             val choice = get(EngineSettings.RENDERER, Renderer.AUTO).coerceIn(0, 2)

@@ -1,13 +1,21 @@
-# Android v0.4.1 â€” release preparation
+# Android v0.4.1 — release record
 
-Current source is the Dragon Rage 0.9.0 merge plus our native Tag Team / Power Scale gameplay, HUD/settings, shared credits and Android target controls. The latest launcher edit removes the BT4/game-choice screen for this BT3-only mod and places Settings earlier in navigation.
+**Published APK:** `BT3-TagTeam-v0.4.1-Android.apk`, SHA-256 `2763d1f9b0ac6ae30ceab37a18b1c45a7b6aa54ae28283b778aa7b3145f00ac8`, app ID `com.pyrosea98.bt3tagteam`, version 0.4.1 (401).
+Signed with the project's own release key (certificate SHA-256 `d168d1bc90865404a97ef6022cfcd03d0516cb7ae7afeb34af851a2bfdc524fc`), kept outside the repository. Native engine `lib/arm64-v8a/libbt3.so` SHA-256 `93db6b5ed01e523b325b87cb548a9177c34b55b97b6513baf0c82cd29973d247`.
 
-**APK publication gate: Claude.** The previous working APK is `BT3-Android-v4-dr090-f8c2cdcc.apk` (SHA256 `f8c2cdcc2cfb48b646d51433beea150de799b80c0b37acf1667c3d5897df1ad0`, engine `09a8d70deabe4830e2d08d8300a1456dbaee269689510a1464c2cf09f478615b`). That APK predates the final MainActivity edit. It is NOT attached as the final v0.4.1 APK.
+## What it is
 
-Claude: build/sign and verify the APK from this published revision, or commit any necessary Android-only corrections to powerscale-port, then move the draft tag/source archive/checksums to that exact revision before publication. Preserve working application ID and the user's data/signature compatibility; use the approved release-signing policy and never upload keys. Record the final APK hash, native-library hash, build tools, source commit, smoke/live scope and import/save behavior. Do not publish the draft until its APK and source match.
+The Dragon Rage 0.9.0 Android port (renderer speed-ups for Mali/Adreno, online protocol 5, quick saving) with the PC v0.4.1 native Tag Team / Real Power Scale code (identical to the published PC source apart from Android-only changes below) and the PC's menu-text system.
 
-Keep both normal and optional 2x map import paths compatible. Verify shared credits/thanks in startup, mod settings and Android import/startup presentation, and retain all original modder/publisher cards. The Windows credits UI itself is not an Android component. Source is published now; no new phone install/test is claimed by this handoff.
+Android-only changes:
+- BT3 only (no game picker / BT4), Settings as the second tab.
+- The import (`android/app/src/main/java/com/dfdx047/dragonrage/data/TagTeamImport.kt`): the PC v0.4.1 recipe (`BT3-TagTeam-v0.4.1-ImportRecipes.zip`, SHA-256 `1189068004347ab03a08ebd4454587df2923ad7452fc2a42096c216a4b2fd318`, content list `63802e4d…`) applied to the player's original / R4 normal / R4 2x image, normal or 2x maps. The second archive (DATA/PAK3US2.AFS, 65,000 entries) is copied whole and its unchanged entries read from inside it; every other file is written loose and SHA-256 checked. The mod's readers of that archive go through `Port_OpenSpan` (plat_fighters.c, snd_se.c, fight_panels_ui.cpp).
+- Recommended first-install settings (the PC's accepted profile without device keys) and the completed-progression save, never over a player's own.
+- Touch: target left/right buttons; overhead HUD option for the player and target only (on in the phone's recommended settings).
+- Its own application ID and signing key, so it installs beside Dragon Rage; Dragon Rage's update check is off.
 
-PC release remains independent: https://github.com/Pyrosea98/BT3-TagTeam-Native/releases/tag/v0.4.1
+## Verified on a Redmi (Mali-G76, Android 13)
 
-Publication safety: all signing keystores were removed from this clean source branch and archive. Gradle no longer falls back to the inherited test key for release builds. Claude must supply external signing compatible with the intended installation/update policy. No existing APK was rebuilt, re-signed or installed by Codex.
+Fresh install of this APK: recipe download 38 s, image check 19 s, import 3 min 38 s total; the game starts. With the same import: main menu (including the Tenkaichi Online item), 1v1 Duel and Team Battles with extra fighters (2v1, 2v3, 7 fighters) played by the owner; music and voices; no missing files in the log. Fights 90-100% speed; 11-28 fps depending on fighters.
+
+No disc image, game archives, BIOS, extracted game data or private key is published.

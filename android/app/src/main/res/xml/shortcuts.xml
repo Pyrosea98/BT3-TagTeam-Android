@@ -8,7 +8,7 @@
         android:shortcutLongLabel="@string/shortcut_play_long">
         <intent
             android:action="android.intent.action.VIEW"
-            android:targetPackage="com.dfdx047.dragonrage"
+            android:targetPackage="com.pyrosea98.bt3tagteam"
             android:targetClass="com.dfdx047.dragonrage.PlayShortcutActivity" />
     </shortcut>
 </shortcuts>

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name" translatable="false">Dragon Rage</string>
+    <string name="app_name" translatable="false">BT3 Tag Team</string>
     <string name="nav_home">Home</string>
     <string name="nav_textures">Textures</string>
     <string name="nav_mods">Mods</string>

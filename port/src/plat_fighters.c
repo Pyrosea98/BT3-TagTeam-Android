@@ -56,6 +56,7 @@ extern int Port_Setting(const char *name, int def); /* plat_settings.c */
 extern void Port_SettingSave(const char *name, int value);
 extern void Port_SettingsWrite(void);
 extern int Port_FilePath(int ptid, int flid, const char *fname, char *out, int size); /* plat_file.c */
+extern FILE *Port_OpenSpan(const char *path, long *size); /* plat_file.c: a plain path or an archive entry */
 extern int Port_NetActive(void);                                    /* gs/net.c */
 extern int PortA11y_Utf8(char *out, int cap, const uint16_t *str); /* gs/a11y.c: the game's text as UTF-8 */
 
@@ -171,11 +172,11 @@ static int extra_costume_ok(int chara,int costume,char *why,int size) {
         int id = chara * 10 + FILE_CHARA + kFiles[i]; /* (ids from 1 are the second archive's files, from 0) */
         int volume=1,entry=id-1;
         {int routed=Port_Beta8FileId(chara,costume,0,i);if(routed>=0){volume=(routed>>24)&63;entry=routed&0xffffff;}else if(chara>160){snprintf(why,(size_t)size,"no verified bundle for character %d costume %d",chara,costume);return 0;}}
-        FILE *fp = Port_FilePath(volume, entry, NULL, path, sizeof(path)) ? fopen(path, "rb") : NULL;
         long bytes = 0;
+        /* (Port_OpenSpan: the file may be an entry inside its archive, "<archive>#<offset>+<size>", as Android's
+           import keeps the large archive whole) */
+        FILE *fp = Port_FilePath(volume, entry, NULL, path, sizeof(path)) ? Port_OpenSpan(path, &bytes) : NULL;
         if (fp != NULL) {
-            fseek(fp, 0, SEEK_END);
-            bytes = ftell(fp);
             fclose(fp);
         }
         if (bytes <= 0) {
@@ -604,13 +605,10 @@ static void names_read(void) {
     if (id < 1 || id >= 0xD48) { /* (before the game has set it: the USA disc's) */
         id = NAMES_FILE_DEFAULT;
     }
-    if (!Port_FilePath(1, id - 1, NULL, path, sizeof(path)) || (fp = fopen(path, "rb")) == NULL) {
+    if (!Port_FilePath(1, id - 1, NULL, path, sizeof(path)) || (fp = Port_OpenSpan(path, &bytes)) == NULL) {
         return; /* (the archives are not known yet at the very start: asked again later) */
     }
     sNamesState = -1;
-    fseek(fp, 0, SEEK_END);
-    bytes = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
     if (bytes > 0 && bytes < (long)NAMES_UNPACKED_MAX && (file = malloc((size_t)bytes)) != NULL &&
         fread(file, 1, (size_t)bytes, fp) == (size_t)bytes && get32(file, (size_t)bytes, NAMES_MEMBER * 4, &member) &&
         (member &= ~3u) < (uint32_t)bytes && get32(file, (size_t)bytes, member, &size) && get32(file, (size_t)bytes, member + 4, &packed) &&
@@ -813,7 +811,7 @@ int Port_ModelFileOk(int id) {
         flid = id - 0xD48;
     }
     ok = 0;
-    if (Port_FilePath(pt, flid, NULL, path, sizeof(path)) && (fp = fopen(path, "rb")) != NULL) {
+    if (Port_FilePath(pt, flid, NULL, path, sizeof(path)) && (fp = Port_OpenSpan(path, NULL)) != NULL) {
         got = fread(hdr, 1, sizeof(hdr), fp);
         fclose(fp);
         if (got >= sizeof(hdr)) {

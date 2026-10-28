@@ -185,14 +185,13 @@ static int csm1(int i) {
 }
 
 // The portrait file at path as RGBA (256 x 512 x 4 bytes, the PS2's alpha doubled). 1 = read.
+extern "C" FILE *Port_OpenSpan(const char *path, long *size); // plat_file.c: a plain path or an archive entry
 static int portrait_rgba(const char *path, uint8_t *rgba) {
-    FILE *fp = fopen(path, "rb");
+    long len = 0;
+    FILE *fp = Port_OpenSpan(path, &len);
     if (fp == NULL) {
         return 0;
     }
-    fseek(fp, 0, SEEK_END);
-    long len = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
     uint8_t *pk = len > 0 ? (uint8_t *)malloc((size_t)len) : NULL;
     if (pk == NULL || fread(pk, 1, (size_t)len, fp) != (size_t)len) {
         free(pk);

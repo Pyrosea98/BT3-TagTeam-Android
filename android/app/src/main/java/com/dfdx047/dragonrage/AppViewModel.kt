@@ -28,6 +28,7 @@ import com.dfdx047.dragonrage.data.FileMod
 import com.dfdx047.dragonrage.data.Bt4Installer
 import com.dfdx047.dragonrage.data.Game
 import com.dfdx047.dragonrage.data.GameDataInstaller
+import com.dfdx047.dragonrage.data.TagTeamImport
 import com.dfdx047.dragonrage.data.GamePaths
 import com.dfdx047.dragonrage.data.GpuDriver
 import com.dfdx047.dragonrage.data.GpuDrivers
@@ -74,6 +75,8 @@ class AppViewModel @JvmOverloads constructor(app: Application, val game: Game = 
     }
     private val resolver = app.contentResolver
     private val installer = GameDataInstaller(app, paths, resolver)
+    /** The Tag Team / Power Scale import (the PC v0.4.1 recipe applied to the player's BETA 8 image). */
+    val tagTeam = TagTeamImport(paths, resolver)
     /** Budokai Tenkaichi 4's set-up (its own: the image is checked and read in place); null for Budokai Tenkaichi 3. */
     private val bt4 = if (game == Game.BT4) Bt4Installer(app, paths, resolver) else null
     private val packs = TexturePacks(app, paths, resolver)
@@ -392,6 +395,88 @@ class AppViewModel @JvmOverloads constructor(app: Application, val game: Game = 
     }
 
     // ---- game data
+
+    /**
+     * The Tag Team import: the recipe (downloaded from the v0.4.1 release, or [recipeUri], a copy the player has),
+     * then the image, then first-install settings and save. Cancelling or failing leaves the installed data as it was.
+     */
+    fun importTagTeam(uri: Uri, maps: TagTeamImport.Maps, recommended: Boolean, completedSave: Boolean, recipeUri: Uri? = null) {
+        if (installJob?.isActive == true) return
+        installJob = viewModelScope.launch {
+            val started = System.currentTimeMillis()
+            val before = installer.currentState()
+            var step = ""
+            val report: (InstallState.Working) -> Unit = {
+                _install.value = it
+                if (it.step != step) { step = it.step; ActivityLog.info("iso", "step: ${it.step} (${it.detail})") }
+            }
+            try {
+                withContext(Dispatchers.IO) {
+                    ActivityLog.info("iso", "Tag Team import from ${ActivityLog.describe(resolver, uri)}, maps ${maps.id}, recommended $recommended, completed save $completedSave")
+                    ActivityLog.info("iso", "free space: ${paths.root.usableSpace / (1024 * 1024)} MB in ${paths.root}")
+                }
+                if (!tagTeam.recipeReady()) {
+                    val tmp = java.io.File(paths.root, TagTeamImport.RECIPE_NAME + ".part")
+                    if (recipeUri != null) {
+                        report(InstallState.Working("Copying the import recipe", 0f, ""))
+                        withContext(Dispatchers.IO) { resolver.openInputStream(recipeUri)?.use { i -> tmp.outputStream().use { i.copyTo(it, 1 shl 20) } } ?: throw TagTeamImport.Stop("The recipe file cannot be opened.") }
+                    } else {
+                        report(InstallState.Working("Downloading the import recipe", 0f, "429 MB from the v0.4.1 release"))
+                        Net.download(TagTeamImport.RECIPE_URL, tmp) { got, total ->
+                            report(InstallState.Working("Downloading the import recipe", if (total > 0) got.toFloat() / total else 0f, "${got shr 20} / ${maxOf(total, 0L) shr 20} MB"))
+                        }
+                    }
+                    report(InstallState.Working("Checking the import recipe", 0f, ""))
+                    tagTeam.adoptRecipe(tmp) { f -> report(InstallState.Working("Checking the import recipe", f, "")) }
+                }
+                val done = tagTeam.install(uri, maps, report)
+                withContext(Dispatchers.IO) {
+                    if (recommended) TagTeamImport.applyRecommended(getApplication(), paths)
+                    if (completedSave && TagTeamImport.applyCompletedSave(getApplication(), paths)) ActivityLog.info("iso", "completed save installed")
+                }
+                _install.value = done
+                ActivityLog.info("iso", "installed: ${done.files} files, ${done.bytes} bytes, ${(System.currentTimeMillis() - started) / 1000} s")
+                say(str(R.string.msg_data_ready))
+            } catch (e: CancellationException) {
+                ActivityLog.warn("iso", "cancelled at: $step")
+                _install.value = before
+                throw e
+            } catch (e: TagTeamImport.Stop) {
+                val why = e.message ?: str(R.string.msg_error)
+                ActivityLog.fail("iso", "refused at \"$step\": $why")
+                _install.value = InstallState.Failed(why)
+                withContext(Dispatchers.IO) { failed(R.string.fail_iso_title, why) }
+            } catch (e: Exception) {
+                val why = str(R.string.msg_iso_read_error, e.message ?: e.javaClass.simpleName)
+                ActivityLog.fail("iso", "failed at \"$step\"", e)
+                _install.value = InstallState.Failed(why)
+                withContext(Dispatchers.IO) { failed(R.string.fail_iso_title, why) }
+            }
+        }
+    }
+
+    /** Whether there is game data an earlier import replaced (gamedata.previous). (Not its size: walking tens of
+     *  thousands of files on every state change ran the app out of memory during an import.) */
+    fun hasPreviousData(): Boolean = tagTeam.previous.isDirectory
+
+    /** "2x" / "normal" and the image ("original", "r4-2x", "r4-normal") of a Tag Team import; null for other data. */
+    fun importedAs(): Pair<String, String>? {
+        val lines = runCatching { paths.installedMarker.readLines() }.getOrNull() ?: return null
+        val maps = lines.firstOrNull { it.startsWith("maps=") }?.substringAfter('=') ?: return null
+        return maps to (lines.firstOrNull { it.startsWith("source=") }?.substringAfter('=') ?: "")
+    }
+
+    /** The Settings page's reset: the mod's settings to the PC's tested values (controls, screen and volume kept). */
+    fun applyRecommendedSettings() = viewModelScope.launch(Dispatchers.IO) {
+        val n = TagTeamImport.applyRecommended(getApplication(), paths, overwrite = true)
+        ActivityLog.info("settings", "recommended (PC) settings applied: $n")
+        say("Recommended settings applied ($n). They are used the next time the game starts.")
+    }
+
+    fun removePreviousData() = viewModelScope.launch(Dispatchers.IO) {
+        ActivityLog.info("iso", "previous game data removed by the player")
+        tagTeam.previous.deleteRecursively()
+    }
 
     fun installFromIso(uri: Uri) {
         if (installJob?.isActive == true) return
