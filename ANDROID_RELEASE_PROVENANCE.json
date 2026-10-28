@@ -1,0 +1,14 @@
+{
+  "parent": "dfdx047/Tenkaichi3DecompAndroid",
+  "base_commit": "133a9d13b05d0bc70bb3ec1d314789567d8c66f0",
+  "branch": "powerscale-port",
+  "latest_launcher_sha256": "bf7cd4ffe264e6d2f9f7f162a0c1d75009768840fb49cce0d469e83962f17d9b",
+  "previous_working_apk_sha256": "f8c2cdcc2cfb48b646d51433beea150de799b80c0b37acf1667c3d5897df1ad0",
+  "previous_apk_matches_final_launcher": false,
+  "final_apk_attached": false,
+  "apk_owner": "Claude",
+  "status": "SOURCE_PUBLISHED_APK_RELEASE_DRAFT_PENDING_CLAUDE",
+  "unpublished_merge_snapshot": "3f4bbe829eb61f9b8030d768ecc51da34e145eb0",
+  "history_policy": "Clean source snapshot: signing keystore excluded from all publication-branch commits",
+  "release_signing": "External only; no debug fallback for release"
+}

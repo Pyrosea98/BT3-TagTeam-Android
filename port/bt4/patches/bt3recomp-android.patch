@@ -1,0 +1,295 @@
+diff --git a/ps2xRuntime/include/runtime/ps2_gs_gpu_renderer.h b/ps2xRuntime/include/runtime/ps2_gs_gpu_renderer.h
+index b988183..3ce0f43 100644
+--- a/ps2xRuntime/include/runtime/ps2_gs_gpu_renderer.h
++++ b/ps2xRuntime/include/runtime/ps2_gs_gpu_renderer.h
+@@ -413,7 +413,7 @@ public:
+     // thread, an internal blit, an alias pass), so the retained state is no longer the batch head's.
+     uint64_t batchSeq() const { return m_batchSeq; }
+     void swapFrame();      // frame boundary (FUN_00100ab8): publish command list
+-#if defined(__EMSCRIPTEN__)
++#if defined(__EMSCRIPTEN__) || defined(PS2X_HEADLESS_HOST)
+     void webDrain();       // [web] no GL in the browser build: drop published lists/uploads, answer barrier requests
+ #endif
+     void onVramUpload(uint32_t dbpBlock, uint32_t sizeBlocks); // stamp the written VRAM pages
+diff --git a/ps2xRuntime/src/lib/ps2_fiber.cpp b/ps2xRuntime/src/lib/ps2_fiber.cpp
+index 51f6cfd..e0d2b91 100644
+--- a/ps2xRuntime/src/lib/ps2_fiber.cpp
++++ b/ps2xRuntime/src/lib/ps2_fiber.cpp
+@@ -18,6 +18,9 @@
+ #    define _XOPEN_SOURCE 700
+ #  endif
+ #  include <ucontext.h>
++#  if defined(__ANDROID__)
++#    include "android_ucontext.h"   // [android] bionic: getcontext / makecontext / swapcontext of our own
++#  endif
+ #  include <sys/mman.h>
+ #  include <unistd.h>
+ #  define PS2X_FIBER_UCTX 1
+@@ -252,7 +255,7 @@ bool ps2xFiberRestore(Ps2xFiber *f, const void *buf, size_t size)
+     // The context's fpregs pointer refers into the ucontext_t itself; restoring into the same
+     // object keeps it valid. The stack goes back to the same addresses it was copied from.
+     std::memcpy(&f->ctx, &ctx, sizeof ctx);
+-#if defined(__linux__)
++#if defined(__linux__) && !defined(__ANDROID__)   // [android] bionic's aarch64 context keeps its FP state inline
+     f->ctx.uc_mcontext.fpregs = &f->ctx.__fpregs_mem;
+ #endif
+     std::memcpy(f->stack + f->stackSize - n, i, n);
+diff --git a/ps2xRuntime/src/lib/ps2_gs_gpu_renderer.cpp b/ps2xRuntime/src/lib/ps2_gs_gpu_renderer.cpp
+index 535061c..22cc12d 100644
+--- a/ps2xRuntime/src/lib/ps2_gs_gpu_renderer.cpp
++++ b/ps2xRuntime/src/lib/ps2_gs_gpu_renderer.cpp
+@@ -3229,7 +3229,7 @@ void GsGpuRenderer::flushPageToVram(uint32_t fbp)
+ // [barblock] GL thread: serve queued blocking barriers. Drains any published-but-unrendered
+ // lists first (so m_segFrom keeps indexing the current list), then renders the in-progress
+ // list up to the request point and flushes the page straight into VRAM.
+-#if defined(__EMSCRIPTEN__)
++#if defined(__EMSCRIPTEN__) || defined(PS2X_HEADLESS_HOST)
+ // [web] The browser build has no GL: the page draws the live GS stream. Whatever the guest side publishes for the
+ // present thread is dropped here, and barrier requests are answered at once (the parse records no draws there, so
+ // there is nothing to render first).
+diff --git a/ps2xRuntime/src/lib/ps2_gs_live.cpp b/ps2xRuntime/src/lib/ps2_gs_live.cpp
+index 086b77e..862d4b3 100644
+--- a/ps2xRuntime/src/lib/ps2_gs_live.cpp
++++ b/ps2xRuntime/src/lib/ps2_gs_live.cpp
+@@ -16,11 +16,14 @@
+ #include <string>
+ #include <vector>
+ 
+-#if defined(__EMSCRIPTEN__)
++#if defined(__EMSCRIPTEN__) || defined(PS2X_HEADLESS_HOST)
+ // [web] The GS host is the page itself (web/play_gs_host.cpp, Play!'s GS on WebGL2, on the browser's main thread):
+ // the ring is plain memory of this module, shared with it. Same protocol as the POSIX ring.
++// [android] The same in Dragon Rage: the GS host is the app's main thread (Dragon Rage's GS, port/bt4/host).
+ #include <cerrno>
++#if defined(__EMSCRIPTEN__)
+ #include <emscripten.h>
++#endif
+ #include <sys/wait.h>
+ bool ps2xWebStartGsHost(ps2live::RingHeader *header);
+ #define PS2X_GS_LIVE_RING 1
+@@ -591,12 +594,22 @@ namespace ps2_gslive
+         if (qwc == 0u || !active())
+             return false;
+         Writer &w = writer();
+-#if defined(PS2X_GS_LIVE_RING) && !defined(PS2X_GS_LIVE_WEB) // the browser page does not answer (yet)
++#if defined(PS2X_GS_LIVE_RING) && (!defined(PS2X_GS_LIVE_WEB) || defined(PS2X_HEADLESS_HOST)) // the browser page does not answer (yet)
+         uint32_t seq0 = 0;
+         {
+             std::lock_guard<std::mutex> lock(w.mutex);
+             if (!w.usable())
+                 return false;
++#if defined(PS2X_GS_LIVE_WEB)
++            // [android] only a host that says it answers (consumerFlags bit 1: ARMSX2's renderer); Dragon Rage's does not
++            if (!w.liveActive || !(__atomic_load_n(&w.live.header->consumerFlags, __ATOMIC_ACQUIRE) & 2u))
++            {
++                w.writeByte(kTypeReadFifo2);
++                w.writeWord(qwc);
++                w.endPacket();
++                return false;
++            }
++#endif
+             if (w.liveActive)
+                 seq0 = __atomic_load_n(&w.live.events->readbackSeq, __ATOMIC_ACQUIRE);
+             w.writeByte(kTypeReadFifo2);
+diff --git a/ps2xRuntime/src/lib/ps2_runtime.cpp b/ps2xRuntime/src/lib/ps2_runtime.cpp
+index 8fbc98c..106e39e 100644
+--- a/ps2xRuntime/src/lib/ps2_runtime.cpp
++++ b/ps2xRuntime/src/lib/ps2_runtime.cpp
+@@ -8216,7 +8216,7 @@ void PS2Runtime::run()
+         // GPU mode: render the recorded GS command list into the FBO and present that
+         // (its texture is bottom-up, so flip Y). Software mode: upload guest VRAM.
+         const bool gpuMode = GsGpuRenderer::enabled();
+-#if defined(__EMSCRIPTEN__)
++#if defined(__EMSCRIPTEN__) || defined(PS2X_HEADLESS_HOST)   // [android] the same: Dragon Rage's GS draws the live stream
+         // [web] Nothing is presented here: the page draws the live GS stream (web/play_gs_host.cpp). The renderer's
+         // published lists and texture uploads are dropped (there is no GL), the pad layer is polled and the loop is paced
+         // to 60 Hz by the headless raylib (web/bt3gl_headless.cpp).
+diff --git a/ps2xRuntime/src/main.cpp b/ps2xRuntime/src/main.cpp
+index 75a2d92..f0ff6fd 100644
+--- a/ps2xRuntime/src/main.cpp
++++ b/ps2xRuntime/src/main.cpp
+@@ -555,11 +555,15 @@ extern "C" const char *ps2xExeDirC()
+ }
+ #if defined(__EMSCRIPTEN__)
+ void ps2xWasmPlatformInit(int &argc, char **&argv);   // [web] web/web_platform.cpp: files, settings, arguments
++#elif defined(PS2X_HEADLESS_HOST)
++void ps2xAndroidPlatformInit(int &argc, char **&argv);   // [android] port/bt4/host: folders, image, environment
+ #endif
+ int main(int argc, char *argv[])
+ {
+ #if defined(__EMSCRIPTEN__)
+     ps2xWasmPlatformInit(argc, argv);
++#elif defined(PS2X_HEADLESS_HOST)
++    ps2xAndroidPlatformInit(argc, argv);
+ #endif
+     // [boot] process/main start: the runtime logs start -> first frame on its first present.
+     extern std::chrono::steady_clock::time_point g_ps2xBootT0;
+@@ -771,7 +775,7 @@ int main(int argc, char *argv[])
+             }
+ #endif
+         }
+-#if !defined(__EMSCRIPTEN__)   // [web] no overlay in the browser (it would need GL); its settings are still loaded above
++#if !(defined(__EMSCRIPTEN__) || defined(PS2X_HEADLESS_HOST))   // [web] no overlay in the browser (it would need GL); its settings are still loaded above
+         runtime.setDebugUiCallbacks(
+             [](PS2Runtime &rt, void *userData)
+             {
+diff --git a/ps2xRuntime/src/lib/Kernel/Stubs/GS.cpp b/ps2xRuntime/src/lib/Kernel/Stubs/GS.cpp
+index 79258a2..cbd6f3b 100644
+--- a/ps2xRuntime/src/lib/Kernel/Stubs/GS.cpp
++++ b/ps2xRuntime/src/lib/Kernel/Stubs/GS.cpp
+@@ -944,7 +944,11 @@ namespace ps2_stubs
+             const std::string path = std::string(dd) + "/rt_" + std::to_string(s_n++) + "_sbp" + std::to_string(sbp) + "_psm" + std::to_string(img.psm) + "_" + std::to_string(img.width) + "x" + std::to_string(img.height) + ".bin";
+             if (FILE *f = std::fopen(path.c_str(), "wb")) { std::fwrite(dst, 1, totalImageBytes, f); std::fclose(f); }
+         }
+-        ps2_gslive::readFifoInto(dst, totalImageBytes);
++        // [android] PSMCT24 crosses the bus packed, 3 bytes a pixel (the runtime's own transfer packs it so too), not
++        // bytesForPixels' 4: asking the host for 4 wrote a quarter past the game's buffer, over the next heap block's
++        // header (the fight-start fade: 512x224 into 0x60000 bytes), and the game's heap walk looped for ever
++        const uint32_t hostBytes = img.psm == 1 ? static_cast<uint32_t>(img.width) * 3u * static_cast<uint32_t>(img.height) : totalImageBytes;
++        ps2_gslive::readFifoInto(dst, hostBytes);
+         ps2TraceGuestRangeWrite(rdram, dstAddr, totalImageBytes, "storeimg", nullptr);
+         {   // [storeimg] every VRAM->RAM download: the un-hooked guest-RAM writer class (found 2026-09-01)
+             static const bool s_si = [](){ const char *v = std::getenv("PS2X_STOREIMG"); return v && v[0] && v[0] != '0'; }();
+diff --git a/ps2xRuntime/src/lib/ps2_iop.cpp b/ps2xRuntime/src/lib/ps2_iop.cpp
+--- a/ps2xRuntime/src/lib/ps2_iop.cpp
++++ b/ps2xRuntime/src/lib/ps2_iop.cpp
+@@ -15,6 +15,40 @@
+ #include <algorithm>
+ #include <atomic>
+ #include <iostream>
++#include <cstdlib>
++#include <sys/stat.h>
++#include <unistd.h>
++
++// [android] The disc image comes as /proc/self/fd/<n>: the app opens it through the system's file picker. Opening
++// that path again repeats the storage's permission check, which an app without storage permission fails (the image
++// in Download/, through MediaStore), so the image is read through the descriptor itself, with pread (no shared offset).
++int ps2xImageFd(const std::string &path)
++{
++    static const char kPrefix[] = "/proc/self/fd/";
++    if (path.compare(0, sizeof(kPrefix) - 1, kPrefix) != 0) return -1;
++    char *end = nullptr;
++    const long fd = std::strtol(path.c_str() + sizeof(kPrefix) - 1, &end, 10);
++    return end != path.c_str() + sizeof(kPrefix) - 1 && *end == '\0' && fd >= 0 ? static_cast<int>(fd) : -1;
++}
++
++bool ps2xImageRead(int fd, uint64_t offset, uint8_t *dst, size_t bytes)
++{
++    while (bytes > 0)
++    {
++        const ssize_t n = pread(fd, dst, bytes, static_cast<off_t>(offset));
++        if (n <= 0) return false;
++        dst += n; offset += static_cast<uint64_t>(n); bytes -= static_cast<size_t>(n);
++    }
++    return true;
++}
++
++bool ps2xImageSize(int fd, uint64_t &size)
++{
++    struct stat st{};
++    if (fstat(fd, &st) != 0) return false;
++    size = static_cast<uint64_t>(st.st_size);
++    return true;
++}
+ 
+ // [r3000] Native IOP RPC delivery (defined in ps2_runtime.cpp).
+ extern bool ps2xInvokeIopRpc(PS2Runtime *rt, uint32_t sid, uint32_t command, uint8_t *eeRam,
+@@ -28,10 +62,16 @@
+     bool iso9660Resolve(const std::string &imagePath, const std::string &guestPath,
+                         uint32_t &lbnOut, uint32_t &sizeOut)
+     {
+-        std::ifstream f(imagePath, std::ios::binary);
+-        if (!f.is_open()) return false;
++        const int fd = ps2xImageFd(imagePath);
++        std::ifstream f;
++        if (fd < 0)
++        {
++            f.open(imagePath, std::ios::binary);
++            if (!f.is_open()) return false;
++        }
+         auto readSector = [&](uint32_t lbn, std::vector<uint8_t> &buf) -> bool {
+             buf.resize(2048);
++            if (fd >= 0) return ps2xImageRead(fd, static_cast<uint64_t>(lbn) * 2048, buf.data(), 2048);
+             f.seekg(static_cast<std::streamoff>(lbn) * 2048);
+             f.read(reinterpret_cast<char *>(buf.data()), 2048);
+             return f.good() || f.gcount() > 0;
+diff --git a/ps2xRuntime/src/lib/ps2_iop_sdrdrv.cpp b/ps2xRuntime/src/lib/ps2_iop_sdrdrv.cpp
+--- a/ps2xRuntime/src/lib/ps2_iop_sdrdrv.cpp
++++ b/ps2xRuntime/src/lib/ps2_iop_sdrdrv.cpp
+@@ -10,6 +10,11 @@
+ #include <fstream>
+ #include <iostream>
+ 
++// [android] The disc image read through its descriptor (ps2_iop.cpp).
++int ps2xImageFd(const std::string &path);
++bool ps2xImageRead(int fd, uint64_t offset, uint8_t *dst, size_t bytes);
++bool ps2xImageSize(int fd, uint64_t &size);
++
+ namespace
+ {
+     constexpr uint32_t kImgHeaderAddr = 0x012F0000u;
+@@ -76,6 +81,13 @@
+ 
+         std::memset(dst, 0, byteCount);
+ 
++        const int fd = ps2xImageFd(path.string());
++        if (fd >= 0)
++        {   // [android] (a short read leaves zeros, as below)
++            ps2xImageRead(fd, offsetBytes, dst, byteCount);
++            return true;
++        }
++
+         std::ifstream file(path, std::ios::binary);
+         if (!file.is_open())
+         {
+diff --git a/ps2xRuntime/src/lib/Kernel/Stubs/Helpers/Support.h b/ps2xRuntime/src/lib/Kernel/Stubs/Helpers/Support.h
+--- a/ps2xRuntime/src/lib/Kernel/Stubs/Helpers/Support.h
++++ b/ps2xRuntime/src/lib/Kernel/Stubs/Helpers/Support.h
+@@ -15,6 +15,11 @@
+ #include <vector>
+ extern "C" void ps2xGsDisplayFlipHook(unsigned long long dispfb);   // [displatch] ps2_gs_gpu.cpp
+ 
++// [android] The disc image read through its descriptor (ps2_iop.cpp).
++int ps2xImageFd(const std::string &path);
++bool ps2xImageRead(int fd, uint64_t offset, uint8_t *dst, size_t bytes);
++bool ps2xImageSize(int fd, uint64_t &size);
++
+ namespace
+ {
+     constexpr uint32_t kCdSectorSize = 2048;
+@@ -252,9 +257,19 @@
+         if (!g_cdImageSizeValid || g_cdImageSizePath != imagePath)
+         {
+             std::error_code ec;
+-            g_cdImageSizeBytes = static_cast<uint64_t>(std::filesystem::file_size(imagePath, ec));
++            const int fd = ps2xImageFd(imagePath.string());
++            if (fd >= 0)
++            {   // [android]
++                uint64_t size = 0;
++                g_cdImageSizeValid = ps2xImageSize(fd, size);
++                g_cdImageSizeBytes = size;
++            }
++            else
++            {
++                g_cdImageSizeBytes = static_cast<uint64_t>(std::filesystem::file_size(imagePath, ec));
++                g_cdImageSizeValid = !ec;
++            }
+             g_cdImageSizePath = imagePath;
+-            g_cdImageSizeValid = !ec;
+         }
+         if (!g_cdImageSizeValid)
+         {
+@@ -776,6 +791,13 @@
+         }
+ 
+         std::memset(dst, 0, byteCount);
++        const int fd = ps2xImageFd(path.string());
++        if (fd >= 0)
++        {   // [android] (a short read leaves zeros, as below)
++            ps2xImageRead(fd, offsetBytes, dst, byteCount);
++            g_lastCdError = 0;
++            return true;
++        }
+         std::ifstream file(path, std::ios::binary);
+         if (!file.is_open())
+         {
