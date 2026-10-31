@@ -1651,16 +1651,45 @@ static void run_frozen(void) {
     chain_end();
 }
 
+#ifdef __ANDROID__
+/* Android: a tag of the list, or the data a tag takes, outside the memory the game can reach (Port_GameRangeOk in
+   plat_mem.c). Seen once, on a Moto g42 where the engine had been moved (0x22000000): the team and one-on-one
+   character selects handed over a block at 0x5b756166 and the copy for the render thread crashed in memcpy, every
+   time. The block is left out instead (a missing picture for a frame rather than a closed game), and the first
+   few are written to the log with where they came from, to find the cause. */
+extern int Port_GameRangeOk(uint32_t addr, uint32_t len);
+static void walk_bad(const char *what, uint32_t tadr, uint32_t addr, uint32_t len) {
+    static unsigned told;
+    if (told < 20) {
+        const uint32_t *t = Port_GameRangeOk(tadr, 16) ? (const uint32_t *)Port_Ptr(tadr) : NULL;
+        told++;
+        fprintf(stderr, "bt3: display list: %s at %08x (%u bytes) is outside the game's memory, left out (tag at %08x: %08x %08x %08x %08x, frame %u)\n",
+                what, (unsigned)addr, (unsigned)len, (unsigned)tadr, t ? t[0] : 0, t ? t[1] : 0, t ? t[2] : 0, t ? t[3] : 0, sFrame);
+    }
+}
+#endif
+
 /* Walks one frame's list, the DMA chain at `tadr` on VIF1, handing each block to `block`. */
 static void walk_chain(uint32_t tadr, int tte, void (*block)(const uint32_t *tag, const uint32_t *data, uint32_t qwc, int tte)) {
     uint32_t stack[2], sp = 0;
     int guard;
 
     for (guard = 0; guard < 100000; guard++) {
-        const uint32_t *tag = (const uint32_t *)Port_Ptr(tadr);
-        uint32_t qwc = tag[0] & 0xFFFF, id = (tag[0] >> 28) & 7, addr = tag[1]; /* a game address: all 32 bits */
+        const uint32_t *tag;
+        uint32_t qwc, id, addr, at = tadr;
         const uint32_t *data;
         int end = 0;
+
+#ifdef __ANDROID__
+        if (!Port_GameRangeOk(tadr, 16)) { /* (see walk_bad) */
+            walk_bad("tag", tadr, tadr, 16);
+            break;
+        }
+#endif
+        tag = (const uint32_t *)Port_Ptr(tadr);
+        qwc = tag[0] & 0xFFFF;
+        id = (tag[0] >> 28) & 7;
+        addr = tag[1]; /* a game address: all 32 bits */
 
         switch (id) {
         case 0: data = (const uint32_t *)Port_Ptr(addr); end = 1; break;                 /* REFE */
@@ -1674,6 +1703,15 @@ static void walk_chain(uint32_t tadr, int tte, void (*block)(const uint32_t *tag
         if (sDumpFrame == (int)sFrame) {
             fprintf(stderr, "  dma tag at %08x: id %u qwc %u addr %08x | %08x %08x (depth %u)\n", (unsigned)Port_Addr(tag), id, qwc, addr, tag[2], tag[3], sp);
         }
+#ifdef __ANDROID__
+        if (qwc != 0 && !Port_GameRangeOk((id == 0 || id == 3 || id == 4) ? addr : at + 16, qwc * 16)) {
+            walk_bad("block", at, (id == 0 || id == 3 || id == 4) ? addr : at + 16, qwc * 16); /* that block left out, the list goes on */
+            if (end) {
+                break;
+            }
+            continue;
+        }
+#endif
         block(tag, data, qwc, tte);
         if (end) {
             break;

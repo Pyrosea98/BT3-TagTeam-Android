@@ -911,3 +911,44 @@ void Port_LowFree(void *addr) {
     free(addr);
 #endif
 }
+
+#if defined(__ANDROID__) && PORT_LOW_REGION
+/* 1 if [addr, addr + len) lies in memory the game can reach: the engine itself (wherever the loader put it), the
+   game heap, the port's region, the game thread's stack and the scratchpad. The display list walk (gs_core.c) checks
+   the addresses its tags carry: a bad one (a phone where the engine had to be moved: 0x5b756166 in the team select
+   on a Moto g42) crashed the game in memcpy; now that one block is left out and the log says so. */
+int Port_GameRangeOk(uint32_t addr, uint32_t len) {
+    extern const char __ehdr_start[], _end[];
+    uint64_t a = addr, b = (uint64_t)addr + len;
+    uint64_t heapLo = sHeapEnd - (HEAP_END - HEAP_BASE);
+
+    if (addr == 0) {
+        return 0;
+    }
+    if (a >= (uintptr_t)__ehdr_start && b <= (uintptr_t)_end) {
+        return 1;
+    }
+    if (a >= heapLo && b <= sHeapEnd) {
+        return 1;
+    }
+    if (sLowArena != NULL && a >= (uintptr_t)sLowArena && b <= (uintptr_t)sLowArena + LOW_ARENA_SIZE) {
+        return 1;
+    }
+    if (a >= sStackBase && b <= (uint64_t)sStackBase + STACK_SIZE) {
+        return 1;
+    }
+    if (gPortScratchpadMapped && a >= 0x70000000u && b <= 0x70004000u) {
+        return 1;
+    }
+    {   /* none of those: still fine if every page of it is mapped (memory this list does not name) */
+        uintptr_t page = (uintptr_t)sysconf(_SC_PAGESIZE), p;
+        unsigned char v;
+        for (p = (uintptr_t)a & ~(page - 1); p < b; p += page) {
+            if (mincore((void *)p, page, &v) != 0) {
+                return 0;
+            }
+        }
+    }
+    return 1;
+}
+#endif
