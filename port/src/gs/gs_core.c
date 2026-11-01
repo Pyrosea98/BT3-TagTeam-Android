@@ -1665,6 +1665,18 @@ static void walk_bad(const char *what, uint32_t tadr, uint32_t addr, uint32_t le
         told++;
         fprintf(stderr, "bt3: display list: %s at %08x (%u bytes) is outside the game's memory, left out (tag at %08x: %08x %08x %08x %08x, frame %u)\n",
                 what, (unsigned)addr, (unsigned)len, (unsigned)tadr, t ? t[0] : 0, t ? t[1] : 0, t ? t[2] : 0, t ? t[3] : 0, sFrame);
+        if (told <= 3 && t != NULL) { /* the four tags before it and the bytes after it, to see what was written around it */
+            const uint32_t *b = (const uint32_t *)Port_Ptr(tadr) - 16;
+            unsigned k;
+            if (Port_GameRangeOk(tadr - 64, 64)) {
+                for (k = 0; k < 16; k += 4) {
+                    fprintf(stderr, "bt3:   before %08x: %08x %08x %08x %08x\n", (unsigned)(tadr - 64 + k * 4), b[k], b[k + 1], b[k + 2], b[k + 3]);
+                }
+            }
+            for (k = 0; k < 16; k += 4) {
+                fprintf(stderr, "bt3:   after  %08x: %08x %08x %08x %08x\n", (unsigned)(tadr + k * 4), t[k], t[k + 1], t[k + 2], t[k + 3]);
+            }
+        }
     }
 }
 #endif

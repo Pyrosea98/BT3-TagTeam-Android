@@ -748,10 +748,11 @@ __attribute__((constructor)) static void Port_MapMemory(void) {
 #ifdef __ANDROID__
     /* The game addresses no memory there itself (its 0x70000000 words are DMA tags), and in an Android app's process
        the system's boot image is often mapped around that address: taken if free, not required.
-       BT3_NO_SCRATCHPAD=1 (bt3_env.txt) leaves it unmapped even when it is free, as on the phones where it was taken
-       anyway: a test of whether the scratchpad is what the Moto g42 freeze depends on. */
-    if (getenv("BT3_NO_SCRATCHPAD") != NULL && atoi(getenv("BT3_NO_SCRATCHPAD")) != 0) {
-        fprintf(stderr, "bt3: the scratchpad is left unmapped (BT3_NO_SCRATCHPAD)\n");
+       Test build: unmapped unless BT3_SCRATCHPAD=1, to compare with the Moto g42 freeze (see the display-list log). */
+    if (!(getenv("BT3_SCRATCHPAD") != NULL && atoi(getenv("BT3_SCRATCHPAD")) != 0)) {
+        /* default on Android (test build 0.4.3-test3): left unmapped, as on the Redmi, which plays fine. The
+           scratchpad is mapped only with BT3_SCRATCHPAD=1 in bt3_env.txt. */
+        fprintf(stderr, "bt3: the scratchpad is left unmapped (default; BT3_SCRATCHPAD=1 maps it)\n");
     } else if (mmap((void *)(uintptr_t)0x70000000u, 0x4000, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0) !=
         (void *)(uintptr_t)0x70000000u) {
         fprintf(stderr, "bt3: the scratchpad's address is taken (not needed)\n");
