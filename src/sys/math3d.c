@@ -296,6 +296,10 @@ u64 Quat_Pack(Quat *q) {
     return packed | ((u64)largest << 60);
 }
 
+#ifdef PORT
+#include <stdio.h>
+#endif
+
 /* Inverse of Quat_Pack: the dropped component is rebuilt as sqrt(1 - sum of squares). */
 void Quat_Unpack(Quat *out, u64 packed) {
     float v[4];
@@ -305,6 +309,24 @@ void Quat_Unpack(Quat *out, u64 packed) {
     float w;
 
     largest = packed >> 60;
+#ifdef PORT
+    /* Quat_Pack only writes 0..3 here. A larger value means the key is not a packed rotation (an animation read
+       after its data was replaced: seen with a CPU fighter transforming in Team Battle), and v[largest] would land
+       on this function's saved frame pointer and return address (64-bit builds: crashes at a float address). */
+    if (largest > 3) {
+        static unsigned told;
+        if (told < 10) {
+            told++;
+            fprintf(stderr, "bt3: anim: rotation key %08x%08x is not a packed rotation (index %d), read as the identity\n",
+                    (unsigned)(packed >> 32), (unsigned)packed, (int)largest);
+        }
+        out->x = 0.0f;
+        out->y = 0.0f;
+        out->z = 0.0f;
+        out->w = 1.0f;
+        return;
+    }
+#endif
     for (i = 0; i < 3; i++) {
         sum = (u32)(packed >> (i * 20)) & 0xFFFFF;
         v[i] = (sum * (1.0f / 1048575.0f) - 0.5f) * 1.41421356f;
