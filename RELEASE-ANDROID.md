@@ -1,5 +1,9 @@
 # Android release record
 
+## v0.4.4
+
+The v0.4.3 fixes published under the next number (version 0.4.4, 408): the 0.4.3 name had been used by test builds for another phone. Same engine and app code as v0.4.3.
+
 ## v0.4.3 (hotfix)
 
 Version 0.4.3 (407): the version code is 4 above the old scheme because test builds of these fixes were 403-406.
