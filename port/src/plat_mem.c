@@ -747,8 +747,13 @@ __attribute__((constructor)) static void Port_MapMemory(void) {
 #endif
 #ifdef __ANDROID__
     /* The game addresses no memory there itself (its 0x70000000 words are DMA tags), and in an Android app's process
-       the system's boot image is often mapped around that address: taken if free, not required. */
-    if (mmap((void *)(uintptr_t)0x70000000u, 0x4000, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0) !=
+       the system's boot image is often mapped around that address: taken if free, not required.
+       Test build: unmapped unless BT3_SCRATCHPAD=1, to compare with the Moto g42 freeze (see the display-list log). */
+    if (!(getenv("BT3_SCRATCHPAD") != NULL && atoi(getenv("BT3_SCRATCHPAD")) != 0)) {
+        /* default on Android (test build 0.4.3-test3): left unmapped, as on the Redmi, which plays fine. The
+           scratchpad is mapped only with BT3_SCRATCHPAD=1 in bt3_env.txt. */
+        fprintf(stderr, "bt3: the scratchpad is left unmapped (default; BT3_SCRATCHPAD=1 maps it)\n");
+    } else if (mmap((void *)(uintptr_t)0x70000000u, 0x4000, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0) !=
         (void *)(uintptr_t)0x70000000u) {
         fprintf(stderr, "bt3: the scratchpad's address is taken (not needed)\n");
     } else {
@@ -808,6 +813,16 @@ static void low_region_take(void) {
             /* (no MAP_32BIT on arm64: try fixed addresses below 4 GB, 16 MB apart) */
             uintptr_t at;
             sLowArena = MAP_FAILED;
+#ifdef __ANDROID__
+            /* Test build 0.4.3-test4: an empty gap of 16 MB (no access) just above the game stack, where the port's
+               arena went on the phones that froze and crashed (0x26000000). A write that runs past the stack's top
+               or back below the arena's start now stops the game at that line, instead of damaging memory quietly.
+               The arena then lands above the gap. */
+            if (mmap((void *)(uintptr_t)0x26000000u, 0x01000000u, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED_NOREPLACE,
+                     -1, 0) == (void *)(uintptr_t)0x26000000u) {
+                fprintf(stderr, "bt3: test4: 16 MB gap at 0x26000000 (no access) above the game stack\n");
+            }
+#endif
             for (at = 0x02000000u; at + LOW_ARENA_SIZE <= 0xFF000000u && sLowArena == MAP_FAILED; at += 0x01000000u) {
                 sLowArena = mmap((void *)at, LOW_ARENA_SIZE, PROT_READ | PROT_WRITE,
                                  MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED_NOREPLACE, -1, 0);
@@ -911,3 +926,44 @@ void Port_LowFree(void *addr) {
     free(addr);
 #endif
 }
+
+#if defined(__ANDROID__) && PORT_LOW_REGION
+/* 1 if [addr, addr + len) lies in memory the game can reach: the engine itself (wherever the loader put it), the
+   game heap, the port's region, the game thread's stack and the scratchpad. The display list walk (gs_core.c) checks
+   the addresses its tags carry: a bad one (a phone where the engine had to be moved: 0x5b756166 in the team select
+   on a Moto g42) crashed the game in memcpy; now that one block is left out and the log says so. */
+int Port_GameRangeOk(uint32_t addr, uint32_t len) {
+    extern const char __ehdr_start[], _end[];
+    uint64_t a = addr, b = (uint64_t)addr + len;
+    uint64_t heapLo = sHeapEnd - (HEAP_END - HEAP_BASE);
+
+    if (addr == 0) {
+        return 0;
+    }
+    if (a >= (uintptr_t)__ehdr_start && b <= (uintptr_t)_end) {
+        return 1;
+    }
+    if (a >= heapLo && b <= sHeapEnd) {
+        return 1;
+    }
+    if (sLowArena != NULL && a >= (uintptr_t)sLowArena && b <= (uintptr_t)sLowArena + LOW_ARENA_SIZE) {
+        return 1;
+    }
+    if (a >= sStackBase && b <= (uint64_t)sStackBase + STACK_SIZE) {
+        return 1;
+    }
+    if (gPortScratchpadMapped && a >= 0x70000000u && b <= 0x70004000u) {
+        return 1;
+    }
+    {   /* none of those: still fine if every page of it is mapped (memory this list does not name) */
+        uintptr_t page = (uintptr_t)sysconf(_SC_PAGESIZE), p;
+        unsigned char v;
+        for (p = (uintptr_t)a & ~(page - 1); p < b; p += page) {
+            if (mincore((void *)p, page, &v) != 0) {
+                return 0;
+            }
+        }
+    }
+    return 1;
+}
+#endif
