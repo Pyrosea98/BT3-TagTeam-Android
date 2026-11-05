@@ -55,11 +55,16 @@ static void mod_menu_draw(){
  static const char *settings[2][12]={{"Video","Effects","Audio","Interface","Controls","Cheats","System","Extra fighters","Battle HUD","Fusion","CPU / Training","Struggles"},{"Video","Efectos","Audio","Interfaz","Controles","Trucos","Sistema","Luchadores extra","HUD de combate","Fusion","CPU / Entrenamiento","Choques"}};
  static const char *help[2][4]={{"Choose a mode and prepare your next battle.","Configure the native game and your controllers.","Creators and contributors.","Close this menu and return to the original menu."},{"Elige un modo y prepara la siguiente batalla.","Configura el juego y tus controles.","Creadores y colaboradores.","Cierra este menu y vuelve al menu original."}};
  static const char *playHelp[2][7]={{"One player with CPU teammates.","Two to four local players. Choose the player count next.","Every fighter for themselves. One to four local players.","One-player practice with a CPU opponent.","Draft your team and enter the Tag Team Tournament.","Coming soon: story scenarios are not implemented yet.","Two to four players. Assign teams, then choose every fighter."},{"Un jugador con companeros CPU.","De dos a cuatro jugadores locales. Elige cuantos al continuar.","Todos contra todos. De uno a cuatro jugadores locales.","Practica de un jugador contra la CPU.","Elige tus equipos y compite en el Torneo Tag Team.","Proximamente: el modo de escenarios aun no esta implementado.","De dos a cuatro jugadores. Asigna equipos y elige los luchadores."}};
- ImVec2 size=ImGui::GetIO().DisplaySize;float k=size.y/448.f,margin=20*k;
+ ImVec2 size=ImGui::GetIO().DisplaySize,origin(0,0);
+ // Inside the game picture (4:3 etc.: the letterbox gs_gpu.c blits into), not over the side bars or touch controls:
+ // laid out from (0,0) and moved there at the end.
+ if(gUiPresentW>0&&gUiPresentH>0){origin=ImVec2((float)gUiPresentX,(float)gUiPresentY);size=ImVec2((float)gUiPresentW,(float)gUiPresentH);}
+ float k=size.y/448.f,margin=20*k;
  // Use wide-screen space while preserving readable, height-based text sizes.
  float left=margin,right=size.x-margin,content=(right-left)*.67f;
  if(size.x/size.y<1.5f)content=right-left;
  ImDrawList *dl=ImGui::GetForegroundDrawList();ImFont *font=Ui_FontBold();if(!font)font=ImGui::GetFont();
+ int firstVtx=dl->VtxBuffer.Size;
  auto text=[&](const char *t,float x,float y,float fs,ImU32 col,float fit){
   if(mod_legacy_text(dl,t,ImVec2(x,y),fs*k,col,fit,false,fs>=20))return;
   fs*=k;float width=font->CalcTextSizeA(fs,10000,0,t).x;if(width>fit)fs*=fit/width;
@@ -130,4 +135,5 @@ static void mod_menu_draw(){
  float tx=left+105*k;dl->AddTriangle(ImVec2(tx,yy-6*k),ImVec2(tx-6*k,yy+5*k),ImVec2(tx+6*k,yy+5*k),IM_COL32(81,226,150,255),1.5f*k);
  text(es?"Volver":"Back",tx+13*k,431*k,12,IM_COL32(255,255,255,255),80*k);
  text(es?"Direcciones: elegir    SELECT: cerrar":"Directions: choose    SELECT: close",left+211*k,431*k,12,IM_COL32(255,255,255,255),right-left-211*k);
+ if(origin.x!=0||origin.y!=0)for(int i=firstVtx;i<dl->VtxBuffer.Size;i++){dl->VtxBuffer[i].pos.x+=origin.x;dl->VtxBuffer[i].pos.y+=origin.y;}
 }
