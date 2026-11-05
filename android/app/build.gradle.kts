@@ -15,10 +15,13 @@ android {
         // CI passes the tag (android-v0.1.0 -> 0.1.0) and the run number
         // Without CI (a local build) the name is 0.9.0 and the code follows it (0.9.0 -> 900), so a local build of
         // a newer version always installs over the one before it; the same version again installs with `adb install -r`.
-        val vName = System.getenv("DR_VERSION_NAME") ?: "0.4.2"
+        val vName = System.getenv("DR_VERSION_NAME") ?: "0.4.3"
         val vParts = vName.substringBefore('-').split('.').map { it.toIntOrNull() ?: 0 }
+        // Test builds of the v0.4.2 fixes went out as 403-406: from 0.4.3 on the code is 4 higher (0.4.3 -> 407),
+        // so a release always installs over them.
+        val vBase = vParts.getOrElse(0) { 0 } * 10000 + vParts.getOrElse(1) { 0 } * 100 + vParts.getOrElse(2) { 0 }
         versionCode = System.getenv("DR_VERSION_CODE")?.toInt()
-            ?: maxOf(1, vParts.getOrElse(0) { 0 } * 10000 + vParts.getOrElse(1) { 0 } * 100 + vParts.getOrElse(2) { 0 })
+            ?: maxOf(1, if (vBase >= 403) vBase + 4 else vBase)
         versionName = vName
         // the PC release the engine is (port/src/port_release.h): the launcher's online status compares it with what
         // the matchmaking service asks for
