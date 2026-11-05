@@ -1,5 +1,13 @@
 # Android release record
 
+## v0.4.3 (hotfix)
+
+Version 0.4.3 (407): the version code is 4 above the old scheme because test builds of these fixes were 403-406.
+
+- Team Battle crash after a CPU fighter transforms (seen with Goku (Early) + Master Roshi + Kid Gohan against Wheelo, ~10 s in, when Master Roshi goes to full power; also crashes in effects and models after fusions/defusions): `Quat_Unpack` (src/sys/math3d.c) used the packed key's 4-bit index (0-15) to write into a 4-float array, so a key that is not a packed rotation overwrote the function's saved frame pointer / return address. An index above 3 is now read as the identity and logged (`bt3: anim: rotation key ... is not a packed rotation`). Reproduced and verified on a Redmi (Mali) and reported on a Samsung Galaxy M52 (Adreno, with every driver), so not GPU-specific.
+- The SELECT mod menu is drawn inside the game picture (4:3 etc.) instead of across the whole window over the side bars and touch controls (port/src/gs/mod_menu_ui.inc). Verified by the owner.
+- Display-list blocks outside the game's memory are left out and logged instead of crashing the render thread's copy (gs_core.c / plat_mem.c). Reported on a Moto g42 at the character select; the cause of those blocks there is still open.
+
 ## v0.4.2
 
 - 4:3 aspect ratio by default (the engine's Android default was the screen's own shape, which widens fights and stretches menus); a player's choice is kept.
