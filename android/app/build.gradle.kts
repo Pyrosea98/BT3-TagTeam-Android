@@ -15,7 +15,7 @@ android {
         // CI passes the tag (android-v0.1.0 -> 0.1.0) and the run number
         // Without CI (a local build) the name is 0.9.0 and the code follows it (0.9.0 -> 900), so a local build of
         // a newer version always installs over the one before it; the same version again installs with `adb install -r`.
-        val vName = System.getenv("DR_VERSION_NAME") ?: "0.4.3"
+        val vName = System.getenv("DR_VERSION_NAME") ?: "0.4.4"
         val vParts = vName.substringBefore('-').split('.').map { it.toIntOrNull() ?: 0 }
         // Test builds of the v0.4.2 fixes went out as 403-406: from 0.4.3 on the code is 4 higher (0.4.3 -> 407),
         // so a release always installs over them.
