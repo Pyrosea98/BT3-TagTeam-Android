@@ -813,6 +813,16 @@ static void low_region_take(void) {
             /* (no MAP_32BIT on arm64: try fixed addresses below 4 GB, 16 MB apart) */
             uintptr_t at;
             sLowArena = MAP_FAILED;
+#ifdef __ANDROID__
+            /* Test build 0.4.3-test4: an empty gap of 16 MB (no access) just above the game stack, where the port's
+               arena went on the phones that froze and crashed (0x26000000). A write that runs past the stack's top
+               or back below the arena's start now stops the game at that line, instead of damaging memory quietly.
+               The arena then lands above the gap. */
+            if (mmap((void *)(uintptr_t)0x26000000u, 0x01000000u, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED_NOREPLACE,
+                     -1, 0) == (void *)(uintptr_t)0x26000000u) {
+                fprintf(stderr, "bt3: test4: 16 MB gap at 0x26000000 (no access) above the game stack\n");
+            }
+#endif
             for (at = 0x02000000u; at + LOW_ARENA_SIZE <= 0xFF000000u && sLowArena == MAP_FAILED; at += 0x01000000u) {
                 sLowArena = mmap((void *)at, LOW_ARENA_SIZE, PROT_READ | PROT_WRITE,
                                  MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED_NOREPLACE, -1, 0);
