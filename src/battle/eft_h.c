@@ -338,6 +338,11 @@ void EftShot_Start(EftHStartArg *arg) {
     if (s->pack == NULL) {
         return;
     }
+#ifdef PORT
+    if (gEftShot->chars[arg->chr].task == NULL || s->task == NULL) {
+        return; /* (the fighter's effect task is being rebuilt: no group task to put the shot under) */
+    }
+#endif
     cls = gEftShotClass[TYPE_ROW(s->param->type)].inst;
     if (cls == NULL) {
         return;
@@ -365,6 +370,19 @@ void EftShot_DestroyChar(s32 chr) {
         EftShot_SetCharPool(chr);
         BtlTask_Kill(c->task);
         c->task = NULL;
+#ifdef PORT
+        {
+            /* The slot records outlive the task: until EftShot_CreateChar rebuilds them (for an extra fighter,
+               when its new files are in), a technique started in between went through a dead group task in an
+               emptied pool (Team Battle crash in EftShotTech_UpdateParts after CPU transformations). */
+            s32 i;
+
+            for (i = 0; i < 6; i++) {
+                c->slot[i].pack = NULL;
+                c->slot[i].task = NULL;
+            }
+        }
+#endif
     }
 }
 
