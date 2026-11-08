@@ -1,5 +1,18 @@
 # Android release record
 
+## v0.5.alpha (pre-release)
+
+**Published APK:** `BT3-TagTeam-v0.5.alpha-Android.apk`, SHA-256 `eb034d16e294ba8cf7555c891303d667805b91bab747de9e26143caff800d8cd`, version 0.5.alpha (507), signed with the project's release key (certificate SHA-256 `d168d1bc90865404a97ef6022cfcd03d0516cb7ae7afeb34af851a2bfdc524fc`). Native engine `lib/arm64-v8a/libbt3.so` SHA-256 `a3cd424c97779148480bed98fc0215fbab10c2d5c8970d11c0e75a4c39d86668`.
+
+The PC v0.5.alpha source changes over v0.4.1 on top of v0.4.4, plus:
+- Story health on Android: `port/src/softfloat_ps2.c` defines `__floatundisf`, `__floatdisf`, `__fixsfdi` and `__fixunssfdi` with the soft-float ABI. The link had taken `__floatundisf` from libclang_rt (hard-float, result in s0) while the game's code reads w0, so `(int)(long long max * ratio + .5f)` in `btl_char_mgr.c` set Story fighters' health to garbage (one-Kamehameha wins in chapters 2-3, Gohan at 0 HP at the start of chapter 4). No float routine of libclang_rt is linked any more (`libbt3.so.map`).
+- `port/tools/android.py`: non-ASCII text in the preprocessed files written as octal escapes (ptr32 read them as latin-1, libclang counts UTF-8 offsets).
+- Stable / Nightly update channels (`AppUpdates.kt`, Settings, first-start prompt).
+- `Port_ModClashButtons`: on Android the clash buttons follow the `clash_square` toggle.
+- The Scenario, Story, Achievement and modded select pages are drawn inside the 4:3 picture (`UiPictureScope`).
+
+Verified on a Redmi (Mali-G76, Android 13) by the owner: Dragon History chapters 1-4 (test2/test3 builds of the same engine and code).
+
 ## v0.4.4
 
 The v0.4.3 fixes published under the next number (version 0.4.4, 408): the 0.4.3 name had been used by test builds for another phone. Same engine and app code as v0.4.3.
