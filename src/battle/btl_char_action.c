@@ -628,6 +628,9 @@ void BtlAct_SetFormCurrent(BtlActChr *chr) {
 
 /* Fills the form-change request with one of six fixed {chara, costume} pairs, picked by the frame counter. */
 void BtlAct_SetFormRandom(BtlActChr *chr) {
+#ifdef PORT
+    {extern int Port_BodyChangeForm(void*);if(Port_BodyChangeForm(chr))return;}
+#endif
     s32 forms[6][2] = { { 1, 0 }, { 0xD, 2 }, { 0x19, 1 }, { 0x1D, 1 }, { 0x18, 0 }, { 0x59, 0 } };
     s32 i = BtlChar_FrameMod(6);
 
@@ -696,6 +699,14 @@ extern s32 BtlChar_SetFlagRet(BtlActChr *chr, s32 bit) __asm__("BtlChar_SetFlag"
 void BtlAct_CheckForced(BtlActChr *chr) {
     BtlActState *act = &chr->act;
 
+#ifdef PORT
+    /* A defeated actor may still hold its KO action. Only an owned story scene
+       may replace that hold with its explicitly requested scripted pose. */
+    {extern s32 Port_StorySceneActorShown(s32 actor);
+     if(act->current!=4 && Port_StorySceneActorShown(chr->player) && BtlChar_TestFlag(chr,0xFA)){
+         BtlAct_Request(chr,4);return;
+     }}
+#endif
     if (chr->holdAction != 0) {
         return;
     }

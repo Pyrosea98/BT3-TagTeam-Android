@@ -335,6 +335,11 @@ void Quat_Unpack(Quat *out, u64 packed) {
     for (i = 0; i < 3; i++) {
         sum += v[i] * v[i];
     }
+#ifdef PORT
+    /* Quantisation can overshoot one very slightly; a grossly invalid key is not a rotation. */
+    if(!(sum>=0.0f&&sum<=1.00001f)){out->x=out->y=out->z=0.0f;out->w=1.0f;return;}
+    if(sum>1.0f)sum=1.0f;
+#endif
     w = sqrtf(1.0f - sum);
     for (i = 3; i > largest; i--) {
         v[i] = v[i - 1];

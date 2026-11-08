@@ -94,12 +94,16 @@ void BtlChange_Reset(void) {
     memset(&gBtlChars->change, 0, sizeof(BtlChangeQueue));
 #ifdef PORT
     sPortChangeMoreCount = 0;
+    {extern void Port_BodyChangeReset(void);Port_BodyChangeReset();}
 #endif
 }
 
 /* Once per frame: retires a finished request, starts the next one, and sets the time-stop word while one is active. */
 void BtlChange_Update(void) {
     BtlChangeQueue *q = &gBtlChars->change;
+#ifdef PORT
+    {extern void Port_BodyChangeQueue(int,int);Port_BodyChangeQueue(q->cur?q->cur->player:-1,q->state);}
+#endif
 
 #ifdef PORT
     {extern void Port_FusionChangeLog(int,int,int,int);
@@ -120,6 +124,10 @@ void BtlChange_Update(void) {
 #endif
 
 #ifdef PORT
+    /* A removed or sidelined Story actor cannot play the action that acknowledges its load.
+       Keep the real loader/commit path: grant READY, never discard an active job. */
+    {extern s32 Port_StoryRetired(s32),Port_StorySceneParked(s32);
+     if(q->cur&&q->state==BTL_CHANGE_LOADED&&(Port_StoryRetired(q->cur->player)||Port_StorySceneParked(q->cur->player)))q->state=BTL_CHANGE_READY;}
     Port_ChangeRefill();
 #endif
     if (q->state == BTL_CHANGE_DONE) {
