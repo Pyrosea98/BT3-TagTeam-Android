@@ -77,6 +77,8 @@ class AppViewModel @JvmOverloads constructor(app: Application, val game: Game = 
     private val installer = GameDataInstaller(app, paths, resolver)
     /** The Tag Team / Power Scale import (the PC v0.4.1 recipe applied to the player's BETA 8 image). */
     val tagTeam = TagTeamImport(paths, resolver)
+    /** The PC v0.5.alpha game data over that import (the PC's own update package). */
+    val tagTeamV05 = com.dfdx047.dragonrage.data.TagTeamV05Update(paths)
     /** Budokai Tenkaichi 4's set-up (its own: the image is checked and read in place); null for Budokai Tenkaichi 3. */
     private val bt4 = if (game == Game.BT4) Bt4Installer(app, paths, resolver) else null
     private val packs = TexturePacks(app, paths, resolver)
@@ -439,6 +441,7 @@ class AppViewModel @JvmOverloads constructor(app: Application, val game: Game = 
                     tagTeam.adoptRecipe(tmp) { f -> report(InstallState.Working("Checking the import recipe", f, "")) }
                 }
                 val done = tagTeam.install(uri, maps, report)
+                v05Step(report)
                 withContext(Dispatchers.IO) {
                     if (recommended) TagTeamImport.applyRecommended(getApplication(), paths)
                     if (completedSave && TagTeamImport.applyCompletedSave(getApplication(), paths)) ActivityLog.info("iso", "completed save installed")
@@ -458,6 +461,55 @@ class AppViewModel @JvmOverloads constructor(app: Application, val game: Game = 
             } catch (e: Exception) {
                 val why = str(R.string.msg_iso_read_error, e.message ?: e.javaClass.simpleName)
                 ActivityLog.fail("iso", "failed at \"$step\"", e)
+                _install.value = InstallState.Failed(why)
+                withContext(Dispatchers.IO) { failed(R.string.fail_iso_title, why) }
+            }
+        }
+    }
+
+    /** The v0.5.alpha game data: the PC's update package (downloaded from its release once, kept beside the game
+     *  data), applied over the v0.4.1 import. */
+    private suspend fun v05Step(report: (InstallState.Working) -> Unit) {
+        if (!tagTeamV05.needed()) return
+        if (!tagTeamV05.zipReady()) {
+            val tmp = java.io.File(paths.root, com.dfdx047.dragonrage.data.TagTeamV05Update.ZIP_NAME + ".part")
+            report(InstallState.Working("Downloading the v0.5.alpha game data", 0f, "114 MB from the PC v0.5.alpha release"))
+            Net.download(com.dfdx047.dragonrage.data.TagTeamV05Update.ZIP_URL, tmp) { got, total ->
+                report(InstallState.Working("Downloading the v0.5.alpha game data", if (total > 0) got.toFloat() / total else 0f, "${got shr 20} / ${maxOf(total, 0L) shr 20} MB"))
+            }
+            report(InstallState.Working("Checking the v0.5.alpha game data", 0f, ""))
+            tagTeamV05.adoptZip(tmp) { f -> report(InstallState.Working("Checking the v0.5.alpha game data", f, "")) }
+        }
+        val n = tagTeamV05.apply { f, d -> report(InstallState.Working("Updating the game data to v0.5.alpha", f, d)) }
+        ActivityLog.info("iso", "v0.5.alpha game data: $n files updated")
+    }
+
+    /** The Home page's button: an existing v0.4.1 import brought to the v0.5.alpha game data. */
+    fun updateTagTeamData() {
+        if (installJob?.isActive == true) return
+        installJob = viewModelScope.launch {
+            val before = installer.currentState()
+            var step = ""
+            val report: (InstallState.Working) -> Unit = {
+                _install.value = it
+                if (it.step != step) { step = it.step; ActivityLog.info("iso", "step: ${it.step} (${it.detail})") }
+            }
+            try {
+                v05Step(report)
+                _install.value = installer.currentState()
+                say(str(R.string.msg_data_ready))
+            } catch (e: CancellationException) {
+                ActivityLog.warn("iso", "v0.5.alpha update cancelled at: $step")
+                _install.value = before
+                throw e
+            } catch (e: TagTeamImport.Stop) {
+                val why = e.message ?: str(R.string.msg_error)
+                ActivityLog.fail("iso", "v0.5.alpha update refused at \"$step\": $why")
+                _install.value = InstallState.Failed(why)
+                withContext(Dispatchers.IO) { failed(R.string.fail_iso_title, why) }
+            } catch (e: Exception) {
+                val why = str(R.string.msg_iso_read_error, e.message ?: e.javaClass.simpleName)
+                ActivityLog.fail("iso", "v0.5.alpha update failed at \"$step\"", e)
                 _install.value = InstallState.Failed(why)
                 withContext(Dispatchers.IO) { failed(R.string.fail_iso_title, why) }
             }

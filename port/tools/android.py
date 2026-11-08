@@ -80,7 +80,11 @@ def compile_ee(cmd, src, o, game_text=True):
     if r.returncode:
         return r
     i = pathlib.Path(str(o)[:-2] + ".i")
-    i.write_text(eeconst.transform(r.stdout))
+    # Text outside ASCII (accented letters in the mod's Spanish strings; comments are gone after -E) as octal
+    # escapes of its UTF-8 bytes: the same string, but ptr32 reads the file as latin-1 while libclang counts the
+    # offsets of its tokens in UTF-8, and every such letter moved its later edits by a byte ("* __ptr32 __uptr"
+    # written over the next identifier).
+    i.write_text(re.sub(r"[^\x00-\x7f]", lambda m: "".join("\\%03o" % b for b in m.group().encode("utf-8")), eeconst.transform(r.stdout)))
     std = next((a for a in cmd if a.startswith("-std=")), "-std=gnu89")
     if game_text:
         try:

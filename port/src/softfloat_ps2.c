@@ -143,3 +143,48 @@ uint32_t __floatunsisf(uint32_t v) {
 
     return (v & SIGN) ? RefVu0_AddBits(f, 0x4F800000u) : f;
 }
+
+/* 64-bit integer <-> float. Without these the link took them from libclang_rt.builtins, which is built hard-float
+   and returns the float in s0, while the game's code (soft-float ABI) reads w0: Dragon History set every fighter's
+   health from (int)(long long max * ratio + .5f) and got whatever w0 held (Android 0.5.alpha-test1: one-hit KOs,
+   Gohan dead at the start of chapter 4). Integer registers only, same rounding as the 32-bit ones above. */
+#if defined(__aarch64__) /* Android only: the PC build's 64-bit conversions are not touched */
+uint32_t __floatundisf(uint64_t v) {
+    uint32_t hi = (uint32_t)(v >> 32), lo = (uint32_t)v;
+
+    if (!hi) {
+        return __floatunsisf(lo);
+    }
+    return RefVu0_AddBits(RefVu0_MulBits(__floatunsisf(hi), 0x4F800000u), __floatunsisf(lo));
+}
+
+uint32_t __floatdisf(int64_t v) {
+    return v < 0 ? __floatundisf(0 - (uint64_t)v) ^ SIGN : __floatundisf((uint64_t)v);
+}
+
+static uint64_t fix64_mag(uint32_t a, int top) {
+    int32_t e = (int32_t)((a >> 23) & 0xFF) - 127;
+    uint64_t m = (a & 0x7FFFFF) | 0x800000;
+
+    if (e < 0) {
+        return 0;
+    }
+    if (e >= top) {
+        return ~(uint64_t)0;
+    }
+    return e >= 23 ? m << (e - 23) : m >> (23 - e);
+}
+
+int64_t __fixsfdi(uint32_t a) {
+    uint64_t v = fix64_mag(a, 63);
+
+    if (v == ~(uint64_t)0) {
+        return (a & SIGN) ? INT64_MIN : INT64_MAX;
+    }
+    return (a & SIGN) ? -(int64_t)v : (int64_t)v;
+}
+
+uint64_t __fixunssfdi(uint32_t a) {
+    return (a & SIGN) ? 0 : fix64_mag(a, 64);
+}
+#endif

@@ -2090,5 +2090,5 @@ int Port_AssistQteSample(int objectId,int*anim,float*ratio){
 }
 #endif
 #ifdef PORT
-int Port_ScenarioActorForm(int who){BtlMgrChr*c=who>=0&&who<BtlChar_GetCount()?BtlChar_Get(who):NULL;return c?BtlMember_GetActive(c)->chara:-1;}
+int Port_ScenarioActorForm(int who){if(who<0||who>=BtlChar_GetCount()||!BtlChar_Get(who))return -1;return BtlMember_GetActive(BtlChar_Get(who))->chara;} /* (no local pointer: Android ptr32/irfix turned it into an invalid cast) */
 #endif
