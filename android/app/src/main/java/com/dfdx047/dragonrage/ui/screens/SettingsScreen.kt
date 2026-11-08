@@ -333,6 +333,24 @@ fun SettingsScreen(vm: AppViewModel) {
                     Text(stringResource(R.string.check_updates))
                 }
             }
+            if (com.dfdx047.dragonrage.data.MOD_BUILD) {
+                // Update channel and the start-up check (the same choices as the PC installer's)
+                Text(stringResource(R.string.update_channel), style = MaterialTheme.typography.titleSmall)
+                var nightly by remember { mutableStateOf(vm.updatePrefs.channel == com.dfdx047.dragonrage.data.UpdateChannel.NIGHTLY) }
+                ChipRow(
+                    options = listOf(stringResource(R.string.update_stable) to 0, stringResource(R.string.update_preview) to 1),
+                    selected = if (nightly) 1 else 0,
+                    onSelect = {
+                        nightly = it == 1
+                        vm.setUpdateChannel(if (nightly) com.dfdx047.dragonrage.data.UpdateChannel.NIGHTLY else com.dfdx047.dragonrage.data.UpdateChannel.STABLE)
+                    },
+                )
+                var onLaunch by remember { mutableStateOf(vm.updatePrefs.checkOnLaunch) }
+                ToggleRow(stringResource(R.string.update_on_launch), stringResource(R.string.update_on_launch_text), onLaunch) {
+                    onLaunch = it
+                    vm.setUpdateOnLaunch(it)
+                }
+            }
             HorizontalDivider()
             Text(stringResource(R.string.game_folder), style = MaterialTheme.typography.titleSmall)
             Text(vm.paths.root.path, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

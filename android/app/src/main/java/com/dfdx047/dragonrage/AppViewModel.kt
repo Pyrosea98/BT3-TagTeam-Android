@@ -674,17 +674,31 @@ class AppViewModel @JvmOverloads constructor(app: Application, val game: Game = 
     private var updateFile: File? = null
     private var updateJob: Job? = null
 
+    val updatePrefs = com.dfdx047.dragonrage.data.UpdatePrefs(getApplication())
+
     // (after the state above: properties are set up in order, and this reads _update)
     init {
-        checkForUpdate(manual = false)
+        // The mod asks first (as its PC installer does): nothing is looked up until the player chose.
+        if (com.dfdx047.dragonrage.data.MOD_BUILD && !updatePrefs.asked) _update.value = UpdateState.Ask
+        else if (!com.dfdx047.dragonrage.data.MOD_BUILD || updatePrefs.checkOnLaunch) checkForUpdate(manual = false)
     }
+
+    /** The first-start answer: [channel] null = do not check when the app starts (Stable stays for manual checks). */
+    fun answerUpdateQuestion(channel: com.dfdx047.dragonrage.data.UpdateChannel?) {
+        updatePrefs.set(channel ?: com.dfdx047.dragonrage.data.UpdateChannel.STABLE, checkOnLaunch = channel != null)
+        _update.value = UpdateState.Idle
+        if (channel != null) checkForUpdate(manual = false)
+    }
+
+    fun setUpdateChannel(channel: com.dfdx047.dragonrage.data.UpdateChannel) = updatePrefs.set(channel = channel)
+    fun setUpdateOnLaunch(on: Boolean) = updatePrefs.set(checkOnLaunch = on)
 
     /** Looks for a newer version. At start it only speaks up when there is one; from About it also says "up to date". */
     fun checkForUpdate(manual: Boolean) {
         if (_update.value !is UpdateState.Idle) return
         _update.value = UpdateState.Checking
         viewModelScope.launch {
-            val r = runCatching { AppUpdates.check(BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE) }
+            val r = runCatching { AppUpdates.check(BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE, updatePrefs.channel) }
             val info = r.getOrNull()
             r.exceptionOrNull()?.let { ActivityLog.warn("update", "check failed: ${it.javaClass.simpleName}: ${it.message}") }
             if (info != null) ActivityLog.info("update", "available: ${info}")
@@ -714,6 +728,14 @@ class AppViewModel @JvmOverloads constructor(app: Application, val game: Game = 
                 Net.download(info.apkUrl, f) { d, t -> _update.value = UpdateState.Downloading(info, d, if (t > 0) t else info.size) }
                 val pkg = app.packageManager.getPackageArchiveInfo(f.path, 0)?.packageName
                 if (pkg != app.packageName) throw IOException(str(R.string.update_bad_apk))
+                // The mod's releases: exactly the file GitHub lists (size and SHA-256), signed with this app's key.
+                if (info.sha256.isNotEmpty()) withContext(Dispatchers.IO) {
+                    if (info.size > 0 && f.length() != info.size) throw IOException(str(R.string.update_bad_apk))
+                    val md = java.security.MessageDigest.getInstance("SHA-256")
+                    f.inputStream().use { input -> val buf = ByteArray(1 shl 16); while (true) { val n = input.read(buf); if (n < 0) break; md.update(buf, 0, n) } }
+                    if (md.digest().joinToString("") { "%02x".format(it) } != info.sha256) throw IOException(str(R.string.update_bad_apk))
+                    if (!sameSigner(f)) throw IOException(str(R.string.update_bad_apk))
+                }
                 updateFile = f
                 ActivityLog.info("update", "downloaded ${f.length()} bytes")
                 installUpdate(info)
@@ -725,6 +747,18 @@ class AppViewModel @JvmOverloads constructor(app: Application, val game: Game = 
                 withContext(Dispatchers.IO) { failed(R.string.fail_update_title, str(R.string.update_failed, e.message ?: e.javaClass.simpleName)) }
             }
         }
+    }
+
+    /** Whether the APK at [f] is signed with exactly this app's certificates (Android would refuse it anyway). */
+    private fun sameSigner(f: File): Boolean {
+        val pm = getApplication<Application>().packageManager
+        val flag = android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES
+        fun certs(info: android.content.pm.PackageInfo?) =
+            info?.signingInfo?.let { if (it.hasMultipleSigners()) it.apkContentsSigners else it.signingCertificateHistory }
+                ?.map { java.security.MessageDigest.getInstance("SHA-256").digest(it.toByteArray()).joinToString("") { b -> "%02x".format(b) } }?.toSet()
+        val mine = certs(pm.getPackageInfo(getApplication<Application>().packageName, flag)) ?: return false
+        val theirs = certs(pm.getPackageArchiveInfo(f.path, flag)) ?: return false
+        return mine.isNotEmpty() && theirs.any { it in mine }
     }
 
     /** Hands the APK to the system installer, or asks first for the "install unknown apps" permission. */

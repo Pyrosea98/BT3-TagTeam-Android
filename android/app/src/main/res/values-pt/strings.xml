@@ -233,7 +233,7 @@
     <string name="github_repo">Repositório no GitHub</string>
     <string name="check_updates">Buscar atualização</string>
     <string name="update_available">Atualização disponível</string>
-    <string name="update_versions">O Dragon Rage %1$s saiu (você tem a %2$s).</string>
+    <string name="update_versions">A versão %1$s saiu (você tem a %2$s).</string>
     <string name="update_nightly">Esta é uma versão de teste; pode ter problemas.</string>
     <string name="update_keeps">Instala por cima desta versão e mantém seus dados do jogo, configurações e saves. Abra o app de novo depois.</string>
     <string name="update_now">Atualizar agora</string>
@@ -244,8 +244,16 @@
     <string name="update_permission_open">Abrir ajustes</string>
     <string name="update_none">Você já está na versão mais recente.</string>
     <string name="update_check_failed">Não deu para buscar atualização. Veja a conexão.</string>
+    <string name="update_channel">Atualizações</string>
+    <string name="update_stable">Estável</string>
+    <string name="update_preview">Nightly (prévia)</string>
+    <string name="update_on_launch">Buscar ao abrir o app</string>
+    <string name="update_on_launch_text">Olha as publicações do projeto no GitHub. Nada é baixado ou instalado sem a sua permissão.</string>
+    <string name="update_ask_title">Buscar atualizações?</string>
+    <string name="update_ask_text">O BT3 Tag Team pode buscar uma versão nova ao abrir. Estável: só versões finalizadas. Nightly (prévia): também versões de teste, que podem ter problemas. Nada é baixado ou instalado sem a sua permissão, e você pode mudar isso depois em Ajustes &gt; Sobre.</string>
+    <string name="update_ask_no">Não buscar</string>
     <string name="update_failed">Falha na atualização: %1$s</string>
-    <string name="update_bad_apk">O arquivo baixado não é uma atualização do Dragon Rage.</string>
+    <string name="update_bad_apk">O arquivo baixado não é uma atualização válida deste app.</string>
     <string name="clash_title">Clashes de poder</string>
     <string name="clash_button">Um botão nos clashes</string>
     <string name="clash_button_text">Num clash de dois raios ou dois combos, aperte repetidamente o botão de soco (Quadrado) em vez de girar o analógico. Vale nos controles na tela e em controle físico. Também no menu do jogo (aba Controls).</string>

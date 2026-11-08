@@ -112,6 +112,22 @@ fun UpdateDialog(vm: AppViewModel) {
             dismissButton = { TextButton(onClick = vm::cancelUpdate) { Text(stringResource(R.string.cancel)) } },
         )
 
+        is UpdateState.Ask -> AlertDialog(
+            onDismissRequest = {},
+            title = { Text(stringResource(R.string.update_ask_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.update_ask_text))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { vm.answerUpdateQuestion(com.dfdx047.dragonrage.data.UpdateChannel.STABLE) }) { Text(stringResource(R.string.update_stable)) }
+                        androidx.compose.material3.OutlinedButton(onClick = { vm.answerUpdateQuestion(com.dfdx047.dragonrage.data.UpdateChannel.NIGHTLY) }) { Text(stringResource(R.string.update_preview)) }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { vm.answerUpdateQuestion(null) }) { Text(stringResource(R.string.update_ask_no)) } },
+        )
+
         is UpdateState.NeedPermission -> AlertDialog(
             onDismissRequest = vm::dismissUpdate,
             title = { Text(stringResource(R.string.update_permission_title)) },

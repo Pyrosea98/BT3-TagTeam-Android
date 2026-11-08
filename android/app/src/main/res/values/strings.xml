@@ -234,7 +234,7 @@
     <string name="github_repo">GitHub repository</string>
     <string name="check_updates">Check for updates</string>
     <string name="update_available">Update available</string>
-    <string name="update_versions">Dragon Rage %1$s is out (you have %2$s).</string>
+    <string name="update_versions">Version %1$s is out (you have %2$s).</string>
     <string name="update_nightly">This is a test build; it may be broken.</string>
     <string name="update_keeps">It installs over this version and keeps your game data, settings and saves. Open the app again afterwards.</string>
     <string name="update_now">Update now</string>
@@ -245,8 +245,16 @@
     <string name="update_permission_open">Open settings</string>
     <string name="update_none">You have the latest version.</string>
     <string name="update_check_failed">Could not check for updates. Check the connection.</string>
+    <string name="update_channel">Updates</string>
+    <string name="update_stable">Stable</string>
+    <string name="update_preview">Nightly (preview)</string>
+    <string name="update_on_launch">Check when the app starts</string>
+    <string name="update_on_launch_text">Looks at the project\'s GitHub releases. Nothing is downloaded or installed without your OK.</string>
+    <string name="update_ask_title">Check for updates?</string>
+    <string name="update_ask_text">BT3 Tag Team can look for a new version when it starts. Stable: finished releases only. Nightly (preview): test builds too, which may have bugs. Nothing is downloaded or installed without your OK, and you can change this later under Settings &gt; About.</string>
+    <string name="update_ask_no">Don\'t check</string>
     <string name="update_failed">Update failed: %1$s</string>
-    <string name="update_bad_apk">The downloaded file is not a Dragon Rage update.</string>
+    <string name="update_bad_apk">The downloaded file is not a valid update for this app.</string>
     <string name="clash_title">Clashes</string>
     <string name="clash_button">One button in clashes</string>
     <string name="clash_button_text">In a clash of two beams or two rushes, tap or mash the Square (melee) button instead of turning the stick round. Works with the on-screen controls and with a physical controller. Also in the in-game window (Controls tab).</string>

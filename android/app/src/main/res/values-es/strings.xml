@@ -233,7 +233,7 @@
     <string name="github_repo">Repositorio en GitHub</string>
     <string name="check_updates">Buscar actualizaciones</string>
     <string name="update_available">Actualización disponible</string>
-    <string name="update_versions">Ya salió Dragon Rage %1$s (tienes la %2$s).</string>
+    <string name="update_versions">Ya salió la versión %1$s (tienes la %2$s).</string>
     <string name="update_nightly">Esta es una versión de prueba; puede tener fallos.</string>
     <string name="update_keeps">Se instala sobre esta versión y conserva tus datos del juego, ajustes y partidas guardadas. Vuelve a abrir la app después.</string>
     <string name="update_now">Actualizar ahora</string>
@@ -244,8 +244,16 @@
     <string name="update_permission_open">Abrir ajustes</string>
     <string name="update_none">Ya tienes la versión más reciente.</string>
     <string name="update_check_failed">No se pudo buscar actualizaciones. Revisa la conexión.</string>
+    <string name="update_channel">Actualizaciones</string>
+    <string name="update_stable">Estable</string>
+    <string name="update_preview">Nightly (vista previa)</string>
+    <string name="update_on_launch">Buscar al abrir la app</string>
+    <string name="update_on_launch_text">Revisa las publicaciones del proyecto en GitHub. No se descarga ni instala nada sin tu permiso.</string>
+    <string name="update_ask_title">¿Buscar actualizaciones?</string>
+    <string name="update_ask_text">BT3 Tag Team puede buscar una versión nueva al iniciar. Estable: solo versiones terminadas. Nightly (vista previa): también versiones de prueba, que pueden tener fallos. No se descarga ni instala nada sin tu permiso, y puedes cambiarlo luego en Ajustes &gt; Acerca de.</string>
+    <string name="update_ask_no">No buscar</string>
     <string name="update_failed">Falló la actualización: %1$s</string>
-    <string name="update_bad_apk">El archivo descargado no es una actualización de Dragon Rage.</string>
+    <string name="update_bad_apk">El archivo descargado no es una actualización válida de esta app.</string>
     <string name="clash_title">Choques de poder</string>
     <string name="clash_button">Un solo botón en los choques</string>
     <string name="clash_button_text">En un choque de dos rayos o dos ráfagas, toca o presiona repetidamente el botón Cuadrado (cuerpo a cuerpo) en vez de girar el stick. Funciona con los controles en pantalla y con un control físico. También en la ventana dentro del juego (pestaña Controls).</string>
