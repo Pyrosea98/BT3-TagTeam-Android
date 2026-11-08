@@ -16,6 +16,21 @@
 #endif
 #include "battle/eft_j.h"
 
+#ifdef PORT
+#include <stdio.h>
+/* A group marked in an effect set's mask but without data (seen in Team Battles with 5 fighters after CPU
+   transformations: a ki-blast technique's set). The PS2 read its count from address 1 and went on; here that
+   address is not mapped and the game closed. The group is skipped and the first ones are logged. */
+void Port_EftNoGroup(s32 g) {
+    static unsigned told;
+
+    if (told < 10) {
+        told++;
+        fprintf(stderr, "bt3: effects: group %d of an effect set has no data, skipped\n", (int)g);
+    }
+}
+#endif
+
 /*
  * Technique effect modules of scene layer 1, 0x1532A0..0x157398 (65 functions, all matching). Layer 1 keeps,
  * per fighter, a few "shot slots"; a slot that fires a technique creates the manager
@@ -439,6 +454,13 @@ void EftMulti_UpdateParts(s32 objId, EftJTask *task, EftJSet *set, s32 mode) {
             u8 *info = set->grp[g].info;
             s32 j;
 
+#ifdef PORT
+            if (info == NULL) { /* (see Port_EftNoGroup in eft_j.c) */
+                extern void Port_EftNoGroup(s32 g);
+                Port_EftNoGroup(g);
+                continue;
+            }
+#endif
             for (j = 0; j < info[1]; j++) {
                 if (!EftMulti_IsPartKind5(set, info[0], j)) {
                     s32 res;
@@ -870,6 +892,13 @@ void EftPropShot_UpdateParts(s32 objId, EftJTask *task, EftJSet *set, s32 mode) 
             u8 *info = set->grp[g].info;
             s32 j;
 
+#ifdef PORT
+            if (info == NULL) { /* (see Port_EftNoGroup in eft_j.c) */
+                extern void Port_EftNoGroup(s32 g);
+                Port_EftNoGroup(g);
+                continue;
+            }
+#endif
             for (j = 0; j < info[1]; j++) {
                 s32 res;
 
@@ -1223,6 +1252,13 @@ void EftBlast_UpdateParts(s32 objId, EftJTask *task, EftJSet *set, s32 mode) {
             u8 *info = set->grp[g].info;
             s32 j;
 
+#ifdef PORT
+            if (info == NULL) { /* (see Port_EftNoGroup in eft_j.c) */
+                extern void Port_EftNoGroup(s32 g);
+                Port_EftNoGroup(g);
+                continue;
+            }
+#endif
             for (j = 0; j < info[1]; j++) {
                 s32 res;
 
@@ -1768,6 +1804,13 @@ void EftShotTech_UpdateParts(s32 objId, EftJTask *task, EftJSet *set) {
             u8 *info = set->grp[g].info;
             s32 j;
 
+#ifdef PORT
+            if (info == NULL) { /* (see Port_EftNoGroup in eft_j.c) */
+                extern void Port_EftNoGroup(s32 g);
+                Port_EftNoGroup(g);
+                continue;
+            }
+#endif
             for (j = 0; j < info[1]; j++) {
                 s32 res;
                 s32 alt;

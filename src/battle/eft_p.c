@@ -193,6 +193,13 @@ void EftDisc_SpawnParts(EftPTask *task, s32 mode) {
             u8 *info = arg->set->grp[g].info;
             s32 j;
 
+#ifdef PORT
+            if (info == NULL) { /* (see Port_EftNoGroup in eft_j.c) */
+                extern void Port_EftNoGroup(s32 g);
+                Port_EftNoGroup(g);
+                continue;
+            }
+#endif
             for (j = 0; j < info[1]; j++) {
                 s32 part = arg->set->grp[g].base + j;
                 s32 ok = 0;

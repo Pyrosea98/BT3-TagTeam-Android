@@ -1264,6 +1264,13 @@ void EftObjTech_UpdateEmitters(s32 objId, EftKTask *task, EftKSet *set) {
         if (*set->mask & (1 << g)) {
             u8 *info = set->grp[g].info;
 
+#ifdef PORT
+            if (info == NULL) { /* (see Port_EftNoGroup in eft_j.c) */
+                extern void Port_EftNoGroup(s32 g);
+                Port_EftNoGroup(g);
+                continue;
+            }
+#endif
             for (i = 0; i < info[1]; i++) {
                 s32 idx = set->grp[g].base + i;
                 s32 res;
