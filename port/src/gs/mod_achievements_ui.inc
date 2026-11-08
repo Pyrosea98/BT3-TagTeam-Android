@@ -52,7 +52,7 @@ static void achievement_gallery(int selected){
  static int previous=-1;bool moved=selected!=previous;previous=selected;
  float k=SDL_max(.55f,SDL_min(1.7f,io.DisplaySize.y/800.f)),pad=24*k;
  if(ImGui::IsKeyPressed(ImGuiKey_Escape)){sAchievementBack.store(true,std::memory_order_release);return;}
- ImGui::SetNextWindowPos(ImVec2(0,0));ImGui::SetNextWindowSize(io.DisplaySize);
+ ImGui::SetNextWindowPos(gUiPictureOrigin);ImGui::SetNextWindowSize(io.DisplaySize);
  ImGui::PushStyleColor(ImGuiCol_WindowBg,ImVec4(.10f,.025f,.13f,.99f));ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,ImVec2(pad,pad));
  if(ImGui::Begin("##achievement-gallery",nullptr,ImGuiWindowFlags_NoDecoration|ImGuiWindowFlags_NoSavedSettings|ImGuiWindowFlags_NoMove|ImGuiWindowFlags_NoNavInputs)){
   if(sModBodyFont)ImGui::PushFont(sModBodyFont,20.f);ImGui::SetWindowFontScale(k);

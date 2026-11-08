@@ -619,6 +619,7 @@ static unsigned script_buttons(void) {
 /* Fills `data` (18 bytes) for controller port `socket`. Returns 0 when there is no window (the caller keeps the
    idle pad). */
 /* "Clashes: Square counts as a direction" (setting clash_square, off by default, on by default on Android; BT3_CLASH_SQUARE=1).
+ * Struggle buttons (mod_clash_input.h): local fights only (Port_ModClashButtons below: off by default on PC, on by default on Android).
  *
  * In a clash the game counts one thing: the frames in which a direction is newly pressed (input 51 = BTLC_DIR_P;
  * BtlAct_ClashStruggleHandler and BtlAct_ClashBlowsHandler). Square is given that meaning inside a beam clash and
@@ -665,6 +666,26 @@ void Port_ClashSquareSet(int on) {
     Port_SettingsWrite();
 }
 
+/* Whether our struggle controls are on. PC: setting mod_clash_buttons, off unless set. Android: the 0.4.x option
+   clash_square (Port_ClashSquare: on unless the player turned it off), which the launcher's Controls page and the
+   in-game Android window already set; a button to mash replaces turning a touch or handheld stick. */
+int Port_ModClashButtons(void) {
+#ifdef __ANDROID__
+    return Port_ClashSquare();
+#else
+    return Port_Setting("mod_clash_buttons", 0) != 0;
+#endif
+}
+
+void Port_ModClashButtonsSet(int on) {
+#ifdef __ANDROID__
+    Port_ClashSquareSet(on);
+#else
+    Port_SettingSave("mod_clash_buttons", on != 0);
+    Port_SettingsWrite();
+#endif
+}
+
 /* Our struggle controls: Square in beam clashes, Triangle in rush clashes (mod_clash_input.h). Local fights only;
    online keeps the game's own pad so both copies of a match compute the same fight. */
 static void clash_square(int socket, unsigned *btn, unsigned char *lx, unsigned char *ly) {
@@ -672,7 +693,7 @@ static void clash_square(int socket, unsigned *btn, unsigned char *lx, unsigned 
     static ModClashInput state[PORT_PLAYERS];
     int action;
 
-    if (Port_NetActive()||!Port_Setting("mod_clash_buttons",0)) {
+    if (Port_NetActive()||!Port_ModClashButtons()) {
         return;
     }
     if ((unsigned)socket >= PORT_PLAYERS) {

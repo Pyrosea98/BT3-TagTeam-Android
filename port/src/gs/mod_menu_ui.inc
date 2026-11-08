@@ -118,9 +118,9 @@ static void ms_random_icon(ImDrawList*,ImVec2,float);
 static void mod_menu_draw(){
  unsigned view=sModMenuView.load(std::memory_order_acquire);int page=view&255,cursor=(view>>8)&255,pick=(view>>16)&255;
  if(!page||sOpen)return;
- if(page==MM_SCENARIOS||page==MM_CHALLENGES){mod_scenario_scene(page,cursor,pick,sScenarioVariant.load());return;}
- if(page==MM_STORY||page==MM_STORY_RESULT||page==MM_STORY_SAGAS){mod_story_page(sStoryView.load(std::memory_order_acquire),page,cursor);return;}
- if(page==MM_ACHIEVEMENTS){achievement_gallery(cursor);return;}
+ if(page==MM_SCENARIOS||page==MM_CHALLENGES){UiPictureScope picture;mod_scenario_scene(page,cursor,pick,sScenarioVariant.load());return;}
+ if(page==MM_STORY||page==MM_STORY_RESULT||page==MM_STORY_SAGAS){UiPictureScope picture;mod_story_page(sStoryView.load(std::memory_order_acquire),page,cursor);return;}
+ if(page==MM_ACHIEVEMENTS){UiPictureScope picture(false);achievement_gallery(cursor);return;}
  if(!sModArtTried){sModArtTried=true;sModNimbus=mod_menu_art("menu-nimbus");for(int n=0;n<4;n++){char name[40];snprintf(name,sizeof(name),"menu-player-%d",n+1);sModPlayers[n]=mod_menu_art(name);}}
  bool es=Port_Setting("mod_language",1)==1;
  static const char *root[2][4]={{"Play","Settings","About / Credits","Return to game"},{"Jugar","Ajustes","Acerca de / Créditos","Volver al juego"}};

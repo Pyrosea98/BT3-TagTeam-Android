@@ -83,6 +83,8 @@ int Port_ClashSquare(void);                    // gs_input.c: Square counts as a
 void Port_ClashSquareSet(int on);
 int Port_ClashSquareX(void);                   // what a press is worth, in quarters of a point (4, 6, 7, 8)
 void Port_ClashSquareXSet(int quarters);
+int Port_ModClashButtons(void);                // gs_input.c: our struggle buttons (Square in beam, Triangle in rush clashes)
+void Port_ModClashButtonsSet(int on);
 extern int gsInterp;                           // gs_draw.c: in-between pictures on (1) / off (0); -1 before the first frame
 void Port_SettingsWrite(void);
 int Port_SettingsFlush(void);
@@ -1600,6 +1602,40 @@ static int update_latest(void) {
     return sUpdCheck != 0 || SDL_getenv("BT3_UPDATE_CHECK") != NULL ? Match_UpdateLatest() : 0;
 }
 
+// The 0.5 full-screen pages (Story, Scenarios, Achievements, fighter select) are laid out from the window's size. On
+// Android, and wherever the game picture is letterboxed (4:3 etc.), this lays them out inside the picture instead, as
+// the mod menu is (1d9ba7e): for the scope, DisplaySize is the picture's and the mouse is in its coordinates; at the
+// end the foreground vertices drawn meanwhile are moved onto the picture. ImGui windows place themselves with
+// gUiPictureOrigin and keep the real mouse (localMouse false).
+static ImVec2 gUiPictureOrigin(0, 0);
+struct UiPictureScope {
+    ImVec2 savedSize, savedMouse, origin;
+    int first;
+    bool on;
+    explicit UiPictureScope(bool localMouse = true) {
+        ImGuiIO &io = ImGui::GetIO();
+        savedSize = io.DisplaySize;
+        savedMouse = io.MousePos;
+        origin = ImVec2((float)gUiPresentX, (float)gUiPresentY);
+        first = ImGui::GetForegroundDrawList()->VtxBuffer.Size;
+        on = gUiPresentW > 0 && gUiPresentH > 0 &&
+             (gUiPresentX != 0 || gUiPresentY != 0 || gUiPresentW != (int)savedSize.x || gUiPresentH != (int)savedSize.y);
+        if (on) {
+            io.DisplaySize = ImVec2((float)gUiPresentW, (float)gUiPresentH);
+            if (localMouse && ImGui::IsMousePosValid(&savedMouse)) io.MousePos = ImVec2(savedMouse.x - origin.x, savedMouse.y - origin.y);
+            gUiPictureOrigin = origin;
+        }
+    }
+    ~UiPictureScope() {
+        if (!on) return;
+        ImGuiIO &io = ImGui::GetIO();
+        io.DisplaySize = savedSize;
+        io.MousePos = savedMouse;
+        gUiPictureOrigin = ImVec2(0, 0);
+        ImDrawList *dl = ImGui::GetForegroundDrawList();
+        for (int i = first; i < dl->VtxBuffer.Size; i++) { dl->VtxBuffer[i].pos.x += origin.x; dl->VtxBuffer[i].pos.y += origin.y; }
+    }
+};
 #include "mod_pad_hints.inc"
 #include "mod_achievements_ui.inc"
 
@@ -2305,10 +2341,9 @@ static void mod_fusion_settings(){
 
 }
 static void mod_controls_settings(){
-                bool modButtons = Port_Setting("mod_clash_buttons", 0) != 0;
+                bool modButtons = Port_ModClashButtons() != 0;
                 if (ImGui::Checkbox((Port_Setting("mod_language",1)==1?"Usar botones en los choques":"Use buttons in clashes"), &modButtons)) {
-                    Port_SettingSave("mod_clash_buttons", modButtons);
-                    Port_SettingsWrite();
+                    Port_ModClashButtonsSet(modButtons);
                 }
                 ImGui::SetItemTooltip(mod_l10n("Local fights: tap Square in beam struggles, Triangle in rush struggles.\n"
                                       "Uses the controller assigned to each fighter, including players 3 and 4.\n"
@@ -2393,7 +2428,7 @@ static void mod_struggle_settings(){
  int bp=Port_Setting("beam_struggle_cpu_power_percent",100),rp=Port_Setting("dash_struggle_cpu_power_percent",100);
  if(ImGui::SliderInt(mod_l10n("CPU beam strength"),&bp,25,200,"%d%%")){Port_SettingSave("beam_struggle_cpu_power_percent",bp);Port_SettingsWrite();}
  if(ImGui::SliderInt(mod_l10n("CPU rush strength"),&rp,25,200,"%d%%")){Port_SettingSave("dash_struggle_cpu_power_percent",rp);Port_SettingsWrite();}
- bool buttons=Port_Setting("mod_clash_buttons",0)!=0;if(ImGui::Checkbox((Port_Setting("mod_language",1)==1?"Usar botones en los choques":"Use buttons in clashes"),&buttons)){Port_SettingSave("mod_clash_buttons",buttons);Port_SettingsWrite();}
+ bool buttons=Port_ModClashButtons()!=0;if(ImGui::Checkbox((Port_Setting("mod_language",1)==1?"Usar botones en los choques":"Use buttons in clashes"),&buttons)){Port_ModClashButtonsSet(buttons);}
  ImGui::TextWrapped(mod_l10n("Local fights only. CPU strength changes CPU scoring, never a human player's inputs. Online and recorded replays keep their original rules."));
  ImGui::SeparatorText(mod_l10n("Team assists"));
  bool formation=Port_Setting("assist_formation_enabled",1)!=0,follow=Port_Setting("assist_follow_camera",1)!=0;
@@ -3168,7 +3203,7 @@ static bool frame_build(void) {
     if (modesOn) {
         modes_draw(modes);
     }
-    if(modSelect&&!sOpen&&!sQuit){mod_select_draw();ImGui::Render();return true;}
+    if(modSelect&&!sOpen&&!sQuit){{UiPictureScope picture;mod_select_draw();}ImGui::Render();return true;}
     if(modernStage&&!sOpen&&!sQuit){mod_stage_draw();ImGui::Render();return true;}
     if (modMenu) { mod_menu_draw(); }
     if (tournament) { tournament_draw(); }
