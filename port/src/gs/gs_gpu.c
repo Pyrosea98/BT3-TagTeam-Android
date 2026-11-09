@@ -56,8 +56,7 @@ static void log_vulkan_features(void) {
         if ((r == VK_SUCCESS || r == VK_INCOMPLETE) && n > 0) {
             SDL_zero(f);
             features(dev, &f);
-            fprintf(stderr, "bt3: vulkan features: independentBlend %d, dualSrcBlend %d, depthClamp %d, depthBiasClamp %d
-", (int)f.independentBlend,
+            fprintf(stderr, "bt3: vulkan features: independentBlend %d, dualSrcBlend %d, depthClamp %d, depthBiasClamp %d\n", (int)f.independentBlend,
                     (int)f.dualSrcBlend, (int)f.depthClamp, (int)f.depthBiasClamp);
         }
         destroy(inst, NULL);
