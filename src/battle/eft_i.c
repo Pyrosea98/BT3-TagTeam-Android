@@ -882,6 +882,19 @@ void EftEmit_MarkCond(s32 objId, s32 extra, EftEmitSet *set, EftEmitState *state
                 EftEmitGroup *grp = &set->grp[type];
                 EftEmitGroupDef *gd = grp->def;
 
+#ifdef PORT
+                if (gd == NULL) {
+                    /* A group the header marks present with no data behind it (a 10-fighter Team Battle on
+                       Android after an extra fighter's transformation, 0.5.alpha-test4: group 17; the parts
+                       update had already skipped it). Reading its count was the crash. */
+                    static unsigned logged;
+                    if (!(logged & (1u << type))) {
+                        logged |= 1u << type;
+                        fprintf(stderr, "bt3: effects: group %d of an effect set has no data, not updated\n", type);
+                    }
+                    continue;
+                }
+#endif
                 for (i = 0; i < gd->count; i++) {
                     s32 n = grp->first + i;
                     EftEmitDef *def = &set->defs[n];
@@ -1031,6 +1044,19 @@ s32 EftEmit_UpdateAlive(EftEmitSet *set, EftEmitState *state) {
                 EftEmitGroup *grp = &set->grp[type];
                 EftEmitGroupDef *gd = grp->def;
 
+#ifdef PORT
+                if (gd == NULL) {
+                    /* A group the header marks present with no data behind it (a 10-fighter Team Battle on
+                       Android after an extra fighter's transformation, 0.5.alpha-test4: group 17; the parts
+                       update had already skipped it). Reading its count was the crash. */
+                    static unsigned logged;
+                    if (!(logged & (1u << type))) {
+                        logged |= 1u << type;
+                        fprintf(stderr, "bt3: effects: group %d of an effect set has no data, not updated\n", type);
+                    }
+                    continue;
+                }
+#endif
                 for (i = 0; i < gd->count; i++) {
                     s32 n = grp->first + i;
                     EftEmitDef *def = &set->defs[n];
