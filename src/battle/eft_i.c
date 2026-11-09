@@ -15,6 +15,9 @@
 #endif
 #endif
 #include "battle/eft_i.h"
+#ifdef PORT
+#include <stdio.h>
+#endif
 
 /*
  * Technique effects, third part: 0x14F230..0x1532A0. See include/battle/eft_i.h.
