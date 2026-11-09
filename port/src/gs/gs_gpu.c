@@ -29,6 +29,44 @@
 #include "gs_draw.h"
 #include "shaders.h" /* generated: kGsVertSpv, kGsFragSpv */
 #include "ui.h"
+
+#ifdef __ANDROID__
+#include <dlfcn.h>
+#define VK_NO_PROTOTYPES
+#include <vulkan/vulkan.h>
+/* What the GPU's Vulkan driver reports, once in the log: a PowerVR BXM-8-256 refuses every pipeline with alpha blending
+   and a depth target, and SDL's error does not say why. Pipelines here blend one of their two colour targets only,
+   which needs independentBlend. */
+static void log_vulkan_features(void) {
+    void *lib = dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL);
+    PFN_vkCreateInstance create = lib != NULL ? (PFN_vkCreateInstance)dlsym(lib, "vkCreateInstance") : NULL;
+    PFN_vkDestroyInstance destroy = lib != NULL ? (PFN_vkDestroyInstance)dlsym(lib, "vkDestroyInstance") : NULL;
+    PFN_vkEnumeratePhysicalDevices list = lib != NULL ? (PFN_vkEnumeratePhysicalDevices)dlsym(lib, "vkEnumeratePhysicalDevices") : NULL;
+    PFN_vkGetPhysicalDeviceFeatures features = lib != NULL ? (PFN_vkGetPhysicalDeviceFeatures)dlsym(lib, "vkGetPhysicalDeviceFeatures") : NULL;
+    VkInstanceCreateInfo ci;
+    VkInstance inst = VK_NULL_HANDLE;
+    VkPhysicalDevice dev = VK_NULL_HANDLE;
+    VkPhysicalDeviceFeatures f;
+    uint32_t n = 1;
+
+    SDL_zero(ci);
+    ci.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    if (create != NULL && destroy != NULL && list != NULL && features != NULL && create(&ci, NULL, &inst) == VK_SUCCESS) {
+        VkResult r = list(inst, &n, &dev);
+        if ((r == VK_SUCCESS || r == VK_INCOMPLETE) && n > 0) {
+            SDL_zero(f);
+            features(dev, &f);
+            fprintf(stderr, "bt3: vulkan features: independentBlend %d, dualSrcBlend %d, depthClamp %d, depthBiasClamp %d
+", (int)f.independentBlend,
+                    (int)f.dualSrcBlend, (int)f.depthClamp, (int)f.depthBiasClamp);
+        }
+        destroy(inst, NULL);
+    }
+    if (lib != NULL) {
+        dlclose(lib);
+    }
+}
+#endif
 static bool sGpuLite; /* the device was made without depth clamping and the other optional features */
 
 extern int Port_Setting(const char *name, int def); /* plat_settings.c: the saved settings */
@@ -874,6 +912,11 @@ static int vk_init(void) {
             }
         }
         SDL_DestroyProperties(props);
+#ifdef __ANDROID__
+        if (sDev != NULL) {
+            log_vulkan_features();
+        }
+#endif
     }
     {   /* The flat shadows' stencil (depth D32S8 instead of D32, since 0.6.0). Setting "shadow_stencil": 0 automatic,
            1 on, 2 off (depth alone, as before 0.6.0: overlapping parts of a flat shadow may show darker);
