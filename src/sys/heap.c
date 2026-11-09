@@ -1,4 +1,7 @@
 #include "common.h"
+#ifdef PORT
+#include <stdio.h>
+#endif
 #include "sys/heap.h"
 
 extern void *malloc(u32 size);
@@ -265,6 +268,18 @@ void Heap_Free(void *ptr) {
 
     if (block == NULL) {
         Heap_ReportBadFree();
+#ifdef PORT
+        /* Not a block of the heap (freed twice, or never the heap's): on the PS2 this went on into
+           Heap_FreeBlock(NULL) and corrupted memory; here it crashed (Moto g56 5G, 0.5.alpha-test5, a character
+           preview cancelled on the modern select screen). Logged, left alone. */
+        {
+            static int logged;
+            if (logged++ < 8) {
+                fprintf(stderr, "bt3: heap: free of %08x, which is not a block of the heap: ignored\n", (u32)ptr);
+            }
+        }
+        return;
+#endif
     }
     Heap_FreeBlock(block);
 }
