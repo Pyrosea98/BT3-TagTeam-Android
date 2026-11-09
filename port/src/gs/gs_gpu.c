@@ -663,15 +663,49 @@ static void pipelines_preload(void) {
 }
 
 /* The pipeline of a key gs_draw.c derived from GS state: cached here, created on first sight. */
-static int pipe_get(uint32_t key) {
+static int pipe_find(uint32_t key) {
     int i;
-    if (!sShadowStencil) { key &= ~(1u << 24); }
     for (i = 0; i < sPipeCount; i++) {
         if (sPipes[i].key == key) {
             return i;
         }
     }
-    return pipeline_create(key, 1);
+    return -1;
+}
+
+static int pipe_get(uint32_t key) {
+    int i, j;
+    if (!sShadowStencil) { key &= ~(1u << 24); }
+    i = pipe_find(key);
+    if (i >= 0) {
+        return i;
+    }
+    i = pipeline_create(key, 1);
+    if (i < sPipeCount && sPipes[i].key == key && sPipes[i].p != NULL) {
+        return i;
+    }
+    /* The driver refused it ("vkCreateGraphicsPipelines Unhandled VkResult!": a PowerVR BXM-8-256 on 0.5.alpha, seven
+       variants of gsnz.frag with blending and the depth test). Index 0 for lack of any was some other pipeline, with
+       another vertex layout for most of them: the stretched triangles over the whole team-select scene. The same
+       state with the full fragment shader (bit 23 off) draws the same picture, only slower; failing that, the one
+       without its discards too (bit 27). Bit 25 (gswb.frag) has no such twin. */
+    for (j = 0; j < 2 && !(key & (1u << 25)); j++) {
+        uint32_t alt = key & ~(j == 0 ? 1u << 23 : (1u << 23) | (1u << 27));
+        int a;
+        if (alt == key) {
+            continue;
+        }
+        a = pipe_find(alt);
+        if (a < 0) {
+            a = pipeline_create(alt, 1);
+            if (!(a < sPipeCount && sPipes[a].key == alt && sPipes[a].p != NULL)) {
+                continue;
+            }
+        }
+        fprintf(stderr, "bt3: pipeline %08x refused by the driver: drawing with %08x (the full fragment shader) instead\n", key, alt);
+        return a;
+    }
+    return i;
 }
 
 /* The same pipeline for a render pass without the depth buffer (bit 28): the passes whose draws neither test nor
