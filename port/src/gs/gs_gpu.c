@@ -692,7 +692,7 @@ static int pipe_get(uint32_t key) {
     for (j = 0; j < 2 && !(key & (1u << 25)); j++) {
         uint32_t alt = key & ~(j == 0 ? 1u << 23 : (1u << 23) | (1u << 27));
         int a;
-        if (alt == key) {
+        if (alt == key || (j == 1 && !(key & (1u << 27)))) { /* (nothing new to try) */
             continue;
         }
         a = pipe_find(alt);
