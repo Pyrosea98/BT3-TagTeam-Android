@@ -559,9 +559,10 @@ static GLintptr sUboOff[2];
    (EXT_buffer_storage, persistent and coherent) and written in order like a ring. It is cut into UBO_SEGS pieces;
    a fence goes in when the writing leaves a piece, and a piece is written again only after its fence has passed, so
    the GPU never reads a byte that is being overwritten. No map, unmap or orphan per draw. Setting "gl_persist":
-   0 automatic (Mali and Adreno with EXT_buffer_storage), 1 always where the extension is, 2 never; BT3_GL_PERSIST=0/1.
+   0 automatic (Mali, Adreno and PowerVR with EXT_buffer_storage), 1 always where the extension is, 2 never; BT3_GL_PERSIST=0/1.
    Adreno: the map per draw stalled the Adreno 650's driver (a fight at 2x: about 4 s a picture; with the ring 100 %
-   speed, 14 ms of work a picture). Mali-G57 MC4: the same speed either way (92.5 % and 93.8 % at 2x). */
+   speed, 14 ms of work a picture). Mali-G57 MC4: the same speed either way (92.5 % and 93.8 % at 2x). PowerVR
+   BXM-8-256 (Moto g56): 1 to 2 pictures a second on the modern character select while orphaning. */
 #define UBO_SEGS 8
 #define UBO_SEG (1 << 20)
 typedef struct __GLsync *GLsync_;
@@ -570,6 +571,13 @@ static GLsync_ (*glFenceSync_)(GLenum, GLbitfield);
 static GLenum (*glClientWaitSync_)(GLsync_, GLbitfield, uint64_t);
 static void (*glDeleteSync_)(GLsync_);
 static struct { uint8_t *ptr; int seg; GLintptr off; GLsync_ fence[UBO_SEGS]; } sPer[2];
+/* Where a frame's time goes on the CPU side (the log's speed line, Android): a call that waits for the GPU shows here. */
+#ifdef __ANDROID__
+static uint64_t sNsBind, sNsDraw, sNsBlit, sNsFence, sNsSwap, sNsUbo;
+#define GL_TIMED(var, ...) do { uint64_t t_ = SDL_GetTicksNS(); __VA_ARGS__; var += SDL_GetTicksNS() - t_; } while (0)
+#else
+#define GL_TIMED(var, ...) do { __VA_ARGS__; } while (0)
+#endif
 static int sPersist;
 static unsigned sPersistWaits;
 
@@ -577,7 +585,7 @@ static void ubo_persist_init(GLuint bufU, GLuint bufP) {
     const char *r = (const char *)glGetString(GL_RENDERER);
     const char *e = getenv("BT3_GL_PERSIST");
     int want = Port_Setting("gl_persist", 0), tiled = r != NULL && (strstr(r, "Mali") != NULL || strstr(r, "Immortalis") != NULL ||
-                                                                    strstr(r, "Adreno") != NULL);
+                                                                    strstr(r, "Adreno") != NULL || strstr(r, "PowerVR") != NULL);
     int on = e != NULL ? atoi(e) != 0 : want == 1 ? 1 : want == 2 ? 0 : tiled;
     GLuint bufs[2] = {bufU, bufP};
     int k;
@@ -639,7 +647,9 @@ static void ubo_put_persist(int which, GLuint buf, GLuint binding, const void *p
         sPer[which].fence[s] = glFenceSync_(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
         s = (s + 1) % UBO_SEGS;
         if (sPer[which].fence[s] != NULL) {
-            if (glClientWaitSync_(sPer[which].fence[s], GL_SYNC_FLUSH_COMMANDS_BIT, 2000000000ull) == GL_WAIT_FAILED) {
+            GLenum waited_;
+            GL_TIMED(sNsFence, waited_ = glClientWaitSync_(sPer[which].fence[s], GL_SYNC_FLUSH_COMMANDS_BIT, 2000000000ull));
+            if (waited_ == GL_WAIT_FAILED) {
                 fprintf(stderr, "bt3: gl: uniform ring: a fence failed\n");
             }
             glDeleteSync_(sPer[which].fence[s]);
@@ -653,7 +663,7 @@ static void ubo_put_persist(int which, GLuint buf, GLuint binding, const void *p
     glBindBufferRange(GL_UNIFORM_BUFFER, binding, buf, (GLintptr)s * UBO_SEG + off, (GLsizeiptr)block);
     sPer[which].off = off + (GLintptr)block;
 }
-static void ubo_put(int which, GLuint buf, GLuint binding, const void *p, size_t n, size_t block) {
+static void ubo_put_now(int which, GLuint buf, GLuint binding, const void *p, size_t n, size_t block) {
     GLintptr off = (sUboOff[which] + sUboAlign - 1) / sUboAlign * sUboAlign;
     void *m;
     if (sPersist) {
@@ -674,6 +684,9 @@ static void ubo_put(int which, GLuint buf, GLuint binding, const void *p, size_t
     }
     glBindBufferRange(GL_UNIFORM_BUFFER, binding, buf, off, (GLsizeiptr)block);
     sUboOff[which] = off + (GLintptr)block;
+}
+static void ubo_put(int which, GLuint buf, GLuint binding, const void *p, size_t n, size_t block) {
+    GL_TIMED(sNsUbo, ubo_put_now(which, buf, binding, p, n, block));
 }
 static void set_params(const void *p, size_t n) {
     ubo_put(1, sUboParams, 1, p, n, 80);
@@ -788,8 +801,7 @@ static int depthless = -1; /* framebuffers without depth where it is not used (t
 static void bind_target(int i, int clear, int nodepth) {
     GLenum bufs[2] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1};
     sBindN++;
-    glBindFramebuffer(GL_FRAMEBUFFER, nodepth && !clear && sTgFboNd[i] != 0 ? sTgFboNd[i] : sTgFbo[i]);
-    glDrawBuffers(2, bufs);
+    GL_TIMED(sNsBind, glBindFramebuffer(GL_FRAMEBUFFER, nodepth && !clear && sTgFboNd[i] != 0 ? sTgFboNd[i] : sTgFbo[i]); glDrawBuffers(2, bufs));
     glViewport(0, 0, GS_W * SCALE, GS_H * SCALE);
     if (clear) {
         /* as the Vulkan back end clears: colour and alpha 0 (alpha 1 only with the magenta aid), the alpha byte 0 */
@@ -869,6 +881,12 @@ static int gl_init(void) {
     if (getenv("BT3_GL_TRACE") != NULL) { fprintf(stderr, "gl: current, loading the functions\n"); }
     if (!load_gl()) { gl_give_up(); return 0; }
     fprintf(stderr, "bt3: GL renderer: %s (%s)\n", (const char *)glGetString(GL_RENDERER), (const char *)glGetString(GL_VERSION));
+#ifdef __ANDROID__
+    {
+        extern void GsGpu_LogVulkanFeatures(void);
+        GsGpu_LogVulkanFeatures(); /* (what the GPU's Vulkan driver reports, under this renderer too) */
+    }
+#endif
     {   /* the meter's and the reports' name of the GPU (as the Vulkan back end prints it) */
         fprintf(stderr, "bt3: GPU renderer: opengl%s\n", GL_ES ? " es" : "");
     }
@@ -1130,11 +1148,21 @@ static void gl_heartbeat(void) {
                         "%.1f copies, %.1f without depth\n", bps * 100.0 / 60.0, bps, (double)(gGsFrame - lastFrame) / secs, secs,
                 Ui_Pauses() ? ", the menu was open" : gPortInMenus ? ", menus" : ", fight", sFrameN ? (double)sBindN / sFrameN : 0.0,
                 sFrameN ? (double)sBlitN / sFrameN : 0.0, sFrameN ? (double)sNoDepthN / sFrameN : 0.0);
+#ifdef __ANDROID__
+        if (sFrameN) {
+            fprintf(stderr, "bt3: gl per frame, ms: draws %.2f, target binds %.2f, copies %.2f, uniforms %.2f (of which fence waits %.2f), swap %.2f\n",
+                    sNsDraw / 1e6 / sFrameN, sNsBind / 1e6 / sFrameN, sNsBlit / 1e6 / sFrameN, sNsUbo / 1e6 / sFrameN, sNsFence / 1e6 / sFrameN,
+                    sNsSwap / 1e6 / sFrameN);
+        }
+#endif
     }
     lastNs = now;
     lastBlank = gPortVBlanks;
     lastFrame = gGsFrame;
     sBindN = sBlitN = sFrameN = sNoDepthN = 0;
+#ifdef __ANDROID__
+    sNsBind = sNsDraw = sNsBlit = sNsFence = sNsSwap = sNsUbo = 0;
+#endif
 }
 #endif
 
@@ -1284,7 +1312,7 @@ static void frame_end(void) {
             glBindFramebuffer(GL_READ_FRAMEBUFFER, sFbFbo[d->native - 100]);
             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, sTgFbo[d->target]);
             glDrawBuffers(1, one);
-            glBlitFramebuffer(0, 0, GS_W, GS_H, 0, 0, GS_W * SCALE, GS_H * SCALE, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+            GL_TIMED(sNsBlit, glBlitFramebuffer(0, 0, GS_W, GS_H, 0, 0, GS_W * SCALE, GS_H * SCALE, GL_COLOR_BUFFER_BIT, GL_LINEAR));
             glEnable(GL_SCISSOR_TEST);
             haveScissor = 0;
             gsTargets[d->target].cleared = 1;
@@ -1309,7 +1337,7 @@ static void frame_end(void) {
             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, sScratchDraw);
             glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, dst, 0);
             glDrawBuffers(1, one);
-            glBlitFramebuffer(rx, ry, rx + rw, ry + rh, rx, ry, rx + rw, ry + rh, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+            GL_TIMED(sNsBlit, glBlitFramebuffer(rx, ry, rx + rw, ry + rh, rx, ry, rx + rw, ry + rh, GL_COLOR_BUFFER_BIT, GL_NEAREST));
             sBlitN++;
             glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
@@ -1407,9 +1435,9 @@ static void frame_end(void) {
         if (d->blendc != lastBlendc) { glBlendColor(d->blendc, d->blendc, d->blendc, d->blendc); lastBlendc = d->blendc; }
         set_scissor(d->scissor);
         if (d->vu) {
-            glDrawElements(GL_TRIANGLES, (GLsizei)d->count, GL_UNSIGNED_INT, (const void *)(uintptr_t)(d->first * sizeof(uint32_t)));
+            GL_TIMED(sNsDraw, glDrawElements(GL_TRIANGLES, (GLsizei)d->count, GL_UNSIGNED_INT, (const void *)(uintptr_t)(d->first * sizeof(uint32_t))));
         } else {
-            glDrawArrays(sPipes[d->pipeline].topo == 0 ? GL_TRIANGLES : sPipes[d->pipeline].topo == 1 ? GL_LINES : GL_POINTS, (GLint)d->first, (GLsizei)d->count);
+            GL_TIMED(sNsDraw, glDrawArrays(sPipes[d->pipeline].topo == 0 ? GL_TRIANGLES : sPipes[d->pipeline].topo == 1 ? GL_LINES : GL_POINTS, (GLint)d->first, (GLsizei)d->count));
         }
     }
 
@@ -1452,7 +1480,7 @@ static void frame_end(void) {
             }
         }
     }
-    SDL_GL_SwapWindow(sWindow);
+    GL_TIMED(sNsSwap, SDL_GL_SwapWindow(sWindow));
     /* BT3_GL_WINSHOT=<n>: dump the window's own framebuffer every n frames (what the user sees) */
     if (getenv("BT3_GL_WINSHOT") != NULL && atoi(getenv("BT3_GL_WINSHOT")) > 0 && (int)gGsFrame % atoi(getenv("BT3_GL_WINSHOT")) == 0) {
         int sw, sh, x, y;

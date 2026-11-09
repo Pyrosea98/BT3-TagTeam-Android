@@ -381,6 +381,19 @@ void File_CancelRequests(void) {
     List_AppendList(&queue->free, &queue->pending);
 }
 
+#ifdef PORT
+/* A queued read of `buf` no longer owns it: whoever holds the pointer frees it (ChrView_CancelLoad). */
+void File_DisownRequestBuf(void *buf) {
+    FileReq *req;
+
+    for (req = (FileReq *)List_GetHead(&gFileReq.pending); req != NULL && buf != NULL; req = (FileReq *)List_GetNext(&req->node)) {
+        if (req->buf == buf) {
+            req->flags &= ~FILE_REQ_OWNS_BUF;
+        }
+    }
+}
+#endif
+
 /* Queues an asynchronous read of file `id`; allocates the buffer when buf is NULL. Returns the buffer. */
 void *File_Request(s32 id, void *buf) {
     FileReqQueue *queue = &gFileReq;

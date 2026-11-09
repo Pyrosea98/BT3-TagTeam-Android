@@ -37,7 +37,7 @@
 /* What the GPU's Vulkan driver reports, once in the log: a PowerVR BXM-8-256 refuses every pipeline with alpha blending
    and a depth target, and SDL's error does not say why. Pipelines here blend one of their two colour targets only,
    which needs independentBlend. */
-static void log_vulkan_features(void) {
+void GsGpu_LogVulkanFeatures(void) {
     void *lib = dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL);
     PFN_vkCreateInstance create = lib != NULL ? (PFN_vkCreateInstance)dlsym(lib, "vkCreateInstance") : NULL;
     PFN_vkDestroyInstance destroy = lib != NULL ? (PFN_vkDestroyInstance)dlsym(lib, "vkDestroyInstance") : NULL;
@@ -913,7 +913,7 @@ static int vk_init(void) {
         SDL_DestroyProperties(props);
 #ifdef __ANDROID__
         if (sDev != NULL) {
-            log_vulkan_features();
+            GsGpu_LogVulkanFeatures();
         }
 #endif
     }

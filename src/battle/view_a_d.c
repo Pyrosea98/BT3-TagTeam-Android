@@ -285,7 +285,15 @@ s32 ChrView_StepLoadStage(ChrViewJob *job) {
 s32 ChrView_CancelLoad(void) {
     if (ChrView_IsLoading() == 1) {
 #ifdef PORT
-        if(sChrViewDynamic)File_CancelRequests(); /* release outstanding writes before freeing dynamic storage */
+        if(sChrViewDynamic){
+            /* The preview's buffer was requested with File_Request(NULL), so the queue owns it while it is pending,
+               and the slot holds the same pointer: cancelling freed it and ChrView_FreeSlot below freed it again
+               (Moto g56, leaving the modern select during a load). Only the slot frees it now. */
+            extern void File_DisownRequestBuf(void *buf);
+            s32 f;
+            if(gChrView->job.slot!=NULL)for(f=0;f<3;f++)File_DisownRequestBuf(gChrView->job.slot->file[f].buf);
+            File_CancelRequests(); /* release outstanding writes before freeing dynamic storage */
+        }
 #endif
         if (gChrView->job.slot != NULL) {
             if (gChrView->job.state >= 3) {
