@@ -869,6 +869,13 @@ void EftEmit_MarkCond(s32 objId, s32 extra, EftEmitSet *set, EftEmitState *state
                 EftEmitGroup *grp = &set->grp[type];
                 EftEmitGroupDef *gd = grp->def;
 
+#ifdef PORT
+                if (gd == NULL) { /* (see Port_EftNoGroup in eft_j.c) */
+                    extern void Port_EftNoGroup(s32 g);
+                    Port_EftNoGroup(type);
+                    continue;
+                }
+#endif
                 for (i = 0; i < gd->count; i++) {
                     s32 n = grp->first + i;
                     EftEmitDef *def = &set->defs[n];
@@ -893,6 +900,13 @@ void EftEmit_MarkKind6(EftEmitSet *set, EftEmitState *state) {
             EftEmitGroup *grp = &set->grp[type];
             EftEmitGroupDef *gd = grp->def;
 
+#ifdef PORT
+            if (gd == NULL) { /* (see Port_EftNoGroup in eft_j.c) */
+                extern void Port_EftNoGroup(s32 g);
+                Port_EftNoGroup(type);
+                continue;
+            }
+#endif
             for (i = 0; i < gd->count; i++) {
                 s32 n = grp->first + i;
                 EftEmitDef *def = &set->defs[n];
@@ -924,6 +938,13 @@ void EftEmit_KillAll(EftEmitSet *set, EftEmitState *state) {
                 EftEmitGroup *grp = &set->grp[type];
                 EftEmitGroupDef *gd = grp->def;
 
+#ifdef PORT
+                if (gd == NULL) { /* (see Port_EftNoGroup in eft_j.c) */
+                    extern void Port_EftNoGroup(s32 g);
+                    Port_EftNoGroup(type);
+                    continue;
+                }
+#endif
                 for (i = 0; i < gd->count; i++) {
                     s32 n = grp->first + i;
 
@@ -1018,6 +1039,13 @@ s32 EftEmit_UpdateAlive(EftEmitSet *set, EftEmitState *state) {
                 EftEmitGroup *grp = &set->grp[type];
                 EftEmitGroupDef *gd = grp->def;
 
+#ifdef PORT
+                if (gd == NULL) { /* (see Port_EftNoGroup in eft_j.c) */
+                    extern void Port_EftNoGroup(s32 g);
+                    Port_EftNoGroup(type);
+                    continue;
+                }
+#endif
                 for (i = 0; i < gd->count; i++) {
                     s32 n = grp->first + i;
                     EftEmitDef *def = &set->defs[n];
@@ -1530,6 +1558,13 @@ void EftSweep_Emit(s32 objId, EftTask *task, EftEmitSet *set, s32 reset) {
         if (set->hdr->mask & (1 << type)) {
             EftEmitGroupDef *gd = set->grp[type].def;
 
+#ifdef PORT
+            if (gd == NULL) { /* (see Port_EftNoGroup in eft_j.c) */
+                extern void Port_EftNoGroup(s32 g);
+                Port_EftNoGroup(type);
+                continue;
+            }
+#endif
             for (i = 0; i < gd->count; i++) {
                 s32 flags;
 
@@ -1797,6 +1832,13 @@ void EftFollow_Emit(s32 objId, EftTask *task, EftEmitSet *set, s32 reset) {
         if (set->hdr->mask & (1 << type)) {
             EftEmitGroupDef *gd = set->grp[type].def;
 
+#ifdef PORT
+            if (gd == NULL) { /* (see Port_EftNoGroup in eft_j.c) */
+                extern void Port_EftNoGroup(s32 g);
+                Port_EftNoGroup(type);
+                continue;
+            }
+#endif
             for (i = 0; i < gd->count; i++) {
                 s32 flags;
 

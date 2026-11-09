@@ -299,6 +299,13 @@ void EftBlastObj_UpdateParts(s32 objId, EftOTask *task, EftOSet *set, s32 reset)
         if (*set->mask & (1 << g)) {
             EftOGroupDef *gd = set->grp[g].def;
 
+#ifdef PORT
+            if (gd == NULL) { /* (see Port_EftNoGroup in eft_j.c) */
+                extern void Port_EftNoGroup(s32 g);
+                Port_EftNoGroup(g);
+                continue;
+            }
+#endif
             for (p = 0; p < gd->count; p++) {
                 s32 idx = set->grp[g].first + p;
                 s32 skip = 1;
