@@ -882,6 +882,18 @@ class AppViewModel @JvmOverloads constructor(app: Application, val game: Game = 
     }
     fun setDynamicColor(on: Boolean) = ui.setDynamic(on)
 
+    /** The game's language, English or Spanish as on PC (-1: the system's): the mod's menus and features, the in-game
+     *  menu and, where Android allows it (13 and newer), the app. Applied when the game starts (GameActivity). */
+    fun langChoice(): Int = settings.get(EngineSettings.LANG_CHOICE, -1)
+
+    fun setLangChoice(choice: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            settings.set(EngineSettings.LANG_CHOICE, choice)
+            _settings.value = settings.snapshot()
+        }
+        setLanguage(when (choice) { 0 -> "en"; 1 -> "es"; else -> "" })
+    }
+
     // ---- launch
 
     fun play() {

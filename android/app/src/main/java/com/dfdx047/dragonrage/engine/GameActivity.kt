@@ -66,9 +66,14 @@ open class GameActivity : SDLActivity() {
         runCatching {
             val es = EngineSettings(paths.settings)
             Renderer.apply(es, paths)
-            // the in-game menu's language: the launcher's (0 English, 1 Portuguese, 2 Spanish)
-            val lang = when (resources.configuration.locales[0].language) { "pt" -> 1; "es" -> 2; else -> 0 }
+            // the game's language, English or Spanish as on PC: the player's choice in the app's Settings, else the
+            // system's. The mod's menus and features read mod_language (as on PC), the in-game menu dr_lang.
+            val choice = es.get(EngineSettings.LANG_CHOICE, -1)
+            val spanish = if (choice >= 0) choice == 1 else resources.configuration.locales[0].language == "es"
+            val lang = if (spanish) 2 else 0
             if (es.get(EngineSettings.LANG, -1) != lang) es.set(EngineSettings.LANG, lang)
+            val mod = if (spanish) 1 else 0
+            if (es.get(EngineSettings.MOD_LANGUAGE, -1) != mod) es.set(EngineSettings.MOD_LANGUAGE, mod)
             orientation = es.get(EngineSettings.ORIENTATION, 0)
             sustained = es.get(EngineSettings.SUSTAINED, 0) != 0
         }

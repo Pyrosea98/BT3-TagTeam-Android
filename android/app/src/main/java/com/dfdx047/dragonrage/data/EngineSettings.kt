@@ -85,6 +85,8 @@ class EngineSettings(private val file: File) {
         const val RENDERER = "dr_renderer"        // the player's choice: 0 automatic (OpenGL ES for Mali), 1 Vulkan, 2 OpenGL ES
         const val CLASH_SQUARE = "clash_square"   // clashes (beams, rushes): each press of Square counts as a direction; on by default
         const val LANG = "dr_lang"                // the in-game menu's language: 0 English, 1 Portuguese, 2 Spanish (written at start)
+        const val LANG_CHOICE = "dr_lang_choice"  // the player's language: -1 the system's, 0 English, 1 Spanish (the app's Settings)
+        const val MOD_LANGUAGE = "mod_language"   // the mod's menus and features (as on PC): 0 English, 1 Spanish (written at start)
         const val ORIENTATION = "dr_orient"       // the game's screen: 0 landscape, 1 portrait, 2 as the device is held
         const val FRAG_DEPTH = "frag_depth"       // precise depth (the fragment shader writes depth): 1 on, 0 off (faster)
         const val ASTC = "astc"                   // texture packs kept as ASTC copies (textures_astc) where the GPU reads ASTC

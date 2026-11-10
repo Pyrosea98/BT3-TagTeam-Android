@@ -296,16 +296,14 @@ fun SettingsScreen(vm: AppViewModel) {
                 selected = ui.theme.ordinal,
                 onSelect = { vm.setTheme(ThemeMode.entries[it]) },
             )
-            if (vm.canPickLanguage) {
-                Text(stringResource(R.string.language), style = MaterialTheme.typography.titleSmall)
-                var lang by remember { mutableStateOf(vm.language()) }
-                val langs = listOf("", "en", "pt", "es")
-                ChipRow(
-                    options = listOf(stringResource(R.string.lang_system) to 0, "English" to 1, "Português" to 2, "Español" to 3),
-                    selected = langs.indexOfFirst { it.isNotEmpty() && lang.startsWith(it) }.coerceAtLeast(0),
-                    onSelect = { lang = langs[it]; vm.setLanguage(langs[it]) },
-                )
-            }
+            // English or Spanish, as on PC: the game's own menus and features follow it (mod_language), not only the app
+            Text(stringResource(R.string.language), style = MaterialTheme.typography.titleSmall)
+            var lang by remember { mutableStateOf(vm.langChoice()) }
+            ChipRow(
+                options = listOf(stringResource(R.string.lang_system) to -1, "English" to 0, "Español" to 1),
+                selected = lang,
+                onSelect = { lang = it; vm.setLangChoice(it) },
+            )
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 ToggleRow(stringResource(R.string.material_you), stringResource(R.string.material_you_text), ui.dynamicColor) {
                     vm.setDynamicColor(it)
