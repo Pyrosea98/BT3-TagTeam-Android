@@ -1,5 +1,17 @@
 # Android release record
 
+## v0.5.alpha.2
+
+Version 0.5.alpha.2 (514), Android-only fixes over 0.5.alpha.1 (same game data: the PC v0.5.alpha.1 update).
+
+- Language: Settings offers System / English / Español on every Android version; at each start the choice (else the
+  system language) writes `mod_language` (the mod's menus and features, as on PC) and `dr_lang` (the in-game menu).
+- A fight ending during a technique's camera cut with an extra fighter: `DemoCam_Stop` after `BtlCam_Term` freed the
+  camera (btl_demo_cam.c).
+- A model without one of its attack's nodes: `BtlObjHit_BuildVolumes` skips it (bobj_a.c).
+- `bt3_dlc.log` / `bt3_fusion.log` only with `BT3_DIAG_LOGS` on Android: they reopened the file per line on shared
+  storage (60-90 s at 2-6 fps at the select, Lenovo TB321FU).
+
 ## v0.5.alpha.1
 
 Version 0.5.alpha.1 (511), the Android build of the PC 0.5.alpha.1 Nightly (Runtime tag v0.5.alpha.1, 0083b12d) merged
