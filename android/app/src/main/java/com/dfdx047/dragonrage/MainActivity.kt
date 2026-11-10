@@ -77,6 +77,7 @@ import com.dfdx047.dragonrage.ui.screens.DriversScreen
 import com.dfdx047.dragonrage.ui.screens.GpuOfferDialog
 import com.dfdx047.dragonrage.ui.screens.LastRunDialog
 import com.dfdx047.dragonrage.ui.screens.TexFailDialog
+import com.dfdx047.dragonrage.ui.screens.PlayAnywayDialog
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -92,9 +93,18 @@ import androidx.compose.ui.text.style.TextOverflow
 import com.dfdx047.dragonrage.ui.theme.DragonRageTheme
 
 class MainActivity : ComponentActivity() {
+    /** A Play shortcut opened the app to update the game data and then play (PlayShortcutActivity). */
+    private val playRequest = mutableStateOf(false)
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_PLAY, false)) playRequest.value = true
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        if (savedInstanceState == null && intent.getBooleanExtra(EXTRA_PLAY, false)) playRequest.value = true
         val prefs = UiPrefs.get(this)
         setContent {
             // The Tag Team / Power Scale build is BT3 only: no welcome screen (which game) and no BT4 (its engine has
@@ -105,9 +115,20 @@ class MainActivity : ComponentActivity() {
                 val vm = remember(game) {
                     ViewModelProvider(this@MainActivity, AppViewModel.factory(application, game))["game-${game.id}", AppViewModel::class.java]
                 }
+                val play by playRequest
+                LaunchedEffect(play) {
+                    if (play) {
+                        playRequest.value = false
+                        vm.play()
+                    }
+                }
                 DragonRageApp(vm)
             }
         }
+    }
+
+    companion object {
+        const val EXTRA_PLAY = "com.dfdx047.dragonrage.PLAY"
     }
 }
 
@@ -140,6 +161,7 @@ private fun DragonRageApp(vm: AppViewModel) {
     GpuOfferDialog(vm)
     LastRunDialog(vm)
     TexFailDialog(vm)
+    PlayAnywayDialog(vm)
 
     fun go(d: Dest) = nav.navigate(d.route) {
         popUpTo(nav.graph.findStartDestination().id) { saveState = true }

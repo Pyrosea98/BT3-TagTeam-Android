@@ -69,3 +69,30 @@ internal fun SavedLogNote(log: AppViewModel.SavedLog?) {
         Text(stringResource(R.string.log_auto_failed), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
+
+/** Play found older game data and its update failed (no network, a refused file): why, and "Play anyway" on the data
+ *  there is (Home keeps its update button for later). */
+@Composable
+fun PlayAnywayDialog(vm: AppViewModel) {
+    val w by vm.playAnyway.collectAsStateWithLifecycle()
+    val why = w ?: return
+    AlertDialog(
+        onDismissRequest = { vm.dismissPlayAnyway() },
+        icon = { Icon(Icons.Rounded.ErrorOutline, null, tint = MaterialTheme.colorScheme.error) },
+        title = { Text("The game data could not be updated") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(why, style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "The game needs the v${com.dfdx047.dragonrage.data.TagTeamV05Update.VERSION} game data for its newest fighters, " +
+                        "stages and modes. You can play now on the data you have (v${vm.tagTeamV05.dataVersion()}) and update later " +
+                        "from Home, or press Play again to retry.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = { Button(onClick = { vm.playAnywayNow() }) { Text("Play anyway") } },
+        dismissButton = { TextButton(onClick = { vm.dismissPlayAnyway() }) { Text(stringResource(R.string.close)) } },
+    )
+}

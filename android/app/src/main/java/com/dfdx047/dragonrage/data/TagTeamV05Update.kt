@@ -34,6 +34,12 @@ class TagTeamV05Update(private val paths: GamePaths) {
 
     fun zipReady(): Boolean = zip.isFile && zip.length() == ZIP_BYTES
 
+    /** The update files of earlier versions, once this version's data is in place (an apply deletes them too; this
+     *  catches data applied by a build that did not). */
+    fun dropOldZips() {
+        if (applied()) for (old in OLD_ZIPS) File(paths.root, old).takeIf { it.isFile }?.delete()
+    }
+
     suspend fun adoptZip(file: File, report: (Float) -> Unit) = withContext(Dispatchers.IO) {
         if (file.length() != ZIP_BYTES || sha256(file, report) != ZIP_SHA256) {
             file.delete()
