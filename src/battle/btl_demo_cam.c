@@ -426,6 +426,11 @@ void DemoCam_StartAutoOnce(void) {
 
 /* Asks for the animation to end at the next DemoCam_IsActive(). */
 void DemoCam_Stop(void) {
+#ifdef PORT
+    if (gDemoCam == NULL) { /* (freed by BtlCam_Term before the scene's last reset) */
+        return;
+    }
+#endif
     if (gDemoCam->anim != NULL) {
         gDemoCam->flags |= DEMO_CAM_STOP;
     }
@@ -433,6 +438,11 @@ void DemoCam_Stop(void) {
 
 /* Attaches the animation to an object. */
 void DemoCam_SetObj(void *obj) {
+#ifdef PORT
+    if (gDemoCam == NULL) { /* (freed by BtlCam_Term before the scene's last reset) */
+        return;
+    }
+#endif
     if (gDemoCam->anim != NULL) {
         gDemoCam->obj = obj;
         gDemoCam->chr = NULL;
@@ -441,6 +451,11 @@ void DemoCam_SetObj(void *obj) {
 
 /* Attaches the animation to a fighter. */
 void DemoCam_SetChr(void *chr) {
+#ifdef PORT
+    if (gDemoCam == NULL) { /* (freed by BtlCam_Term before the scene's last reset) */
+        return;
+    }
+#endif
     if (gDemoCam->anim != NULL) {
         gDemoCam->chr = chr;
         gDemoCam->obj = NULL;
