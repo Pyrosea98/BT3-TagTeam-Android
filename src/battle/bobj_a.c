@@ -1356,6 +1356,11 @@ void BtlObjHit_BuildVolumes(BobjObj *obj) {
     for (i = 0; i < BOBJ_ATK_NODE_MAX; i++) {
         if ((1 << i) & hit->nodeMask) {
             part = BtlObj_GetNodeByCode(obj, i);
+#ifdef PORT
+            if (part == NULL) { /* a model without this attack node (an added or replaced fighter's skeleton) */
+                continue;
+            }
+#endif
             if (hit->sphere == 1) {
                 offset.x = hit->x;
                 offset.y = hit->y;
