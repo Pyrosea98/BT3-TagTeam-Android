@@ -204,7 +204,7 @@ fun HomeScreen(vm: AppViewModel) {
                         val imported = remember(s) { vm.importedAs() }
                         Text(
                             if (imported != null) {
-                                "Tag Team + Real Power Scale ${if (vm.tagTeamV05.applied()) "v0.5.alpha" else "v0.4.1"} · ${if (imported.first == "2x") "2x maps" else "normal maps"} · " +
+                                "Tag Team + Real Power Scale v${vm.tagTeamV05.dataVersion()} · ${if (imported.first == "2x") "2x maps" else "normal maps"} · " +
                                     (if (imported.second == "original") "Power Scale BETA 8" else "R4 ${imported.second.removePrefix("r4-")} image") +
                                     " · ${s.files} files"
                             } else stringResource(if (s.modified) R.string.game_data_ok_mod else R.string.game_data_ok, s.files, formatBytes(s.bytes)),
@@ -224,11 +224,11 @@ fun HomeScreen(vm: AppViewModel) {
                     }
                     if (vm.importedAs() != null && vm.tagTeamV05.needed()) {
                         Text(
-                            "This game data is v0.4.1. The game is v0.5.alpha: Dragon History, Scenarios and achievements need its data " +
-                                "(114 MB download from the PC v0.5.alpha release; saves and settings are kept).",
+                            "This game data is v${vm.tagTeamV05.dataVersion()}. The game is v${com.dfdx047.dragonrage.data.TagTeamV05Update.VERSION}: its fighters, Dragon History, Scenarios and achievements need its data " +
+                                "(${com.dfdx047.dragonrage.data.TagTeamV05Update.ZIP_MB} MB download from the PC v${com.dfdx047.dragonrage.data.TagTeamV05Update.VERSION} release; saves and settings are kept).",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Button(onClick = vm::updateTagTeamData) { Text("Update game data to v0.5.alpha") }
+                        Button(onClick = vm::updateTagTeamData) { Text("Update game data to v${com.dfdx047.dragonrage.data.TagTeamV05Update.VERSION}") }
                     }
                     var again by remember { mutableStateOf(false) }
                     if (again) ImportChoices()

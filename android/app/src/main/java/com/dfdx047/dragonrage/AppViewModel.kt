@@ -77,7 +77,7 @@ class AppViewModel @JvmOverloads constructor(app: Application, val game: Game = 
     private val installer = GameDataInstaller(app, paths, resolver)
     /** The Tag Team / Power Scale import (the PC v0.4.1 recipe applied to the player's BETA 8 image). */
     val tagTeam = TagTeamImport(paths, resolver)
-    /** The PC v0.5.alpha game data over that import (the PC's own update package). */
+    /** The PC v0.5 game data over that import (the PC's own update package). */
     val tagTeamV05 = com.dfdx047.dragonrage.data.TagTeamV05Update(paths)
     /** Budokai Tenkaichi 4's set-up (its own: the image is checked and read in place); null for Budokai Tenkaichi 3. */
     private val bt4 = if (game == Game.BT4) Bt4Installer(app, paths, resolver) else null
@@ -467,24 +467,25 @@ class AppViewModel @JvmOverloads constructor(app: Application, val game: Game = 
         }
     }
 
-    /** The v0.5.alpha game data: the PC's update package (downloaded from its release once, kept beside the game
+    /** The v0.5 game data: the PC's update package (downloaded from its release once, kept beside the game
      *  data), applied over the v0.4.1 import. */
     private suspend fun v05Step(report: (InstallState.Working) -> Unit) {
         if (!tagTeamV05.needed()) return
         if (!tagTeamV05.zipReady()) {
             val tmp = java.io.File(paths.root, com.dfdx047.dragonrage.data.TagTeamV05Update.ZIP_NAME + ".part")
-            report(InstallState.Working("Downloading the v0.5.alpha game data", 0f, "114 MB from the PC v0.5.alpha release"))
+            report(InstallState.Working("Downloading the v${com.dfdx047.dragonrage.data.TagTeamV05Update.VERSION} game data", 0f,
+                "${com.dfdx047.dragonrage.data.TagTeamV05Update.ZIP_MB} MB from the PC v${com.dfdx047.dragonrage.data.TagTeamV05Update.VERSION} release"))
             Net.download(com.dfdx047.dragonrage.data.TagTeamV05Update.ZIP_URL, tmp) { got, total ->
-                report(InstallState.Working("Downloading the v0.5.alpha game data", if (total > 0) got.toFloat() / total else 0f, "${got shr 20} / ${maxOf(total, 0L) shr 20} MB"))
+                report(InstallState.Working("Downloading the v${com.dfdx047.dragonrage.data.TagTeamV05Update.VERSION} game data", if (total > 0) got.toFloat() / total else 0f, "${got shr 20} / ${maxOf(total, 0L) shr 20} MB"))
             }
-            report(InstallState.Working("Checking the v0.5.alpha game data", 0f, ""))
-            tagTeamV05.adoptZip(tmp) { f -> report(InstallState.Working("Checking the v0.5.alpha game data", f, "")) }
+            report(InstallState.Working("Checking the v${com.dfdx047.dragonrage.data.TagTeamV05Update.VERSION} game data", 0f, ""))
+            tagTeamV05.adoptZip(tmp) { f -> report(InstallState.Working("Checking the v${com.dfdx047.dragonrage.data.TagTeamV05Update.VERSION} game data", f, "")) }
         }
-        val n = tagTeamV05.apply { f, d -> report(InstallState.Working("Updating the game data to v0.5.alpha", f, d)) }
-        ActivityLog.info("iso", "v0.5.alpha game data: $n files updated")
+        val n = tagTeamV05.apply { f, d -> report(InstallState.Working("Updating the game data to v${com.dfdx047.dragonrage.data.TagTeamV05Update.VERSION}", f, d)) }
+        ActivityLog.info("iso", "v${com.dfdx047.dragonrage.data.TagTeamV05Update.VERSION} game data: $n files updated")
     }
 
-    /** The Home page's button: an existing v0.4.1 import brought to the v0.5.alpha game data. */
+    /** The Home page's button: an existing import brought to the current v0.5 game data. */
     fun updateTagTeamData() {
         if (installJob?.isActive == true) return
         installJob = viewModelScope.launch {
@@ -499,17 +500,17 @@ class AppViewModel @JvmOverloads constructor(app: Application, val game: Game = 
                 _install.value = installer.currentState()
                 say(str(R.string.msg_data_ready))
             } catch (e: CancellationException) {
-                ActivityLog.warn("iso", "v0.5.alpha update cancelled at: $step")
+                ActivityLog.warn("iso", "v${com.dfdx047.dragonrage.data.TagTeamV05Update.VERSION} update cancelled at: $step")
                 _install.value = before
                 throw e
             } catch (e: TagTeamImport.Stop) {
                 val why = e.message ?: str(R.string.msg_error)
-                ActivityLog.fail("iso", "v0.5.alpha update refused at \"$step\": $why")
+                ActivityLog.fail("iso", "v${com.dfdx047.dragonrage.data.TagTeamV05Update.VERSION} update refused at \"$step\": $why")
                 _install.value = InstallState.Failed(why)
                 withContext(Dispatchers.IO) { failed(R.string.fail_iso_title, why) }
             } catch (e: Exception) {
                 val why = str(R.string.msg_iso_read_error, e.message ?: e.javaClass.simpleName)
-                ActivityLog.fail("iso", "v0.5.alpha update failed at \"$step\"", e)
+                ActivityLog.fail("iso", "v${com.dfdx047.dragonrage.data.TagTeamV05Update.VERSION} update failed at \"$step\"", e)
                 _install.value = InstallState.Failed(why)
                 withContext(Dispatchers.IO) { failed(R.string.fail_iso_title, why) }
             }
