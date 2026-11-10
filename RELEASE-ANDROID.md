@@ -1,5 +1,19 @@
 # Android release record
 
+## v0.5.alpha.1
+
+Version 0.5.alpha.1 (511), the Android build of the PC 0.5.alpha.1 Nightly (Runtime tag v0.5.alpha.1, 0083b12d) merged
+with the Android fixes since 0.5.alpha. The app's game data update now takes the PC v0.5.alpha.1 Windows-Update.zip
+(243,185,421 bytes, SHA-256 55a6dc069b80415b3303793d296580b330c012f96c3e3345000652b0848f121e) over a v0.4.1 import
+or 0.5.alpha data.
+
+- Team Battle crashes after CPU transformations: effect sets whose groups have no data (eft_i/eft_j/eft_k/eft_o/eft_p),
+  extra fighters' shot slots after their effect task is rebuilt (eft_h).
+- Leaving the modern select while a preview loads: the buffer was freed twice (view_a_d.c, the PC's fix).
+- PowerVR (Moto g56 5G, BXM-8-256): its Vulkan driver refuses pipelines with alpha blending and a depth target, so the
+  launcher picks OpenGL ES by default there, with the persistent uniform ring. Confirmed by the owner's tester.
+- Log: the GPU's Vulkan features, and OpenGL ES per-frame timings.
+
 ## v0.5.alpha (pre-release)
 
 **Published APK:** `BT3-TagTeam-v0.5.alpha-Android.apk`, SHA-256 `eb034d16e294ba8cf7555c891303d667805b91bab747de9e26143caff800d8cd`, version 0.5.alpha (507), signed with the project's release key (certificate SHA-256 `d168d1bc90865404a97ef6022cfcd03d0516cb7ae7afeb34af851a2bfdc524fc`). Native engine `lib/arm64-v8a/libbt3.so` SHA-256 `a3cd424c97779148480bed98fc0215fbab10c2d5c8970d11c0e75a4c39d86668`.
