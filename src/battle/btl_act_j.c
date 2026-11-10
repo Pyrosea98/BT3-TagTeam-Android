@@ -38,9 +38,14 @@ extern int Port_ModelFileOk(int id); /* port/src/plat_fighters.c: entry 3 and en
 /* Diagnosis for the fusion input/eligibility (Juan's live tests). Appends one line per event to bt3_fusion.log
    in the game's working folder. */
 static void Port_FusionLog(const char *fmt, ...) {
-    FILE *fp = fopen("bt3_fusion.log", "a");
+    extern int Port_DiagLogs(void); /* port/src/plat_fighters.c */
+    FILE *fp;
     va_list ap;
 
+    if (!Port_DiagLogs()) {
+        return;
+    }
+    fp = fopen("bt3_fusion.log", "a");
     if (fp == NULL) {
         return;
     }

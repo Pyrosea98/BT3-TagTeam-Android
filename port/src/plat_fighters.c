@@ -41,6 +41,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+int Port_DiagLogs(void); /* (below: the diagnostic files only when asked for, on Android) */
 #include <string.h>
 #include "gs/menu_labels.h"
 #include "plat_beta8.h"
@@ -1200,7 +1201,10 @@ void Port_PatchSkillText(int chara, int costume, void *param, void *textSlot) {
         p[0xAD] = 0;
     }
     {
-        FILE *lg = fopen("bt3_fusion.log", "a");
+        FILE *lg = NULL;
+        if (Port_DiagLogs()) {
+            lg = fopen("bt3_fusion.log", "a");
+        }
         if (lg != NULL) {
             fprintf(lg, "form patch: chara=%d costume=%d targets=%d,%d,%d,%d default=%d\n",
                     chara, costume, p[0x98], p[0x99], p[0x9A], p[0x9B], p[0xAC]);
@@ -1744,12 +1748,26 @@ typedef struct {
     int id, formCount, form[7];
 } PortAuditCell;
 
+/* The diagnostic files of the roster and fusion checks (bt3_dlc.log, bt3_fusion.log): on Android only with
+   BT3_DIAG_LOGS set (their writes reopen the file on shared storage, slow: minutes of 2-6 fps at the select). */
+int Port_DiagLogs(void) {
+#ifdef __ANDROID__
+    static int on = -1;
+    if (on < 0) {
+        on = getenv("BT3_DIAG_LOGS") != NULL;
+    }
+    return on;
+#else
+    return 1;
+#endif
+}
+
 void Port_DlcAudit(void *cellsv, int count, int mode) {
     PortAuditCell *cells = (PortAuditCell *)cellsv;
     FILE *fp;
     int i, j;
 
-    if (cells == NULL) {
+    if (cells == NULL || !Port_DiagLogs()) {
         return;
     }
     fp = fopen("bt3_dlc.log", "a");
@@ -1776,6 +1794,10 @@ void Port_DlcLog(int base, int candidate, int isForm) {
     static int count;
     FILE *fp;
     int i;
+
+    if (!Port_DiagLogs()) {
+        return;
+    }
 
     for (i = 0; i < count; i++) {
         if (seen[i][0] == base && seen[i][1] == candidate) {
