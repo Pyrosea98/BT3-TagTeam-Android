@@ -600,8 +600,29 @@ def install():
     return True
 
 
+def check_android_menu():
+    """The PC settings window's mod categories (ui.cpp, its tab switch) must all be on the Android in-game menu
+    (ui_android.inc, kModPages): an option page added on PC and not on Android stops the build."""
+    import re
+    gs = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src", "gs")
+    ui = open(os.path.join(gs, "ui.cpp"), encoding="utf-8", errors="replace").read()
+    android = open(os.path.join(gs, "ui_android.inc"), encoding="utf-8", errors="replace").read()
+    m = re.search(r"switch\(sTab\)\{(.*?)\}", ui)
+    if m is None:
+        sys.exit("android menu check: the PC settings tab switch (switch(sTab){...}) is not in ui.cpp")
+    pc = set(re.findall(r"\b((?:mod_\w+_settings|experiments_tab))\(\)", m.group(1)))
+    table = android[android.index("kModPages[]"):]
+    table = table[:table.index("};")]
+    have = set(re.findall(r"\b(mod_\w+)\}", table)) | set(re.findall(r"\b(mod_\w+_settings|experiments_tab)\(\)", android))
+    missing = sorted(f for f in pc if f not in have and f != "mod_credits_settings")
+    if missing:
+        sys.exit("android menu check: PC settings pages missing from the Android menu (ui_android.inc kModPages): " + ", ".join(missing))
+    print("android menu check: the %d PC mod settings pages are on the Android menu" % len(pc))
+
+
 def main():
     args = sys.argv[1:] or ["compile", "link", "loader", "install"]
+    check_android_menu()
     ok = True
     if "compile" in args:
         ok = compile_all()

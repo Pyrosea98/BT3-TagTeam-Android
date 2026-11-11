@@ -626,24 +626,42 @@ static void dr_end(void) {
     ImGui::End();
 }
 
-// The Tag Team mod's own settings (ui.cpp: the same sections as the PC's mod shell).
-static void page_tagteam(void) {
-    ImGui::SeparatorText("Battle HUD");
-    mod_hud_settings();
-    ImGui::SeparatorText("Fusion");
-    mod_fusion_settings();
-    ImGui::SeparatorText("Controls");
-    mod_controls_settings();
-    ImGui::SeparatorText("Training");
-    mod_training_settings();
-    ImGui::SeparatorText("Struggles");
-    mod_struggle_settings();
-    ImGui::SeparatorText("Extra fighters");
-    experiments_tab();
-    mod_giant_settings();
+// The Tag Team mod's own settings: the PC settings window's mod categories (ui.cpp, its tab switch; names as in
+// mod_menu_ui.inc), in the PC's order, each its own page and drawn by the PC's own function, first in the side bar.
+// port/tools/android.py checks at every build that each mod function of the PC's tab switch is listed here.
+static void mod_system_android(void) {
+    bool es = Port_Setting("mod_language", 1) == 1;
+    ImGui::SeparatorText(es ? "Inicio" : "Startup");
+    struct { const char *key, *en, *es; } k[] = {
+        {"skip_logos", "Skip logos", "Saltar logotipos"},
+        {"skip_intro", "Skip intro video", "Saltar video de introducción"},
+        {"skip_copyright", "Skip copyright page", "Saltar página de copyright"},
+        {"show_credits_at_startup", "Show Tag Team thank-you card at startup", "Mostrar tarjeta de agradecimiento al iniciar"},
+    };
+    for (auto &e : k) {
+        bool on = Port_Setting(e.key, e.key[0] == 's' && e.key[1] == 'h' ? 1 : 0) != 0;
+        if (ImGui::Checkbox(es ? e.es : e.en, &on)) { Port_SettingSave(e.key, on ? 1 : 0); Port_SettingsWrite(); }
+    }
+    ImGui::TextWrapped("%s", es ? "El idioma del mod se elige en la app: Ajustes > Idioma." : "The mod's language is chosen in the app: Settings > Language.");
     ImGui::Separator();
     mod_credits_settings();
 }
+static void mod_battle_rules_settings(); // (ui.cpp, after this file)
+static void mod_native_game_settings();
+static void mod_extra_fighters_page(void) { experiments_tab(); mod_giant_settings(); }
+struct AndroidModPage { const char *en, *es; void (*draw)(void); };
+static const AndroidModPage kModPages[] = { // (PC: settings tabs 12, 13, 7, 8, 9, 10, 11, 4, then System's mod part)
+    {"Battle rules", "Reglas de combate", mod_battle_rules_settings},
+    {"Game options", "Opciones del juego", mod_native_game_settings},
+    {"Extra fighters", "Luchadores extra", mod_extra_fighters_page},
+    {"Battle HUD", "HUD de combate", mod_hud_settings},
+    {"Fusion", "Fusión", mod_fusion_settings},
+    {"CPU / Training", "CPU / Entrenamiento", mod_training_settings},
+    {"Struggles", "Choques", mod_struggle_settings},
+    {"Battle controls", "Controles de combate", mod_controls_settings},
+    {"System", "Sistema", mod_system_android},
+};
+static const int kModPageCount = (int)(sizeof(kModPages) / sizeof(kModPages[0]));
 static int sAndroidPage; // the page shown (the touch menu's "Controller buttons" opens this window on Controls)
 
 static void build_android(void) {
@@ -662,12 +680,17 @@ static void build_android(void) {
     if (pad_pressed(ImGuiKey_GamepadFaceRight)) { // Circle / B: back to the game
         if (askQuit) { askQuit = false; } else { open = false; }
     }
-    const char *pages[] = {
+    // the Tag Team pages first (kModPages, in the mod's language), then the app's own
+    const bool modEs = Port_Setting("mod_language", 1) == 1;
+    const char *pages[kModPageCount + 8];
+    for (int i = 0; i < kModPageCount; i++) { pages[i] = modEs ? kModPages[i].es : kModPages[i].en; }
+    const char *own[] = {
         T("Video", "Vídeo", "Video"), T("Performance", "Desempenho", "Rendimiento"), T("Effects", "Efeitos", "Efectos"),
         T("Audio", "Áudio", "Audio"), T("Interface", "Interface", "Interfaz"), T("Controls", "Controles", "Controles"),
-        T("Online", "Online", "Online"), T("Cheats", "Trapaças", "Trucos"), "Tag Team",
+        T("Online", "Online", "Online"), T("Cheats", "Trapaças", "Trucos"),
     };
-    const int npages = 9;
+    for (int i = 0; i < 8; i++) { pages[kModPageCount + i] = own[i]; }
+    const int npages = kModPageCount + 8;
     if (pad_pressed(ImGuiKey_GamepadL1)) { page = (page + npages - 1) % npages; }
     if (pad_pressed(ImGuiKey_GamepadR1)) { page = (page + 1) % npages; }
 
@@ -717,7 +740,16 @@ static void build_android(void) {
     ImGui::BeginChild("side", ImVec2(side, -foot), ImGuiChildFlags_NavFlattened);
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, fs() * 0.6f);
     ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.08f, 0.5f));
+    ImGui::PushStyleColor(ImGuiCol_Text, kGold);
+    ImGui::TextUnformatted("TAG TEAM");
+    ImGui::PopStyleColor();
     for (int i = 0; i < npages; i++) {
+        if (i == kModPageCount) {
+            ImGui::Spacing();
+            ImGui::PushStyleColor(ImGuiCol_Text, kDim);
+            ImGui::TextUnformatted("DRAGON RAGE");
+            ImGui::PopStyleColor();
+        }
         bool on = i == page;
         ImGui::PushStyleColor(ImGuiCol_Button, on ? ImVec4(0.98f, 0.55f, 0.13f, 0.95f) : ImVec4(0.11f, 0.12f, 0.19f, 0.9f));
         ImGui::PushStyleColor(ImGuiCol_Text, on ? ImVec4(0.12f, 0.07f, 0.02f, 1.0f) : ImVec4(0.92f, 0.93f, 0.97f, 1.0f));
@@ -730,16 +762,20 @@ static void build_android(void) {
     ImGui::EndChild();
     ImGui::SameLine(0.0f, fs() * 1.0f);
     ImGui::BeginChild("page", ImVec2(0.0f, -foot), ImGuiChildFlags_NavFlattened);
-    switch (page) {
-    case 0: page_video(v); break;
-    case 1: page_performance(v); break;
-    case 2: page_effects(v); break;
-    case 3: page_audio(v); break;
-    case 4: page_interface(v); break;
-    case 5: page_controls(); break;
-    case 6: page_online(); break;
-    case 7: page_cheats(); break;
-    default: page_tagteam(); break;
+    if (page < kModPageCount) {
+        ImGui::SeparatorText(modEs ? kModPages[page].es : kModPages[page].en);
+        kModPages[page].draw();
+    } else {
+        switch (page - kModPageCount) {
+        case 0: page_video(v); break;
+        case 1: page_performance(v); break;
+        case 2: page_effects(v); break;
+        case 3: page_audio(v); break;
+        case 4: page_interface(v); break;
+        case 5: page_controls(); break;
+        case 6: page_online(); break;
+        default: page_cheats(); break;
+        }
     }
     ImGui::EndChild();
     ImGui::PushStyleColor(ImGuiCol_Text, kDim);
@@ -951,7 +987,7 @@ static void nm_frame(void) {
     }
     if (action == 3) { // the controller's buttons: this window, on its Controls page
         sNativeOpen = 0;
-        sAndroidPage = 5;
+        sAndroidPage = kModPageCount + 5; // (the app's Controls page)
         set_open(true);
     } else if (action == 2) {
         quit_to_app();
