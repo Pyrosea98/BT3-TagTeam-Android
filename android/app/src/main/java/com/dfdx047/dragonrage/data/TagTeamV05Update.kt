@@ -13,9 +13,9 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /**
- * The game data of the PC v0.5 releases (now 0.5.alpha.1: Dragon History, Scenarios, achievements, the new interface pictures and the
+ * The game data of the PC v0.5 releases (now 0.5.alpha.2: Dragon History, Scenarios, achievements, the new interface pictures and the
  * BETA 8 data fixes), applied over a v0.4.1 import the way the PC's own updater does it (update.py in
- * BT3-TagTeam-v0.5.alpha.1-Windows-Update.zip; it updates a v0.4.1 import or one already at 0.5.alpha): every file has the SHA-256 it must have before and after, and a blob
+ * BT3-TagTeam-v0.5.alpha.2-Windows-Update.zip; it updates a v0.4.1 import or one at 0.5.alpha or 0.5.alpha.1): every file has the SHA-256 it must have before and after, and a blob
  * (zlib) that is either the whole new file or XORed with the old one. Only the data root (gamedata/...) and the
  * stage files are taken; the PC's programs are not. Every file is rebuilt and checked before any is replaced, so a
  * failure leaves the v0.4.1 data as it was.
@@ -156,13 +156,13 @@ class TagTeamV05Update(private val paths: GamePaths) {
     private fun hex(b: ByteArray) = String.format("%064x", BigInteger(1, b))
 
     companion object {
-        const val VERSION = "0.5.alpha.1"
+        const val VERSION = "0.5.alpha.2"
         const val RECEIPT_NAME = "v05-update-receipt.json"
-        const val ZIP_NAME = "BT3-TagTeam-v0.5.alpha.1-Windows-Update.zip"
-        const val ZIP_URL = "https://github.com/Pyrosea98/BT3-TagTeam-Native/releases/download/v0.5.alpha.1/$ZIP_NAME"
-        const val ZIP_SHA256 = "55a6dc069b80415b3303793d296580b330c012f96c3e3345000652b0848f121e"
-        const val ZIP_BYTES = 243_185_421L
-        const val ZIP_MB = 232
-        private val OLD_ZIPS = listOf("BT3-TagTeam-v0.5.alpha-Windows-Update.zip")
+        const val ZIP_NAME = "BT3-TagTeam-v0.5.alpha.2-Windows-Update.zip"
+        const val ZIP_URL = "https://github.com/Pyrosea98/BT3-TagTeam-Native/releases/download/v0.5.alpha.2/$ZIP_NAME"
+        const val ZIP_SHA256 = "99788460380709e33aff7d6c251a444653d8e75d6ef5ee421934ae0345077408"
+        const val ZIP_BYTES = 250_647_515L
+        const val ZIP_MB = 239
+        private val OLD_ZIPS = listOf("BT3-TagTeam-v0.5.alpha-Windows-Update.zip", "BT3-TagTeam-v0.5.alpha.1-Windows-Update.zip")
     }
 }
