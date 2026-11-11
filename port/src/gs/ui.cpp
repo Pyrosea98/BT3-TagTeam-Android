@@ -2351,8 +2351,10 @@ static void mod_controls_settings(){
                                       "Outside struggles the original buttons keep their normal actions.\n"
                                       "Online play keeps the game's own controls."));
                 {bool es=Port_Setting("mod_language",1)==1;const ModPadHint h[]={{MP_SQUARE,es?"Choque de energía":"Beam clash"},{MP_TRIANGLE,es?"Choque de golpes":"Rush clash"}};mod_pad_hint_items(h,2);}
+#ifndef __ANDROID__ // (Android: the bindings are the app's own Controls page; this page keeps the clash buttons)
                 ImGui::Separator();
                 controls_tab();
+#endif
 
 }
 static void mod_giant_settings(){
