@@ -156,7 +156,7 @@ private fun DragonRageApp(vm: AppViewModel) {
 
     LaunchedEffect(Unit) { vm.messages.collect { snackbar.showSnackbar(it) } }
     // files may have been changed from outside (file manager, adb) while the app was in the background
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshAll(); vm.resumeUpdate(); vm.checkLastRun() }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshAll(); vm.resumeUpdate(); vm.checkLastRun(); vm.autoUpdateData() }
     UpdateDialog(vm)
     GpuOfferDialog(vm)
     LastRunDialog(vm)

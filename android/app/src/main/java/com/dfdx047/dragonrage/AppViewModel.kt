@@ -490,6 +490,23 @@ class AppViewModel @JvmOverloads constructor(app: Application, val game: Game = 
     /** The Home page's button: an existing import brought to the current v0.5 game data. */
     fun updateTagTeamData() = runDataUpdate(null)
 
+    /** The data update is running (not an import): a Play pressed meanwhile starts the game when it is done. */
+    @Volatile private var dataUpdating = false
+    @Volatile private var playAfterUpdate = false
+    /** The automatic update was tried in this run of the app (once: a failed download is not retried in a loop; Play
+     *  and Home's button still can). */
+    private var autoTried = false
+
+    /** The app opened on game data older than the app's (an app update over older data): the data update starts by
+     *  itself, with its progress on Home, so nobody plays new code on old data for not seeing the button. */
+    fun autoUpdateData() {
+        if (autoTried || game != Game.BT3 || installJob?.isActive == true || _install.value !is InstallState.Installed ||
+            !engineAvailable || !tagTeamV05.needed()) return
+        autoTried = true
+        ActivityLog.info("iso", "the game data is v${tagTeamV05.dataVersion()}: updating it to v${com.dfdx047.dragonrage.data.TagTeamV05Update.VERSION} by itself")
+        runDataUpdate(null, auto = true)
+    }
+
     /** "The game data could not be updated" before a Play: why, with "Play anyway" (null: no such question). */
     private val _playAnyway = MutableStateFlow<String?>(null)
     val playAnyway: StateFlow<String?> = _playAnyway.asStateFlow()
@@ -504,8 +521,10 @@ class AppViewModel @JvmOverloads constructor(app: Application, val game: Game = 
 
     /** The data update (Home's button, or Play when the data is older than the app: `then` starts the game after it).
      *  From Play, a failure asks "Play anyway" instead of the error dialog, so nobody is locked out by a download. */
-    private fun runDataUpdate(then: (() -> Unit)?) {
+    private fun runDataUpdate(then: (() -> Unit)?, auto: Boolean = false) {
         if (installJob?.isActive == true) return
+        dataUpdating = true
+        playAfterUpdate = false
         installJob = viewModelScope.launch {
             val before = installer.currentState()
             var step = ""
@@ -516,17 +535,30 @@ class AppViewModel @JvmOverloads constructor(app: Application, val game: Game = 
             try {
                 v05Step(report)
                 _install.value = installer.currentState()
-                if (then != null) then() else say(str(R.string.msg_data_ready))
+                dataUpdating = false
+                when {
+                    then != null -> then()
+                    playAfterUpdate -> { playAfterUpdate = false; launchGame() }
+                    else -> say(str(R.string.msg_data_ready))
+                }
             } catch (e: CancellationException) {
+                dataUpdating = false
                 ActivityLog.warn("iso", "v${com.dfdx047.dragonrage.data.TagTeamV05Update.VERSION} update cancelled at: $step")
                 _install.value = before
                 throw e
             } catch (e: TagTeamImport.Stop) {
                 val why = e.message ?: str(R.string.msg_error)
                 ActivityLog.fail("iso", "v${com.dfdx047.dragonrage.data.TagTeamV05Update.VERSION} update refused at \"$step\": $why")
-                if (then != null) {
+                dataUpdating = false
+                if (then != null || playAfterUpdate) {
+                    // from Play: why, with "Play anyway" (nobody locked out by a download)
+                    playAfterUpdate = false
                     _install.value = before
                     _playAnyway.value = why
+                } else if (auto) {
+                    // by itself: no error dialog over Home; Play (which tries again, or plays anyway) and the button stay
+                    _install.value = before
+                    say("The game data could not be updated to v${com.dfdx047.dragonrage.data.TagTeamV05Update.VERSION}: $why")
                 } else {
                     _install.value = InstallState.Failed(why)
                     withContext(Dispatchers.IO) { failed(R.string.fail_iso_title, why) }
@@ -534,9 +566,16 @@ class AppViewModel @JvmOverloads constructor(app: Application, val game: Game = 
             } catch (e: Exception) {
                 val why = str(R.string.msg_iso_read_error, e.message ?: e.javaClass.simpleName)
                 ActivityLog.fail("iso", "v${com.dfdx047.dragonrage.data.TagTeamV05Update.VERSION} update failed at \"$step\"", e)
-                if (then != null) {
+                dataUpdating = false
+                if (then != null || playAfterUpdate) {
+                    // from Play: why, with "Play anyway" (nobody locked out by a download)
+                    playAfterUpdate = false
                     _install.value = before
                     _playAnyway.value = why
+                } else if (auto) {
+                    // by itself: no error dialog over Home; Play (which tries again, or plays anyway) and the button stay
+                    _install.value = before
+                    say("The game data could not be updated to v${com.dfdx047.dragonrage.data.TagTeamV05Update.VERSION}: $why")
                 } else {
                     _install.value = InstallState.Failed(why)
                     withContext(Dispatchers.IO) { failed(R.string.fail_iso_title, why) }
@@ -925,12 +964,15 @@ class AppViewModel @JvmOverloads constructor(app: Application, val game: Game = 
     // ---- launch
 
     fun play() {
-        if (installJob?.isActive == true) return // an import or the data update is running: its progress is on screen
+        if (installJob?.isActive == true) { // an import or the data update is running: its progress is on screen
+            if (dataUpdating) playAfterUpdate = true // (the game starts when the data is ready)
+            return
+        }
         // The app is newer than the game data (an app update over older data): bring the data up first, then play, so
         // nobody plays new code on old data (fighters without chips, missing stages) for not seeing Home's button.
         if (game == Game.BT3 && _install.value is InstallState.Installed && engineAvailable && tagTeamV05.needed()) {
             ActivityLog.info("game", "Play: the game data is v${tagTeamV05.dataVersion()}, updating it to v${com.dfdx047.dragonrage.data.TagTeamV05Update.VERSION} first")
-            runDataUpdate { launchGame() }
+            runDataUpdate(then = { launchGame() })
             return
         }
         launchGame()
