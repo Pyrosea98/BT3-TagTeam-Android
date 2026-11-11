@@ -1,5 +1,13 @@
 # Android release record
 
+## v0.5.alpha.3-hotfix1
+
+Version 0.5.alpha.3-hotfix1 (518): the in-game menu (ui_android.inc) starts with the Tag Team settings, one page per PC
+settings category in the PC order (Battle rules with the power-scale presets, Game options, Extra fighters, Battle HUD,
+Fusion, CPU / Training, Struggles, Battle controls, System), each drawn by the PC function; the app's pages follow.
+port/tools/android.py stops the build when a mod page of the PC settings tab switch is missing from the Android menu.
+Same game data as 0.5.alpha.3.
+
 ## v0.5.alpha.3
 
 Version 0.5.alpha.3 (516), the Android build of the PC 0.5.alpha.3 Nightly (revision moderate-cold-fusion-20261111), which
