@@ -1,5 +1,16 @@
 # Android release record
 
+## v0.5.alpha.2.1
+
+Version 0.5.alpha.2.1 (515), the Android build of the PC 0.5.alpha.2 Nightly (revision battle-presets-roster-20261111:
+power-scale presets, roster and Great Ape fixes, Spanish power units, credits) with the Android changes of 0.5.alpha.2.
+The game data update takes the PC v0.5.alpha.2 Windows-Update.zip (250,647,515 bytes, SHA-256
+99788460380709e33aff7d6c251a444653d8e75d6ef5ee421934ae0345077408) over a v0.4.1 import or 0.5.alpha / 0.5.alpha.1 data.
+
+- The data update runs by itself: when the app opens on older game data (once per run of the app; a failure shows why
+  and is not retried in a loop), and before Play / the Play shortcut (a failure offers "Play anyway"). Home's button
+  stays. The earlier update files are deleted once the data is current.
+
 ## v0.5.alpha.2
 
 Version 0.5.alpha.2 (514), Android-only fixes over 0.5.alpha.1 (same game data: the PC v0.5.alpha.1 update).
