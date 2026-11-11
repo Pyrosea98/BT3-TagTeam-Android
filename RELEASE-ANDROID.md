@@ -1,15 +1,18 @@
 # Android release record
 
-## v0.5.alpha.2.1
+## v0.5.alpha.3
 
-Version 0.5.alpha.2.1 (515), the Android build of the PC 0.5.alpha.2 Nightly (revision battle-presets-roster-20261111:
-power-scale presets, roster and Great Ape fixes, Spanish power units, credits) with the Android changes of 0.5.alpha.2.
-The game data update takes the PC v0.5.alpha.2 Windows-Update.zip (250,647,515 bytes, SHA-256
-99788460380709e33aff7d6c251a444653d8e75d6ef5ee421934ae0345077408) over a v0.4.1 import or 0.5.alpha / 0.5.alpha.1 data.
+Version 0.5.alpha.3 (516), the Android build of the PC 0.5.alpha.3 Nightly (revision moderate-cold-fusion-20261111), which
+includes the PC 0.5.alpha.2 changes (battle-presets-roster-20261111: power-scale presets, roster and Great Ape fixes,
+Spanish power units, credits), with the Android changes of 0.5.alpha.2. Named as the PC release (0.5.alpha.2.1, the
+build of PC 0.5.alpha.2, was never published). The game data update takes the PC v0.5.alpha.3 Windows-Update.zip
+(255,254,338 bytes, SHA-256 3dd15656d27ad165dd6f4280a0c4fbe407398c7d5ca0857a4dad07a1b448518c) over a v0.4.1 import or
+0.5.alpha / 0.5.alpha.1 / 0.5.alpha.2 data.
 
 - The data update runs by itself: when the app opens on older game data (once per run of the app; a failure shows why
-  and is not retried in a loop), and before Play / the Play shortcut (a failure offers "Play anyway"). Home's button
+  and is not retried in a loop), and before Play / the Play shortcut (a failure offers "Play anyway"). The Home button
   stays. The earlier update files are deleted once the data is current.
+- DemoCam_Stop: the PC guard (the same as the Android 0.5.alpha.2 one) kept.
 
 ## v0.5.alpha.2
 
